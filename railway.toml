@@ -1,0 +1,12 @@
+[build]
+  builder = "docker"
+
+[deploy]
+  numReplicas = 1
+  restartPolicyType = "ON_FAILURE"
+  restartPolicyMaxRetries = 3
+
+[service]
+  name = "novel-character-sim"
+  healthcheckPath = "/"
+  healthcheckTimeout = 120

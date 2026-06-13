@@ -1,0 +1,91 @@
+import { NextRequest, NextResponse } from "next/server";
+import { parseNovel } from "@/core/parser/novel-parser";
+import iconv from "iconv-lite";
+import AdmZip from "adm-zip";
+
+function decodeChineseText(buffer: Buffer): string {
+  const utf8 = buffer.toString("utf8");
+  const utf8Periods = (utf8.match(/。/g) || []).length;
+  const utf8Commas = (utf8.match(/，/g) || []).length;
+  const utf8CJK = (utf8.match(/[一-鿿]/g) || []).length;
+  const sampleLen = Math.min(utf8.length, 5000);
+
+  if (utf8Periods > 3 || (utf8Commas > 5 && utf8CJK > sampleLen * 0.3)) {
+    return utf8;
+  }
+
+  const gbk = iconv.decode(buffer, "gbk");
+  const gbkPeriods = (gbk.match(/。/g) || []).length;
+  const gbkCommas = (gbk.match(/，/g) || []).length;
+
+  if (gbkPeriods + gbkCommas > utf8Periods + utf8Commas) {
+    console.log(`[NovelParse] GBK chosen (。${gbkPeriods} ，${gbkCommas})`);
+    return gbk;
+  }
+
+  return utf8;
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const formData = await request.formData();
+    const file = formData.get("file") as File | null;
+
+    if (!file) {
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    }
+
+    const fileName = file.name.toLowerCase();
+    let novelText: string;
+    let title = file.name.replace(/\.(txt|zip)$/i, "");
+
+    if (fileName.endsWith(".zip")) {
+      // Extract zip and merge all text files
+      const arrayBuffer = await file.arrayBuffer();
+      const zip = new AdmZip(Buffer.from(arrayBuffer));
+      const entries = zip.getEntries();
+
+      const parts: string[] = [];
+      for (const entry of entries) {
+        if (entry.isDirectory) continue;
+        const name = entry.entryName.toLowerCase();
+        if (name.match(/\.(txt|md)$/i) && !name.startsWith("__macosx")) {
+          const buffer = entry.getData();
+          const text = decodeChineseText(buffer);
+          if (text.trim()) {
+            parts.push(`// File: ${entry.entryName}\n\n${text}`);
+          }
+        }
+      }
+
+      if (parts.length === 0) {
+        return NextResponse.json({ error: "No .txt/.md files found in zip" }, { status: 400 });
+      }
+
+      novelText = parts.join("\n\n---\n\n");
+      console.log(`[NovelParse] Zip extracted: ${parts.length} text files`);
+    } else {
+      // Single text file
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      novelText = decodeChineseText(buffer);
+    }
+
+    if (!novelText.trim()) {
+      return NextResponse.json({ error: "The novel text is empty" }, { status: 400 });
+    }
+
+    const parsed = parseNovel(novelText);
+
+    return NextResponse.json({
+      title,
+      fullText: novelText,
+      totalLength: parsed.totalLength,
+      chunkCount: parsed.chunks.length,
+      preview: parsed.chunks[0]?.content.substring(0, 500) || "",
+    });
+  } catch (error) {
+    console.error("Novel parse error:", error);
+    return NextResponse.json({ error: "Failed to parse novel" }, { status: 500 });
+  }
+}
