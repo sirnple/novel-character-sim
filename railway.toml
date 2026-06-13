@@ -1,6 +1,3 @@
-[build]
-  builder = "docker"
-
 [deploy]
   numReplicas = 1
   restartPolicyType = "ON_FAILURE"
