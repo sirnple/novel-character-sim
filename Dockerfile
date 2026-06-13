@@ -22,10 +22,11 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
+# Create public dir if not exists (Next.js standalone needs it)
+RUN mkdir -p /app/public
 # Data directory for SQLite
 RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
 
