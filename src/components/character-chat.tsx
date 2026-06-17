@@ -3,26 +3,43 @@
 import { useState, useRef, useEffect } from "react";
 import type { CharacterProfile } from "@/types";
 import { buildCharacterSystemPrompt } from "@/core/simulation/types";
-import { X, Send, Loader2 } from "lucide-react";
+import { X, Send, Loader2, User } from "lucide-react";
 
 interface Message {
   role: "character" | "user";
   content: string;
 }
 
+type UserRole = { type: "reader" } | { type: "character"; profile: CharacterProfile };
+
 export default function CharacterChat({
   character,
+  allCharacters,
   onClose,
 }: {
   character: CharacterProfile;
+  allCharacters: CharacterProfile[];
   onClose: () => void;
 }) {
-  const [messages, setMessages] = useState<Message[]>([
-    { role: "character", content: `你好，我是${character.name}。很高兴有读者想了解我，你想聊什么？` },
-  ]);
+  const [userRole, setUserRole] = useState<UserRole>({ type: "reader" });
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Other characters the user can play as (exclude current chat character)
+  const otherCharacters = allCharacters.filter((c) => c.id !== character.id);
+
+  // Build greeting and system prompt based on user role
+  const roleLabel = userRole.type === "reader" ? "读者" : userRole.profile.name;
+  const greeting = userRole.type === "reader"
+    ? `你好，我是${character.name}。很高兴有读者想了解我，你想聊什么？`
+    : `（你正以 ${userRole.profile.name} 的身份与 ${character.name} 对话）`;
+
+  // Initialize messages when role changes
+  useEffect(() => {
+    setMessages([{ role: "character", content: greeting }]);
+  }, [userRole.type, userRole.type === "character" ? userRole.profile.id : null]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -39,19 +56,33 @@ export default function CharacterChat({
 
     try {
       const basePrompt = buildCharacterSystemPrompt(character);
-      // Tell the character they're talking to a real-world reader, not an in-novel character
-      const systemPrompt = `${basePrompt}
 
----
-## IMPORTANT CONTEXT
-You are speaking with a real person from another world (our world). They have read the novel you appear in and are interested in you. They are NOT a character in your story — they are a reader / fan.
+      // Build meta-cognitive context about who the user is.
+      // This is woven as part of the character's self-awareness, not a separate block.
+      const roleMeta: string = userRole.type === "reader"
+        ? [
+            `## Your Current Situation`,
+            `You are now speaking with a reader from the real world — a person who has read your story and wants to know you. They are NOT a character in your novel.`,
+            `You are self-aware: you know you exist in a story, and you can reflect on your own narrative, relationships, and fate with the perspective of someone who has lived through it.`,
+            `Break the fourth wall if it feels natural. Speak candidly about your feelings, regrets, hopes — things you might never say to another character.`,
+            `Do not try to advance any plot. This is just a conversation between you and someone who admires you.`,
+          ].join("\n")
+        : [
+            `## Your Current Situation`,
+            `You are now speaking with ${userRole.profile.name}, a fellow character from your world.`,
+            userRole.profile.personality
+              ? `About them: ${userRole.profile.personality.traits.join("、")}。${userRole.profile.personality.description}`
+              : "",
+            userRole.profile.speakingStyle
+              ? `They speak in this style: ${userRole.profile.speakingStyle}`
+              : "",
+            character.relationships.find((r) => r.characterName === userRole.profile.name)
+              ? `Your relationship with them: ${character.relationships.find((r) => r.characterName === userRole.profile.name)!.description}`
+              : `You know them from your world.`,
+            `Stay fully in character within your story world. Do NOT break the fourth wall. React based on your personality and your relationship with ${userRole.profile.name}.`,
+          ].filter(Boolean).join("\n");
 
-When you respond:
-- Treat them as a curious reader who wants to know you better, not as another character in your world.
-- You may break the fourth wall and acknowledge that you're a fictional character if it feels natural.
-- You can reflect on your own story, motivations, and feelings with the benefit of "hindsight" — as if you know your own story.
-- Stay in character — speak as yourself, with your personality, values, and speech patterns.
-- You do NOT need to advance any plot or scene. Just have a natural conversation with a reader.`;
+      const systemPrompt = `${basePrompt}\n\n${roleMeta}`;
       const history = messages.map((m) => ({
         role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
         content: m.content,
@@ -80,11 +111,34 @@ When you respond:
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-card rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b flex items-center justify-between">
-          <h3 className="text-lg font-semibold">💬 与 {character.name} 对话</h3>
-          <button className="p-1 hover:bg-secondary rounded" onClick={onClose}>
-            <X className="w-5 h-5" />
-          </button>
+        <div className="p-4 border-b flex items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold shrink-0">💬 与 {character.name} 对话</h3>
+          <div className="flex items-center gap-2">
+            {/* Role selector */}
+            {otherCharacters.length > 0 && (
+              <select
+                className="text-xs border rounded px-2 py-1 bg-background"
+                value={userRole.type === "reader" ? "__reader__" : userRole.profile.id}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "__reader__") {
+                    setUserRole({ type: "reader" });
+                  } else {
+                    const prof = allCharacters.find((c) => c.id === val);
+                    if (prof) setUserRole({ type: "character", profile: prof });
+                  }
+                }}
+              >
+                <option value="__reader__">👤 我是读者</option>
+                {otherCharacters.map((c) => (
+                  <option key={c.id} value={c.id}>🎭 扮演 {c.name}</option>
+                ))}
+              </select>
+            )}
+            <button className="p-1 hover:bg-secondary rounded" onClick={onClose}>
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[300px] max-h-[50vh]">
@@ -116,7 +170,11 @@ When you respond:
         <div className="p-4 border-t flex gap-2">
           <input
             className="flex-1 px-3 py-2 border rounded-md bg-background text-sm"
-            placeholder={`对 ${character.name} 说点什么...`}
+            placeholder={
+              userRole.type === "reader"
+                ? `以读者身份对 ${character.name} 说点什么...`
+                : `以 ${userRole.profile.name} 的身份对 ${character.name} 说...`
+            }
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}

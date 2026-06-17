@@ -165,6 +165,7 @@ ${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.descri
       {chattingId && (
         <CharacterChat
           character={characters.find((c) => c.id === chattingId)!}
+          allCharacters={characters}
           onClose={() => setChattingId(null)}
         />
       )}
