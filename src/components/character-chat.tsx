@@ -15,14 +15,17 @@ type UserRole = { type: "reader" } | { type: "character"; profile: CharacterProf
 export default function CharacterChat({
   character,
   allCharacters,
+  savedMessages,
+  onMessagesChange,
   onClose,
 }: {
   character: CharacterProfile;
   allCharacters: CharacterProfile[];
+  savedMessages: Message[] | null;
+  onMessagesChange: (msgs: Message[]) => void;
   onClose: () => void;
 }) {
   const [userRole, setUserRole] = useState<UserRole>({ type: "reader" });
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -30,16 +33,32 @@ export default function CharacterChat({
   // Other characters the user can play as (exclude current chat character)
   const otherCharacters = allCharacters.filter((c) => c.id !== character.id);
 
-  // Build greeting and system prompt based on user role
-  const roleLabel = userRole.type === "reader" ? "读者" : userRole.profile.name;
+  // Build greeting based on user role
   const greeting = userRole.type === "reader"
     ? `你好，我是${character.name}。很高兴有读者想了解我，你想聊什么？`
     : `（你正以 ${userRole.profile.name} 的身份与 ${character.name} 对话）`;
 
-  // Initialize messages when role changes
+  // Use saved messages or initialize with greeting
+  const [messages, setMessages] = useState<Message[]>(
+    savedMessages && savedMessages.length > 0
+      ? savedMessages
+      : [{ role: "character", content: greeting }]
+  );
+
+  // Persist to parent whenever messages change
   useEffect(() => {
-    setMessages([{ role: "character", content: greeting }]);
-  }, [userRole.type, userRole.type === "character" ? userRole.profile.id : null]);
+    onMessagesChange(messages);
+  }, [messages]);
+
+  // Reset messages when role changes (clear old conversation from other role)
+  const roleKey = userRole.type === "reader" ? "__reader__" : userRole.profile.id;
+  const prevRoleKey = useRef(roleKey);
+  useEffect(() => {
+    if (prevRoleKey.current !== roleKey) {
+      prevRoleKey.current = roleKey;
+      setMessages([{ role: "character", content: greeting }]);
+    }
+  }, [roleKey]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

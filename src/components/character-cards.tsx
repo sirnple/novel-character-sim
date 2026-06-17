@@ -29,6 +29,11 @@ export default function CharacterCards({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [chattingId, setChattingId] = useState<string | null>(null);
 
+  // Persist chat histories across dialog open/close
+  const [chatHistories, setChatHistories] = useState<
+    Record<string, { role: "character" | "user"; content: string }[]>
+  >({});
+
   const handleDelete = (id: string) => {
     onUpdate(characters.filter((c) => c.id !== id));
   };
@@ -166,6 +171,10 @@ ${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.descri
         <CharacterChat
           character={characters.find((c) => c.id === chattingId)!}
           allCharacters={characters}
+          savedMessages={chatHistories[chattingId] || null}
+          onMessagesChange={(msgs) =>
+            setChatHistories((prev) => ({ ...prev, [chattingId]: msgs }))
+          }
           onClose={() => setChattingId(null)}
         />
       )}
