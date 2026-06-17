@@ -5,7 +5,7 @@ import { runCharacterAgent } from "./character-agent";
 import { runRecorder } from "./recorder";
 import { ChannelManager } from "./channel";
 
-const MAX_ROUNDS = 8;
+const HARD_MAX_ROUNDS = 8;
 
 export type SimulationEventCallback = (event: SimulationEvent) => void;
 
@@ -26,6 +26,12 @@ export class SimulationEngine {
   private onEvent: SimulationEventCallback;
   private writingStyle?: WritingStyle;
   private channels: ChannelManager;
+  // Temp storage for director scheduling info (used by recorder this round)
+  private _lastDirectorSummary = "";
+  private _lastDirectorPacing = "";
+  private _lastDirectorMood = "";
+  private _lastDirectorConflict = 0;
+  private _lastDirectorBeat = 0;
 
   constructor(
     novelTitle: string,
@@ -57,6 +63,7 @@ export class SimulationEngine {
     const isFreeMode = this.state.scene.mode === "free";
     const presentChars = this.state.characters.filter((c) => this.state.scene.characterIds.includes(c.id));
     const sceneDesc = this.buildSceneDescription();
+    const zh = presentChars.length > 0 && /[一-鿿]/.test(presentChars[0].personality.description);
     let lastTimestamp = 0;
 
     try {
@@ -82,7 +89,12 @@ export class SimulationEngine {
         }
       }
 
-      for (let roundNum = 0; roundNum < MAX_ROUNDS; roundNum++) {
+      // Dynamic max rounds: follow outline estimate + 2 buffer, capped at 8
+      const maxRounds = outline?.estimatedRounds
+        ? Math.min(outline.estimatedRounds + 2, HARD_MAX_ROUNDS)
+        : HARD_MAX_ROUNDS;
+
+      for (let roundNum = 0; roundNum < maxRounds; roundNum++) {
         this.onEvent({ type: "round_start", round: roundNum + 1 });
         let roundMessages: ChannelMessage[] = [];
 
@@ -151,12 +163,23 @@ export class SimulationEngine {
           const directorDecision = await runDirector(this.state.characters, this.state.scene, this.state.rounds, outline);
           this.onEvent({ type: "director", decision: directorDecision });
 
-          // Director broadcasts to public channel
+          // Build scheduling summary for channel + round record
+          const scheduleSummary = zh
+            ? `节拍${directorDecision.beatNumber} | 聚焦${directorDecision.focusCharacter} | ${directorDecision.moodTone} | 冲突${directorDecision.conflictIntensity}/10 | ${directorDecision.pacing === "fast" ? "快节奏" : directorDecision.pacing === "slow" ? "慢节奏" : "中速"}`
+            : `Beat ${directorDecision.beatNumber} | Focus ${directorDecision.focusCharacter} | ${directorDecision.moodTone} | Conflict ${directorDecision.conflictIntensity}/10 | ${directorDecision.pacing}`;
+
           this.channels.send("director", "导演", "public", {
-            dialogue: directorDecision.sceneDevelopment,
+            dialogue: `[调度] ${scheduleSummary}`,
             actions: "",
             innerThoughts: "",
           });
+
+          // Store for recorder use
+          this._lastDirectorSummary = scheduleSummary;
+          this._lastDirectorPacing = directorDecision.pacing;
+          this._lastDirectorMood = directorDecision.moodTone;
+          this._lastDirectorConflict = directorDecision.conflictIntensity;
+          this._lastDirectorBeat = directorDecision.beatNumber;
 
           const activeNames = directorDecision.activeCharacters;
           for (const char of presentChars) {
@@ -231,13 +254,20 @@ export class SimulationEngine {
           this.state.scene, roundNum + 1,
           allNewMsgs,
           this.state.fullNovelOutput,
-          this.writingStyle
+          this.writingStyle,
+          isFreeMode ? undefined : {
+            summary: this._lastDirectorSummary,
+            pacing: this._lastDirectorPacing as "fast" | "medium" | "slow",
+            mood: this._lastDirectorMood,
+            conflict: this._lastDirectorConflict,
+            beat: this._lastDirectorBeat,
+          }
         );
         this.onEvent({ type: "prose", prose });
 
         const round: SimulationRound = {
           roundNumber: roundNum + 1,
-          directorAction: isFreeMode ? "" : (this.state.rounds[roundNum]?.directorAction || ""),
+          directorAction: isFreeMode ? "" : this._lastDirectorSummary,
           channelMessages: allNewMsgs,
           characterResponses: allNewMsgs.map((m) => ({
             characterId: m.fromCharacterId,

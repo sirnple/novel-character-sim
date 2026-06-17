@@ -114,7 +114,8 @@ export default function SimulationRunner({
         if (onCacheOutline) onCacheOutline(event.outline);
         break;
       case "director":
-        setCurrentEvent(`导演：${event.decision.sceneDevelopment}`);
+        const d = event.decision;
+        setCurrentEvent(`🎬 节拍${d.beatNumber} | 聚焦${d.focusCharacter} | ${d.moodTone} | 冲突${d.conflictIntensity}/10 | ${d.pacing === "fast" ? "⚡快" : d.pacing === "slow" ? "🐢慢" : "➡中"}`);
         break;
       case "character_responding":
         setCurrentEvent(`${event.characterName} 正在思考...`);

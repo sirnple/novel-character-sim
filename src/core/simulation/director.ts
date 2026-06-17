@@ -144,34 +144,59 @@ ${charSummaries}
 }
 
 // ============================================================
-// Round Director — 基于大纲的逐轮导演
+// Round Director — 调度者，不写叙述
 // ============================================================
+
+export interface DirectorDecision {
+  beatNumber: number;          // 当前推进大纲第几个节拍
+  focusCharacter: string;      // 本轮 POV 角色名
+  moodTone: string;            // 本轮情绪基调
+  pacing: "fast" | "medium" | "slow";
+  conflictIntensity: number;   // 1-10
+  activeCharacters: string[];  // 需要回应的角色
+  isSceneEnd: boolean;
+}
 
 const DIRECTOR_SCHEMA = {
   name: "director_decision",
-  description: "Director's scene advancement decision",
+  description: "Director's scheduling decision — who speaks, what mood, what beat",
   parameters: {
     type: "object",
     properties: {
-      sceneDevelopment: {
+      beatNumber: {
+        type: "number",
+        description: "当前推进大纲第几个节拍（1-based）。若没有大纲则填当前轮次。",
+      },
+      focusCharacter: {
         type: "string",
-        description: "What happens next in the scene (1-3 sentences)",
+        description: "本轮聚焦的角色名——以谁的主观视角来展开这一轮",
+      },
+      moodTone: {
+        type: "string",
+        description: "本轮情绪基调，如：紧张、温情、压抑、爆发、暧昧、绝望",
+      },
+      pacing: {
+        type: "string",
+        enum: ["fast", "medium", "slow"],
+        description: "节奏：fast=快节奏短对话冲突升级，medium=正常推进，slow=内心独白氛围铺垫",
+      },
+      conflictIntensity: {
+        type: "number",
+        minimum: 1,
+        maximum: 10,
+        description: "当前冲突强度 1-10。1=风平浪静，5=暗流涌动，10=全面爆发",
       },
       activeCharacters: {
         type: "array",
         items: { type: "string" },
-        description: "Names of characters who should react in this round",
-      },
-      moodShift: {
-        type: "string",
-        description: "How the mood or tension shifts in this beat",
+        description: "本轮应该回应的角色名列表",
       },
       isSceneEnd: {
         type: "boolean",
-        description: "Whether the scene has reached a natural conclusion",
+        description: "场景是否达到自然终点",
       },
     },
-    required: ["sceneDevelopment", "activeCharacters", "isSceneEnd"],
+    required: ["beatNumber", "focusCharacter", "moodTone", "pacing", "conflictIntensity", "activeCharacters", "isSceneEnd"],
   },
 };
 
@@ -182,76 +207,67 @@ export async function runDirector(
   outline?: SceneOutline | null
 ): Promise<DirectorDecision> {
   const llm = createLLMProvider();
-  const systemPrompt = buildDirectorSystemPrompt(characters, scene);
-
   const zh = characters.length > 0 && isChinese(characters[0].personality.description);
 
-  // Build outline context if available
+  // Build system prompt with strong scheduling-only constraint
+  const systemPrompt = buildDirectorSystemPrompt(characters, scene);
+
+  // Build outline context
   let outlineContext = "";
   if (outline?.beats?.length) {
     const currentBeatIndex = Math.min(previousRounds.length, outline.beats.length - 1);
-    const upcomingBeats = outline.beats.slice(currentBeatIndex);
 
     outlineContext = zh
-      ? `\n\n## 场景大纲（导演剧本）
-- 场景目标：${outline.sceneGoal}
-- 情感弧线：${outline.emotionalArc}
-- 预计结局：${outline.sceneEnding}
+      ? `\n## 场景大纲
+目标：${outline.sceneGoal}
+情感弧线：${outline.emotionalArc}
+结局：${outline.sceneEnding}
 
-### 节拍规划：
-${outline.beats
-  .map((b, i) => {
-    const marker = i < currentBeatIndex ? "✅" : i === currentBeatIndex ? "▶️" : "⏳";
-    return `${marker} 节拍${b.beatNumber}：${b.description} [出场: ${b.activeCharacters.join("、")}] [氛围: ${b.mood}]`;
-  })
-  .join("\n")}
+节拍进度：
+${outline.beats.map((b, i) => {
+  const marker = i < currentBeatIndex ? "✅" : i === currentBeatIndex ? "▶️ 当前" : "⏳";
+  return `${marker} 节拍${b.beatNumber}：${b.description} [出场: ${b.activeCharacters.join("、")}] [氛围: ${b.mood}]`;
+}).join("\n")}
 
-### 当前进度
-- 已完成 ${previousRounds.length} 轮 / 预计 ${outline.estimatedRounds} 轮
-- 当前应推进到：${upcomingBeats[0] ? `节拍${upcomingBeats[0].beatNumber} — ${upcomingBeats[0].description}` : "场景收尾"}
-
-请根据大纲推进场景。如果已到最后一个节拍或场景发展到了自然终点，设置 isSceneEnd: true。`
-      : `\n\n## Scene Outline
-- Goal: ${outline.sceneGoal}
-- Arc: ${outline.emotionalArc}
-- Ending: ${outline.sceneEnding}
-
-Beats:
-${outline.beats
-  .map((b, i) => {
-    const done = i < Math.min(previousRounds.length, outline.beats.length);
-    return `${done ? "✅" : "⏳"} Beat ${b.beatNumber}: ${b.description} [Cast: ${b.activeCharacters.join(", ")}] [Mood: ${b.mood}]`;
-  })
-  .join("\n")}
-
-Progress: ${previousRounds.length}/${outline.estimatedRounds} rounds done.
-Follow this outline. Set isSceneEnd when appropriate.`;
+已完成 ${previousRounds.length} 轮 / 预计 ${outline.estimatedRounds} 轮。严格按节拍顺序推进。当前应该推进节拍 ${outline.beats[Math.min(previousRounds.length, outline.beats.length - 1)]?.beatNumber || 1}。`
+      : `\n## Outline\nGoal: ${outline.sceneGoal}\nBeats: ${outline.beats.map((b) => `Beat ${b.beatNumber}: ${b.description} [${b.activeCharacters.join(", ")}]`).join(" | ")}\nProgress: ${previousRounds.length}/${outline.estimatedRounds}`;
   }
 
-  // Build history context
-  const historyContext =
-    previousRounds.length > 0
-      ? `\n\n${zh ? '## 目前为止发生的事' : '## WHAT HAS HAPPENED SO FAR'}\n${previousRounds
-          .map(
-            (r) =>
-              `${zh ? '第' : 'Round '}${r.roundNumber}${zh ? '轮' : ''}:\n${r.directorAction}\n${r.characterResponses
-                .map((cr) => `${cr.characterName}: "${cr.dialogue}" [${cr.actions}]`)
-                .join("\n")}`
-          )
-          .join("\n\n")}`
-      : "";
+  // Build scene plot context
+  const plotContext = zh
+    ? `\n## 情节约束（必须遵循）
+- 冲突类型：${scene.plot.conflictType || "未指定"}
+- 故事节点：${scene.plot.storyBeat || "未指定"}
+- 关键事件：${scene.plot.keyEvent || "未指定"}
+- 赌注：${scene.plot.stakes || "未指定"}
+- 情感弧线：${scene.plot.emotionalArc || "未指定"}`
+    : "";
+
+  // Build history
+  const historyContext = previousRounds.length > 0
+    ? `\n\n## 之前的轮次\n${previousRounds.map((r) =>
+        `${zh ? '第' : 'R'}${r.roundNumber}${zh ? '轮' : ''}: ${zh ? '聚焦' : 'Focus'} ${r.characterResponses[0]?.characterName || '?'} | ${zh ? '情绪' : 'Mood'}: ${r.directorAction}`).join("\n")}`
+    : "";
 
   const userPrompt = zh
-    ? `现在是第${previousRounds.length === 0 ? "一" : "下一"}轮。
-${previousRounds.length === 0 ? "请设置场景的开场。" : "根据已发生的事推进场景。"}
-${outlineContext}${historyContext}
+    ? `你是调度者，不是叙述者。不要写叙事文字。
 
-接下来发生什么？`
-    : `It's time for the ${previousRounds.length === 0 ? "first" : "next"} round.
-${previousRounds.length === 0 ? "Set the opening of the scene." : "Advance the scene with the next development."}
-${outlineContext}${historyContext}
+${outlineContext}${plotContext}${historyContext}
 
-What happens next?`;
+第 ${previousRounds.length + 1} 轮。请调度这一轮：
+- 当前推大纲第几个节拍？
+- 以谁的视角展开？
+- 情绪基调是什么？
+- 节奏快慢？
+- 冲突强度 1-10？
+- 哪些角色需要回应？
+
+如果大纲最后一个节拍已完成或场景到了自然终点，设 isSceneEnd: true。`
+    : `You are the SCHEDULER, not the narrator. Do NOT write narrative.
+
+${outlineContext}${plotContext}${historyContext}
+
+Round ${previousRounds.length + 1}. Schedule this round: beatNumber, focusCharacter, moodTone, pacing, conflictIntensity (1-10), activeCharacters, isSceneEnd.`;
 
   return llm.chatWithTool<DirectorDecision>(
     [
@@ -259,6 +275,6 @@ What happens next?`;
       { role: "user", content: userPrompt },
     ],
     DIRECTOR_SCHEMA,
-    { temperature: 0.8, maxTokens: 500 }
+    { temperature: 0.7, maxTokens: 400 }
   );
 }
