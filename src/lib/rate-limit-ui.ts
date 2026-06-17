@@ -58,6 +58,26 @@ export function useRateLimitCooldown(errorMsg: string): string | null {
 }
 
 /**
+ * Poll /api/limit-status and return userId + all statuses.
+ */
+export function useUserInfo(): { userId: string | null; limits: LimitStatus[] } {
+  const [userId, setUserId] = useState<string | null>(null);
+  const [limits, setLimits] = useState<LimitStatus[]>([]);
+
+  useEffect(() => {
+    fetch("/api/limit-status")
+      .then((r) => r.json())
+      .then((d) => {
+        setUserId(d.userId || null);
+        setLimits(d.limits || []);
+      })
+      .catch(() => {});
+  }, []);
+
+  return { userId, limits };
+}
+
+/**
  * Poll /api/limit-status for the given endpoint and return a tip string
  * like "剩余 17/20 次 · 45 秒后重置".
  * Set endpoint to null to disable polling.

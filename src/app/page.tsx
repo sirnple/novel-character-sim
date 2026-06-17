@@ -9,6 +9,7 @@ import SceneSetup from "@/components/scene-setup";
 import SimulationRunner from "@/components/simulation-runner";
 import StoryInfoPanel from "@/components/story-info-panel";
 import { novelFingerprint } from "@/lib/utils";
+import { useUserInfo } from "@/lib/rate-limit-ui";
 import { BookOpen, Users, Clapperboard, Play, RefreshCw } from "lucide-react";
 
 type AppStep = "upload" | "characters" | "scene" | "simulation";
@@ -21,6 +22,7 @@ interface SavedNovel {
 }
 
 export default function Home() {
+  const { userId } = useUserInfo();
   const [step, setStep] = useState<AppStep>("upload");
   const [novelTitle, setNovelTitle] = useState("");
   const [novelText, setNovelText] = useState("");
@@ -213,6 +215,11 @@ export default function Home() {
         <p className="text-muted-foreground">
           提取角色，构建角色代理，在自定义场景中进行剧情演绎
         </p>
+        {userId && (
+          <p className="text-xs text-muted-foreground/60 mt-1">
+            👤 {userId}
+          </p>
+        )}
       </div>
 
       {/* Saved Novels Quick Load */}

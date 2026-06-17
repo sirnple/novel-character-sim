@@ -22,5 +22,5 @@ export async function GET(request: NextRequest) {
       resetSec: Math.max(0, Math.ceil((status.resetAt - Date.now()) / 1000)),
     };
   });
-  return NextResponse.json({ limits });
+  return NextResponse.json({ userId, limits });
 }
