@@ -1,6 +1,6 @@
-import type { CharacterProfile, SceneDefinition, SimulationRound, SimulationState, WritingStyle, ChannelMessage } from "@/types";
+import type { CharacterProfile, SceneDefinition, SimulationRound, SimulationState, WritingStyle, ChannelMessage, SceneOutline } from "@/types";
 import { generateId } from "@/lib/utils";
-import { runDirector, type DirectorDecision } from "./director";
+import { runDirector, runOutlineWriter, type DirectorDecision } from "./director";
 import { runCharacterAgent } from "./character-agent";
 import { runRecorder } from "./recorder";
 import { ChannelManager } from "./channel";
@@ -11,6 +11,7 @@ export type SimulationEventCallback = (event: SimulationEvent) => void;
 
 export type SimulationEvent =
   | { type: "round_start"; round: number }
+  | { type: "outline"; outline: SceneOutline }
   | { type: "director"; decision: DirectorDecision }
   | { type: "character_responding"; characterName: string }
   | { type: "character_response"; characterName: string; dialogue: string; actions: string; innerThoughts: string; channelId: string }
@@ -51,7 +52,7 @@ export class SimulationEngine {
 
   getState(): SimulationState { return { ...this.state }; }
 
-  async run(): Promise<SimulationState> {
+  async run(existingOutline?: SceneOutline | null): Promise<SimulationState> {
     this.state.status = "running";
     const isFreeMode = this.state.scene.mode === "free";
     const presentChars = this.state.characters.filter((c) => this.state.scene.characterIds.includes(c.id));
@@ -59,6 +60,28 @@ export class SimulationEngine {
     let lastTimestamp = 0;
 
     try {
+      // --- Director Mode: Write scene outline first (or reuse cached) ---
+      let outline: SceneOutline | null = null;
+      if (!isFreeMode) {
+        if (existingOutline) {
+          outline = existingOutline;
+          this.onEvent({ type: "outline", outline });
+        } else {
+          try {
+            this.onEvent({ type: "character_responding", characterName: "导演（编写大纲）" });
+            outline = await runOutlineWriter(
+              presentChars,
+              this.state.scene,
+              this.state.fullNovelOutput || undefined
+            );
+            this.onEvent({ type: "outline", outline });
+          } catch (e) {
+            // Outline failed — continue without it, director will improvise
+            console.warn("[Engine] Outline writer failed, continuing without outline:", e);
+          }
+        }
+      }
+
       for (let roundNum = 0; roundNum < MAX_ROUNDS; roundNum++) {
         this.onEvent({ type: "round_start", round: roundNum + 1 });
         let roundMessages: ChannelMessage[] = [];
@@ -125,7 +148,7 @@ export class SimulationEngine {
           }
         } else {
           // --- Director Mode ---
-          const directorDecision = await runDirector(this.state.characters, this.state.scene, this.state.rounds);
+          const directorDecision = await runDirector(this.state.characters, this.state.scene, this.state.rounds, outline);
           this.onEvent({ type: "director", decision: directorDecision });
 
           // Director broadcasts to public channel

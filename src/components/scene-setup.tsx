@@ -11,6 +11,9 @@ interface SceneSetupProps {
   onSceneChange: (scene: SceneDefinition) => void;
   onStartSimulation: (scene: SceneDefinition) => void;
   disabled: boolean;
+  /** Cached recommendations from parent — survive step switching */
+  cachedRecommendations: Recommendation[] | null;
+  onCacheRecommendations: (recs: Recommendation[]) => void;
 }
 
 interface Recommendation {
@@ -18,9 +21,9 @@ interface Recommendation {
   initialSituation: string; whyGood: string; suggestedCharacters: string[];
 }
 
-export default function SceneSetup({ characters, storyInfo, scene, onSceneChange, onStartSimulation, disabled }: SceneSetupProps) {
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+export default function SceneSetup({ characters, storyInfo, scene, onSceneChange, onStartSimulation, disabled, cachedRecommendations, onCacheRecommendations }: SceneSetupProps) {
   const [recLoading, setRecLoading] = useState(false);
+  const recommendations = cachedRecommendations || [];
 
   const update = (patch: Partial<SceneDefinition>) => onSceneChange({ ...scene, ...patch });
   const updateNarrative = (patch: Partial<SceneDefinition["narrativeStyle"]>) =>
@@ -54,7 +57,7 @@ export default function SceneSetup({ characters, storyInfo, scene, onSceneChange
         body: JSON.stringify({ characters, storyInfo }),
       });
       const data = await res.json();
-      if (res.ok) setRecommendations(data.recommendations || []);
+      if (res.ok) onCacheRecommendations(data.recommendations || []);
     } catch {} finally { setRecLoading(false); }
   };
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import type { CharacterProfile, SceneDefinition, SimulationRound, WritingStyle } from "@/types";
+import type { CharacterProfile, SceneDefinition, SimulationRound, WritingStyle, SceneOutline } from "@/types";
 import type { SimulationEvent } from "@/core/simulation/engine";
-import { Loader2, MessageCircle, BookOpen, StopCircle, ArrowUp, ArrowDown, Eye, X } from "lucide-react";
+import { Loader2, MessageCircle, BookOpen, StopCircle, ArrowUp, ArrowDown, Eye, X, ScrollText, Target, Activity } from "lucide-react";
 import NovelOutput from "./novel-output";
 import type { ChannelMessage } from "@/types";
 
@@ -15,6 +15,8 @@ interface SimulationRunnerProps {
   onBack: () => void;
   onComplete?: (fullNovel: string) => void;
   initialFullNovel?: string;
+  cachedOutline?: SceneOutline | null;
+  onCacheOutline?: (outline: SceneOutline) => void;
 }
 
 export default function SimulationRunner({
@@ -25,12 +27,15 @@ export default function SimulationRunner({
   onBack,
   onComplete,
   initialFullNovel,
+  cachedOutline,
+  onCacheOutline,
 }: SimulationRunnerProps) {
   const [status, setStatus] = useState<"connecting" | "running" | "completed" | "error">("connecting");
   const [rounds, setRounds] = useState<SimulationRound[]>([]);
   const [currentEvent, setCurrentEvent] = useState<string>("");
   const [fullNovel, setFullNovel] = useState(initialFullNovel || "");
   const [error, setError] = useState("");
+  const [outline, setOutline] = useState<SceneOutline | null>(null);
   const [activeTab, setActiveTab] = useState<"live" | "novel">("live");
   const [charDetail, setCharDetail] = useState<string | null>(null); // character name for detail view
   const abortRef = useRef<AbortController | null>(null);
@@ -56,7 +61,7 @@ export default function SimulationRunner({
       const res = await fetch("/api/simulation/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novelTitle, characters, scene, writingStyle }),
+        body: JSON.stringify({ novelTitle, characters, scene, writingStyle, outline: cachedOutline }),
         signal: controller.signal,
       });
 
@@ -102,6 +107,11 @@ export default function SimulationRunner({
     switch (event.type) {
       case "round_start":
         setCurrentEvent(`第 ${event.round} 轮开始`);
+        break;
+      case "outline":
+        setOutline(event.outline);
+        setCurrentEvent(`📋 剧本大纲已生成：${event.outline.sceneTitle}`);
+        if (onCacheOutline) onCacheOutline(event.outline);
         break;
       case "director":
         setCurrentEvent(`导演：${event.decision.sceneDevelopment}`);
@@ -268,6 +278,83 @@ export default function SimulationRunner({
       {error && (
         <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
           {error}
+        </div>
+      )}
+
+      {/* Scene Outline */}
+      {outline && scene.mode === "director" && (
+        <div className="border rounded-lg overflow-hidden bg-gradient-to-r from-orange-50/50 to-amber-50/50">
+          <div className="bg-orange-100/60 px-4 py-3 border-b flex items-center gap-2">
+            <ScrollText className="w-5 h-5 text-orange-600" />
+            <span className="font-semibold text-orange-800">📋 {outline.sceneTitle}</span>
+          </div>
+          <div className="p-4 space-y-3">
+            {/* Goal */}
+            <div className="flex items-start gap-2">
+              <Target className="w-4 h-4 text-orange-500 mt-0.5 shrink-0" />
+              <p className="text-sm text-foreground/80"><span className="font-medium">场景目标：</span>{outline.sceneGoal}</p>
+            </div>
+
+            {/* Beats */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1">
+                <Activity className="w-3.5 h-3.5" /> 情节节拍
+              </p>
+              <div className="space-y-2">
+                {outline.beats.map((beat, i) => {
+                  const currentBeat = outline.beats.findIndex(
+                    (b) => rounds.length > 0 && b.beatNumber === outline.beats[Math.min(rounds.length, outline.beats.length - 1)]?.beatNumber
+                  );
+                  const isDone = i < (rounds.length > 0 ? Math.min(rounds.length, outline.beats.length) : 0);
+                  const isCurrent = !isDone && i === (rounds.length > 0 ? Math.min(rounds.length, outline.beats.length) : 0);
+                  return (
+                    <div
+                      key={beat.beatNumber}
+                      className={`flex items-start gap-3 p-2.5 rounded-md text-sm transition-colors ${
+                        isCurrent
+                          ? "bg-orange-100/80 border border-orange-300"
+                          : isDone
+                          ? "bg-green-50/50 opacity-60"
+                          : "bg-white/60"
+                      }`}
+                    >
+                      <span className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                        isCurrent
+                          ? "bg-orange-500 text-white"
+                          : isDone
+                          ? "bg-green-500 text-white"
+                          : "bg-muted text-muted-foreground"
+                      }`}>
+                        {isDone ? "✓" : beat.beatNumber}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className={`${isCurrent ? "font-medium text-foreground" : "text-foreground/70"}`}>
+                          {beat.description}
+                        </p>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          <span className="text-xs bg-secondary px-1.5 py-0.5 rounded text-muted-foreground">
+                            {beat.mood}
+                          </span>
+                          {beat.activeCharacters.map((name) => (
+                            <span key={name} className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                              {name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Emotional Arc + Ending */}
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+              <span>🎭 情感弧线：{outline.emotionalArc}</span>
+              <span>🏁 结局：{outline.sceneEnding}</span>
+              <span className="text-orange-600 font-medium">预计 {outline.estimatedRounds} 轮</span>
+            </div>
+          </div>
         </div>
       )}
 

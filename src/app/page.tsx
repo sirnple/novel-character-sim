@@ -55,6 +55,24 @@ export default function Home() {
     status: string;
   } | null>(null);
 
+  // Cache AI scene recommendations so they survive step switching
+  const [sceneRecommendations, setSceneRecommendations] = useState<{
+    key: string; // novelId — invalidate when novel changes
+    recommendations: Array<{
+      location: string; timeOfDay: string; weather: string; atmosphere: string;
+      initialSituation: string; whyGood: string; suggestedCharacters: string[];
+    }>;
+  } | null>(null);
+
+  // Cache simulation outline so it survives step switching
+  const [cachedOutline, setCachedOutline] = useState<{
+    key: string; // cache key based on scene — invalidate when scene changes
+    outline: import("@/types").SceneOutline;
+  } | null>(null);
+
+  // Build a cache key from scene settings
+  const outlineCacheKey = `${novelId}|${scene.location}|${scene.initialSituation}|${scene.characterIds.join(",")}|${scene.plot.conflictType}|${scene.plot.keyEvent}`;
+
   const abortRef = useRef<AbortController | null>(null);
 
   // Load saved novels on mount
@@ -322,6 +340,8 @@ export default function Home() {
               onSceneChange={setScene}
               onStartSimulation={handleStartSimulation}
               disabled={characters.length === 0}
+              cachedRecommendations={sceneRecommendations?.key === novelId ? sceneRecommendations.recommendations : null}
+              onCacheRecommendations={(recs) => setSceneRecommendations({ key: novelId, recommendations: recs })}
             />
           </div>
         )}
@@ -335,6 +355,8 @@ export default function Home() {
             onBack={() => setStep("scene")}
             onComplete={handleSimulationComplete}
             initialFullNovel={simState?.fullNovel}
+            cachedOutline={cachedOutline?.key === outlineCacheKey ? cachedOutline.outline : null}
+            onCacheOutline={(outline) => setCachedOutline({ key: outlineCacheKey, outline })}
           />
         )}
       </div>

@@ -133,6 +133,24 @@ export interface WorldSetting {
   atmosphere: string;         // General atmosphere of the world
 }
 
+// --- Scene Outline (导演剧本大纲) ---
+
+export interface SceneBeat {
+  beatNumber: number;         // 节拍序号 1,2,3...
+  description: string;        // 这个节拍发生什么
+  activeCharacters: string[]; // 涉及的角色名
+  mood: string;               // 情绪/氛围
+}
+
+export interface SceneOutline {
+  sceneTitle: string;         // 场景标题
+  sceneGoal: string;          // 场景目标（这个场景要达成什么）
+  beats: SceneBeat[];         // 3-5 个关键节拍
+  emotionalArc: string;       // 情感弧线描述
+  sceneEnding: string;        // 场景如何收尾
+  estimatedRounds: number;    // 预计轮数
+}
+
 // --- Scene ---
 
 export type SimulationMode = "director" | "free";

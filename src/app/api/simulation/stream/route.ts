@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import type { CharacterProfile, SceneDefinition, WritingStyle } from "@/types";
+import type { CharacterProfile, SceneDefinition, WritingStyle, SceneOutline } from "@/types";
 import { SimulationEngine, type SimulationEvent } from "@/core/simulation/engine";
 
 export const dynamic = "force-dynamic";
@@ -10,11 +10,13 @@ export async function POST(request: NextRequest) {
     characters,
     scene,
     writingStyle,
+    outline: cachedOutline,
   }: {
     novelTitle: string;
     characters: CharacterProfile[];
     scene: SceneDefinition;
     writingStyle?: WritingStyle;
+    outline?: SceneOutline | null;
   } = await request.json();
 
   if (!characters?.length || !scene) {
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
       );
 
       try {
-        await engine.run();
+        await engine.run(cachedOutline);
       } catch (error) {
         sendEvent({
           type: "error",
