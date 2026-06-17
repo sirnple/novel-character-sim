@@ -27,6 +27,8 @@ function decodeChineseText(buffer: Buffer): string {
   return utf8;
 }
 
+const MAX_FILE_BYTES = 5 * 1024 * 1024;  // 5 MB
+
 export async function POST(request: NextRequest) {
   const ip = getClientIP(request);
   const rate = checkRateLimit(ip, "novel_parse", { windowMs: 60_000, maxRequests: 30 });
@@ -42,10 +44,28 @@ export async function POST(request: NextRequest) {
     const file = formData.get("file") as File | null;
 
     if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+      return NextResponse.json({ error: "未提供文件" }, { status: 400 });
     }
 
     const fileName = file.name.toLowerCase();
+    const fileBytes = file.size;
+
+    // Size check
+    if (fileBytes > MAX_FILE_BYTES) {
+      const mb = (fileBytes / (1024 * 1024)).toFixed(1);
+      return NextResponse.json(
+        { error: `文件过大（${mb} MB），限制为 5 MB。请拆分章节后重新上传。` },
+        { status: 413 }
+      );
+    }
+
+    if (!fileName.endsWith(".txt") && !fileName.endsWith(".zip")) {
+      return NextResponse.json(
+        { error: `不支持的文件格式（${file.name}），请上传 .txt 或 .zip 文件。` },
+        { status: 400 }
+      );
+    }
+
     let novelText: string;
     let title = file.name.replace(/\.(txt|zip)$/i, "");
 

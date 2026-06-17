@@ -13,7 +13,24 @@ export default function NovelUpload({ onParsed }: NovelUploadProps) {
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const MAX_FILE_MB = 5;
+
+  function validateFile(file: File): string | null {
+    const name = file.name.toLowerCase();
+    if (!name.endsWith(".txt") && !name.endsWith(".zip")) {
+      return `不支持的文件格式（${file.name}），请上传 .txt 或 .zip 文件。`;
+    }
+    const mb = file.size / (1024 * 1024);
+    if (file.size > MAX_FILE_MB * 1024 * 1024) {
+      return `文件过大（${mb.toFixed(1)} MB），限制为 ${MAX_FILE_MB} MB。请拆分章节后重新上传。`;
+    }
+    return null;
+  }
+
   async function handleFile(file: File) {
+    const err = validateFile(file);
+    if (err) { setError(err); return; }
+
     setLoading(true);
     setError("");
 
@@ -65,7 +82,7 @@ export default function NovelUpload({ onParsed }: NovelUploadProps) {
             <div>
               <p className="text-muted-foreground">拖入 .txt 或 .zip 文件，或点击浏览</p>
               <p className="text-xs text-muted-foreground/60 mt-1">
-                .zip 压缩包会在服务端自动解压，合并其中的所有文本文件
+                支持 .txt / .zip，单个文件限制 {MAX_FILE_MB} MB
               </p>
             </div>
           </div>
