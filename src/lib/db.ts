@@ -55,8 +55,10 @@ function migrateOldData(d: Database.Database): void {
 
 /** Add user_id column if missing (migration from old schema). */
 function ensureColumn(db: Database.Database, table: string, col: string, def: string): void {
-  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  if (!cols.some((c) => c.name === col)) {
+  try {
+    // Test if column exists by querying it
+    db.prepare(`SELECT ${col} FROM ${table} LIMIT 1`).get();
+  } catch {
     console.log(`[DB] Adding ${col} to ${table}...`);
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT NOT NULL DEFAULT '${def}'`);
   }
