@@ -51,20 +51,33 @@ color: orange
 
 # ${char.name}
 
+## 外貌
+${char.appearance.summary}
+
 ## 身份
 ${char.aliases.length > 0 ? `别名：${char.aliases.join("、")}\n` : ""}
-背景：${char.background}
+出身：${char.background.origin}
+关键事件：${char.background.keyEvents.join("；")}
+${char.background.description}
 
 ## 性格特征
 ${char.personality.traits.map((t) => `- ${t}`).join("\n")}
-
 ${char.personality.description}
+决策风格：${char.personality.decisionStyle}
+压力反应：${char.personality.underPressure}
+
+## 驱动力
+- 目标：${char.drive.goal}
+- 动机：${char.drive.motivation}
+- 恐惧：${char.drive.fear}
+- 弱点：${char.drive.weakness}
+- 底线：${char.drive.bottomLine}
+- 秘密：${char.drive.secret}
 
 ## 行为模式
 ${char.behavior.patterns.map((p) => `- ${p}`).join("\n")}
-
-## 习惯与癖好
-${char.behavior.habits.map((h) => `- ${h}`).join("\n")}
+习惯：${char.behavior.habits.join("、")}
+对权威：${char.behavior.attitudeToAuthority}
 
 ## 世界观
 ${char.worldview}
@@ -73,10 +86,14 @@ ${char.worldview}
 ${char.values.map((v) => `- ${v}`).join("\n")}
 
 ## 说话风格
-${char.speakingStyle}
+${char.speakingStyle.description}
+口头禅：${char.speakingStyle.catchphrases.join("、")}
+句式：${char.speakingStyle.sentenceStyle}
+词汇：${char.speakingStyle.vocabulary}
+情绪表达：${char.speakingStyle.emotionalExpression}
 
 ## 人际关系
-${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.description}`).join("\n")}
+${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.description}（${r.history}。动态：${r.dynamics}）`).join("\n")}
 
 ## 指令
 你是${char.name}，你必须以${char.name}的身份说话和行动。
@@ -252,23 +269,45 @@ ${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.descri
 
             {expandedId === char.id && (
               <div className="px-4 pb-4 border-t pt-3 space-y-3 text-sm">
+                {char.appearance.summary && (
+                  <div>
+                    <h4 className="font-medium text-foreground/80">Appearance</h4>
+                    <p className="text-muted-foreground mt-1">{char.appearance.summary}</p>
+                  </div>
+                )}
+
                 <div>
                   <h4 className="font-medium text-foreground/80">Personality</h4>
-                  <p className="text-muted-foreground mt-1">
-                    {char.personality.description}
-                  </p>
+                  <p className="text-muted-foreground mt-1">{char.personality.description}</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-muted-foreground/70">
+                    <span>决策：{char.personality.decisionStyle}</span>
+                    <span>压力下：{char.personality.underPressure}</span>
+                  </div>
                 </div>
+
+                {(char.drive?.goal || char.drive?.fear || char.drive?.secret) && (
+                  <div>
+                    <h4 className="font-medium text-foreground/80">Drive & Motivation</h4>
+                    <div className="space-y-0.5 mt-1 text-muted-foreground">
+                      {char.drive.goal && <p>🎯 目标：{char.drive.goal}</p>}
+                      {char.drive.motivation && <p>💡 动机：{char.drive.motivation}</p>}
+                      {char.drive.fear && <p>😨 恐惧：{char.drive.fear}</p>}
+                      {char.drive.weakness && <p>⚠️ 弱点：{char.drive.weakness}</p>}
+                      {char.drive.bottomLine && <p>🚫 底线：{char.drive.bottomLine}</p>}
+                      {char.drive.secret && <p>🔒 秘密：{char.drive.secret}</p>}
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <h4 className="font-medium text-foreground/80">Behavior</h4>
                   <ul className="list-disc list-inside text-muted-foreground mt-1">
-                    {char.behavior.patterns.map((p, i) => (
-                      <li key={i}>{p}</li>
-                    ))}
-                    {char.behavior.habits.map((h, i) => (
-                      <li key={`h-${i}`}>{h}</li>
-                    ))}
+                    {char.behavior.patterns.map((p, i) => (<li key={i}>{p}</li>))}
+                    {char.behavior.habits.map((h, i) => (<li key={`h-${i}`}>{h}</li>))}
                   </ul>
+                  {char.behavior.attitudeToAuthority && (
+                    <p className="text-xs text-muted-foreground/70 mt-1">对权威：{char.behavior.attitudeToAuthority}</p>
+                  )}
                 </div>
 
                 <div>
@@ -279,52 +318,48 @@ ${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.descri
                 <div>
                   <h4 className="font-medium text-foreground/80">Values</h4>
                   <div className="flex flex-wrap gap-1 mt-1">
-                    {char.values.map((v) => (
-                      <span
-                        key={v}
-                        className="px-2 py-0.5 text-xs rounded-full bg-secondary text-secondary-foreground"
-                      >
-                        {v}
-                      </span>
-                    ))}
+                    {char.values.map((v) => (<span key={v} className="px-2 py-0.5 text-xs rounded-full bg-secondary text-secondary-foreground">{v}</span>))}
                   </div>
                 </div>
 
                 <div>
-                  <h4 className="font-medium text-foreground/80">
-                    Speaking Style
-                  </h4>
-                  <p className="text-muted-foreground mt-1">
-                    {char.speakingStyle}
-                  </p>
+                  <h4 className="font-medium text-foreground/80">Speaking Style</h4>
+                  <p className="text-muted-foreground mt-1">{char.speakingStyle.description}</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-muted-foreground/70">
+                    {char.speakingStyle.catchphrases.length > 0 && <span>口头禅：{char.speakingStyle.catchphrases.join("、")}</span>}
+                    {char.speakingStyle.sentenceStyle && <span>句式：{char.speakingStyle.sentenceStyle}</span>}
+                    {char.speakingStyle.vocabulary && <span>词汇：{char.speakingStyle.vocabulary}</span>}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-medium text-foreground/80">Background</h4>
+                  {char.background.origin && <p className="text-muted-foreground text-xs mt-0.5">出身：{char.background.origin}</p>}
+                  {char.background.keyEvents.length > 0 && <p className="text-muted-foreground text-xs mt-0.5">关键事件：{char.background.keyEvents.join("；")}</p>}
+                  <p className="text-muted-foreground mt-1">{char.background.description}</p>
                 </div>
 
                 {char.relationships.length > 0 && (
                   <div>
-                    <h4 className="font-medium text-foreground/80">
-                      Relationships
-                    </h4>
-                    <ul className="space-y-1 mt-1">
+                    <h4 className="font-medium text-foreground/80">Relationships</h4>
+                    <ul className="space-y-2 mt-1">
                       {char.relationships.map((r, i) => (
                         <li key={i} className="text-muted-foreground">
                           <span className="font-medium">{r.characterName}</span>{" "}
-                          <span className="text-xs bg-secondary px-1.5 py-0.5 rounded">
-                            {r.type}
-                          </span>{" "}
-                          — {r.description}
+                          <span className="text-xs bg-secondary px-1.5 py-0.5 rounded">{r.type}</span>
+                          <p className="text-xs mt-0.5">{r.description}</p>
+                          {(r.history || r.dynamics) && (
+                            <p className="text-xs text-muted-foreground/60 mt-0.5">
+                              {r.history && `相识：${r.history}`}{r.history && r.dynamics && " · "}{r.dynamics && `动态：${r.dynamics}`}
+                            </p>
+                          )}
                         </li>
                       ))}
                     </ul>
                   </div>
                 )}
 
-                <button
-                  className="text-xs text-destructive hover:underline"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(char.id);
-                  }}
-                >
+                <button className="text-xs text-destructive hover:underline" onClick={(e) => { e.stopPropagation(); handleDelete(char.id); }}>
                   删除角色
                 </button>
               </div>

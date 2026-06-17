@@ -1,8 +1,7 @@
 import type { CharacterProfile, SceneDefinition, WritingStyle } from "@/types";
 
 function isZh(profile: CharacterProfile): boolean {
-  // Detect language from character data
-  const sample = profile.personality.description + profile.worldview + profile.speakingStyle;
+  const sample = profile.personality.description + profile.worldview + profile.speakingStyle.description;
   const cjk = (sample.match(/[一-鿿]/g) || []).length;
   return cjk > sample.length * 0.1;
 }
@@ -22,15 +21,29 @@ export function buildCharacterIdentity(profile: CharacterProfile): string {
 - 名字：${profile.name}
 ${profile.aliases.length > 0 ? `- 别名：${profile.aliases.join("、")}` : ""}
 
+## 你的外貌
+${profile.appearance.summary}
+
 ## 你的性格
 ${profile.personality.traits.map((t) => `- ${t}`).join("\n")}
 ${profile.personality.description}
+- 决策风格：${profile.personality.decisionStyle}
+- 压力反应：${profile.personality.underPressure}
+
+## 你的驱动力
+- 核心目标：${profile.drive.goal}
+- 动机：${profile.drive.motivation}
+- 最大恐惧：${profile.drive.fear}
+- 性格弱点：${profile.drive.weakness}
+- 底线：${profile.drive.bottomLine}
+- 秘密：${profile.drive.secret}
 
 ## 你的行为模式
 ${profile.behavior.patterns.map((p) => `- ${p}`).join("\n")}
 
 ## 你的习惯与癖好
 ${profile.behavior.habits.map((h) => `- ${h}`).join("\n")}
+- 对权威的态度：${profile.behavior.attitudeToAuthority}
 
 ## 你的世界观
 ${profile.worldview}
@@ -39,14 +52,20 @@ ${profile.worldview}
 ${profile.values.map((v) => `- ${v}`).join("\n")}
 
 ## 你的说话风格
-${profile.speakingStyle}
+${profile.speakingStyle.description}
+- 口头禅：${profile.speakingStyle.catchphrases.join("、") || "无"}
+- 句式：${profile.speakingStyle.sentenceStyle}
+- 词汇：${profile.speakingStyle.vocabulary}
+- 情绪表达：${profile.speakingStyle.emotionalExpression}
 
 ## 你的背景
-${profile.background}
+- 出身：${profile.background.origin}
+- 关键事件：${profile.background.keyEvents.join("、")}
+${profile.background.description}
 
 ## 你的人际关系
 ${profile.relationships
-  .map((r) => `- ${r.characterName}：${r.type} — ${r.description}`)
+  .map((r) => `- ${r.characterName}：${r.type} — ${r.description}（${r.history}。权力动态：${r.dynamics}）`)
   .join("\n")}`;
   }
 
@@ -56,25 +75,48 @@ ${profile.relationships
 - Name: ${profile.name}
 ${profile.aliases.length > 0 ? `- Also known as: ${profile.aliases.join(", ")}` : ""}
 
+## Your Appearance
+${profile.appearance.summary}
+
 ## Your Personality
 ${profile.personality.traits.map((t) => `- ${t}`).join("\n")}
 ${profile.personality.description}
+- Decision style: ${profile.personality.decisionStyle}
+- Under pressure: ${profile.personality.underPressure}
 
-## Your Behavioral Patterns
+## Your Drive
+- Goal: ${profile.drive.goal}
+- Motivation: ${profile.drive.motivation}
+- Fear: ${profile.drive.fear}
+- Weakness: ${profile.drive.weakness}
+- Bottom line: ${profile.drive.bottomLine}
+- Secret: ${profile.drive.secret}
+
+## Your Behavior
 ${profile.behavior.patterns.map((p) => `- ${p}`).join("\n")}
-## Your Habits & Mannerisms
+## Your Habits
 ${profile.behavior.habits.map((h) => `- ${h}`).join("\n")}
+- Attitude to authority: ${profile.behavior.attitudeToAuthority}
+
 ## Your Worldview
 ${profile.worldview}
 ## Your Core Values
 ${profile.values.map((v) => `- ${v}`).join("\n")}
 ## Your Speaking Style
-${profile.speakingStyle}
+${profile.speakingStyle.description}
+- Catchphrases: ${profile.speakingStyle.catchphrases.join(", ") || "none"}
+- Sentence style: ${profile.speakingStyle.sentenceStyle}
+- Vocabulary: ${profile.speakingStyle.vocabulary}
+- Emotional expression: ${profile.speakingStyle.emotionalExpression}
+
 ## Your Background
-${profile.background}
+- Origin: ${profile.background.origin}
+- Key events: ${profile.background.keyEvents.join(", ")}
+${profile.background.description}
+
 ## Your Relationships
 ${profile.relationships
-  .map((r) => `- ${r.characterName}: ${r.type} — ${r.description}`)
+  .map((r) => `- ${r.characterName}: ${r.type} — ${r.description} (History: ${r.history}. Dynamics: ${r.dynamics})`)
   .join("\n")}`;
 }
 
@@ -88,15 +130,29 @@ export function buildCharacterSystemPrompt(profile: CharacterProfile): string {
 - 名字：${profile.name}
 ${profile.aliases.length > 0 ? `- 别名：${profile.aliases.join("、")}` : ""}
 
+## 你的外貌
+${profile.appearance.summary}
+
 ## 你的性格
 ${profile.personality.traits.map((t) => `- ${t}`).join("\n")}
 ${profile.personality.description}
+- 决策风格：${profile.personality.decisionStyle}
+- 压力反应：${profile.personality.underPressure}
+
+## 你的驱动力
+- 目标：${profile.drive.goal}
+- 动机：${profile.drive.motivation}
+- 恐惧：${profile.drive.fear}
+- 弱点：${profile.drive.weakness}
+- 底线：${profile.drive.bottomLine}
+- 秘密：${profile.drive.secret}
 
 ## 你的行为模式
 ${profile.behavior.patterns.map((p) => `- ${p}`).join("\n")}
 
 ## 你的习惯与癖好
 ${profile.behavior.habits.map((h) => `- ${h}`).join("\n")}
+- 对权威的态度：${profile.behavior.attitudeToAuthority}
 
 ## 你的世界观
 ${profile.worldview}
@@ -105,14 +161,20 @@ ${profile.worldview}
 ${profile.values.map((v) => `- ${v}`).join("\n")}
 
 ## 你的说话风格
-${profile.speakingStyle}
+${profile.speakingStyle.description}
+- 口头禅：${profile.speakingStyle.catchphrases.join("、") || "无"}
+- 句式：${profile.speakingStyle.sentenceStyle}
+- 词汇：${profile.speakingStyle.vocabulary}
+- 情绪表达：${profile.speakingStyle.emotionalExpression}
 
 ## 你的背景
-${profile.background}
+- 出身：${profile.background.origin}
+- 关键事件：${profile.background.keyEvents.join("、")}
+${profile.background.description}
 
 ## 你的人际关系
 ${profile.relationships
-  .map((r) => `- ${r.characterName}：${r.type} — ${r.description}`)
+  .map((r) => `- ${r.characterName}：${r.type} — ${r.description}（${r.history}。权力关系：${r.dynamics}）`)
   .join("\n")}
 
 ## 指令
@@ -130,32 +192,51 @@ ${profile.relationships
 }`;
   }
 
-  return `You are roleplaying as "${profile.name}" from the novel.
+  const profileIdentity = `You are roleplaying as "${profile.name}" from the novel.
 
-## Your Identity
-- Name: ${profile.name}
-${profile.aliases.length > 0 ? `- Also known as: ${profile.aliases.join(", ")}` : ""}
+## Identity: ${profile.name}
+${profile.aliases.length > 0 ? `Aliases: ${profile.aliases.join(", ")}` : ""}
 
-## Your Personality
+## Appearance
+${profile.appearance.summary}
+
+## Personality
 ${profile.personality.traits.map((t) => `- ${t}`).join("\n")}
 ${profile.personality.description}
+Decision style: ${profile.personality.decisionStyle}
+Under pressure: ${profile.personality.underPressure}
 
-## Your Behavioral Patterns
+## Drive
+Goal: ${profile.drive.goal}
+Motivation: ${profile.drive.motivation}
+Fear: ${profile.drive.fear}
+Weakness: ${profile.drive.weakness}
+Bottom line: ${profile.drive.bottomLine}
+Secret: ${profile.drive.secret}
+
+## Behavior
 ${profile.behavior.patterns.map((p) => `- ${p}`).join("\n")}
-## Your Habits & Mannerisms
-${profile.behavior.habits.map((h) => `- ${h}`).join("\n")}
-## Your Worldview
+Habits: ${profile.behavior.habits.join(", ")}
+Attitude to authority: ${profile.behavior.attitudeToAuthority}
+
+## Worldview
 ${profile.worldview}
-## Your Core Values
-${profile.values.map((v) => `- ${v}`).join("\n")}
-## Your Speaking Style
-${profile.speakingStyle}
-## Your Background
-${profile.background}
-## Your Relationships
-${profile.relationships
-  .map((r) => `- ${r.characterName}: ${r.type} — ${r.description}`)
-  .join("\n")}
+## Values
+${profile.values.join(", ")}
+## Speaking Style
+${profile.speakingStyle.description}
+Catchphrases: ${profile.speakingStyle.catchphrases.join(", ") || "none"}
+Sentences: ${profile.speakingStyle.sentenceStyle}
+Vocabulary: ${profile.speakingStyle.vocabulary}
+Emotional expression: ${profile.speakingStyle.emotionalExpression}
+
+## Background
+Origin: ${profile.background.origin}
+Key events: ${profile.background.keyEvents.join(", ")}
+${profile.background.description}
+
+## Relationships
+${profile.relationships.map((r) => `- ${r.characterName}: ${r.type} — ${r.description} (History: ${r.history}. Dynamics: ${r.dynamics})`).join("\n")}
 
 ## INSTRUCTIONS
 You are participating in an improvised scene. When it's your turn:
@@ -163,6 +244,8 @@ You are participating in an improvised scene. When it's your turn:
 2. Respond naturally to the situation the Director presents
 3. Consider your relationships with other characters present
 4. Response format — JSON: {"dialogue": "...", "actions": "...", "innerThoughts": "..."}`;
+
+  return profileIdentity;
 }
 
 export function buildDirectorSystemPrompt(
@@ -175,12 +258,18 @@ export function buildDirectorSystemPrompt(
     .map((c) => {
       const rels = c.relationships
         .filter((r) => characters.some((pc) => pc.id === r.characterId))
-        .map((r) => `    - ${r.characterName}: ${r.type} — ${r.description}`)
+        .map((r) => `    - ${r.characterName}: ${r.type} — ${r.description}（${r.dynamics}）`)
         .join("\n");
+      const driveInfo = c.drive
+        ? `    ${zh ? '目标' : 'Goal'}: ${c.drive.goal || '?'}
+    ${zh ? '恐惧' : 'Fear'}: ${c.drive.fear || '?'}
+    ${zh ? '秘密' : 'Secret'}: ${c.drive.secret || '?'}`
+        : "";
       return `${c.name}: ${c.personality.description}
     ${zh ? '性格特征' : 'Key traits'}: ${c.personality.traits.join(", ")}
+    ${zh ? '驱动力' : 'Drive'}:
+${driveInfo}
     ${zh ? '世界观' : 'Worldview'}: ${c.worldview}
-    ${zh ? '价值观' : 'Values'}: ${c.values.join(", ")}
     ${zh ? '相关关系' : 'Relevant relationships'}:
 ${rels || `    (${zh ? '无' : 'none'})`}`;
     })

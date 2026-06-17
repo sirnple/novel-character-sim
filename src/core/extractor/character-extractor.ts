@@ -51,56 +51,68 @@ const CHARACTER_DETAIL_SCHEMA = {
   parameters: {
     type: "object",
     properties: {
+      appearance: {
+        type: "object",
+        properties: {
+          summary: { type: "string", description: "外貌、年龄、体型、容貌、着装、气质（2-4句话）" },
+        },
+        required: ["summary"],
+      },
       personality: {
         type: "object",
         properties: {
-          traits: {
-            type: "array",
-            items: { type: "string" },
-            description: "Key personality traits (e.g., brave, cunning, compassionate)",
-          },
-          description: {
-            type: "string",
-            description: "Detailed description of the character's personality",
-          },
+          traits: { type: "array", items: { type: "string" }, description: "3-6个关键性格特征" },
+          description: { type: "string", description: "性格详细描述（2-4句话）" },
+          decisionStyle: { type: "string", description: "决策风格：冲动还是谨慎？感性还是理性？" },
+          underPressure: { type: "string", description: "压力下如何反应？战斗/逃跑/僵住/爆发？" },
         },
-        required: ["traits", "description"],
+        required: ["traits", "description", "decisionStyle", "underPressure"],
+      },
+      drive: {
+        type: "object",
+        properties: {
+          goal: { type: "string", description: "核心目标或追求" },
+          motivation: { type: "string", description: "为什么要追求这个目标" },
+          fear: { type: "string", description: "最大的恐惧或最怕失去的东西" },
+          weakness: { type: "string", description: "性格弱点或致命缺陷" },
+          bottomLine: { type: "string", description: "底线——绝不做的事" },
+          secret: { type: "string", description: "隐藏的秘密（如果有人知道会改变一切）" },
+        },
+        required: ["goal", "motivation", "fear", "weakness", "bottomLine", "secret"],
       },
       behavior: {
         type: "object",
         properties: {
-          patterns: {
-            type: "array",
-            items: { type: "string" },
-            description: "Recurring behavioral patterns",
-          },
-          habits: {
-            type: "array",
-            items: { type: "string" },
-            description: "Specific habits or mannerisms",
-          },
+          patterns: { type: "array", items: { type: "string" }, description: "1-3个反复出现的行为模式" },
+          habits: { type: "array", items: { type: "string" }, description: "1-3个具体习惯或怪癖" },
+          attitudeToAuthority: { type: "string", description: "对权威/上位者的态度" },
         },
-        required: ["patterns", "habits"],
+        required: ["patterns", "habits", "attitudeToAuthority"],
       },
-      worldview: {
-        type: "string",
-        description: "The character's worldview, beliefs about how the world works",
-      },
-      values: {
-        type: "array",
-        items: { type: "string" },
-        description: "Core values the character holds (e.g., loyalty, freedom, justice)",
-      },
+      worldview: { type: "string", description: "世界观——对世界如何运作的信念（1-2句话）" },
+      values: { type: "array", items: { type: "string" }, description: "3-5个核心价值观" },
       speakingStyle: {
-        type: "string",
-        description: "How the character speaks: vocabulary level, speech patterns, catchphrases, tone",
+        type: "object",
+        properties: {
+          description: { type: "string", description: "整体说话风格描述（1-2句话）" },
+          catchphrases: { type: "array", items: { type: "string" }, description: "口头禅或标志性语气词" },
+          sentenceStyle: { type: "string", description: "句式特点：短促还是长篇大论？反问还是陈述？" },
+          vocabulary: { type: "string", description: "词汇水平：粗俗、文雅、专业术语、市井俚语？" },
+          emotionalExpression: { type: "string", description: "不同情绪下如何表达（生气/悲伤/开心时分别怎么说？）" },
+        },
+        required: ["description", "catchphrases", "sentenceStyle", "vocabulary", "emotionalExpression"],
       },
       background: {
-        type: "string",
-        description: "Character's background and history relevant to their personality",
+        type: "object",
+        properties: {
+          origin: { type: "string", description: "出身——家庭、阶层、成长环境" },
+          keyEvents: { type: "array", items: { type: "string" }, description: "改变人生的2-3个关键事件" },
+          description: { type: "string", description: "整体背景描述" },
+        },
+        required: ["origin", "keyEvents", "description"],
       },
     },
-    required: ["personality", "behavior", "worldview", "values", "speakingStyle", "background"],
+    required: ["appearance", "personality", "drive", "behavior", "worldview", "values", "speakingStyle", "background"],
   },
 };
 
@@ -119,26 +131,14 @@ const RELATIONSHIP_SCHEMA = {
             characterB: { type: "string", description: "Second character name" },
             type: {
               type: "string",
-              enum: [
-                "family",
-                "friend",
-                "enemy",
-                "rival",
-                "lover",
-                "colleague",
-                "mentor-student",
-                "acquaintance",
-                "stranger",
-                "other",
-              ],
+              enum: ["family","friend","enemy","rival","lover","colleague","mentor-student","acquaintance","other"],
               description: "Type of relationship",
             },
-            description: {
-              type: "string",
-              description: "Detailed description of the relationship dynamics",
-            },
+            description: { type: "string", description: "关系动态描述" },
+            history: { type: "string", description: "两人如何认识的，经历过什么关键事件" },
+            dynamics: { type: "string", description: "权力动态（谁主导、谁被动、平等、互相利用？）" },
           },
-          required: ["characterA", "characterB", "type", "description"],
+          required: ["characterA", "characterB", "type", "description", "history", "dynamics"],
         },
       },
     },
@@ -154,12 +154,14 @@ interface RawCharacter {
 }
 
 interface CharacterDetail {
-  personality: { traits: string[]; description: string };
-  behavior: { patterns: string[]; habits: string[] };
+  appearance: { summary: string };
+  personality: { traits: string[]; description: string; decisionStyle: string; underPressure: string };
+  drive: { goal: string; motivation: string; fear: string; weakness: string; bottomLine: string; secret: string };
+  behavior: { patterns: string[]; habits: string[]; attitudeToAuthority: string };
   worldview: string;
   values: string[];
-  speakingStyle: string;
-  background: string;
+  speakingStyle: { description: string; catchphrases: string[]; sentenceStyle: string; vocabulary: string; emotionalExpression: string };
+  background: { origin: string; keyEvents: string[]; description: string };
 }
 
 interface RawRelationship {
@@ -167,34 +169,32 @@ interface RawRelationship {
   characterB: string;
   type: string;
   description: string;
+  history: string;
+  dynamics: string;
 }
 
 export class CharacterExtractor {
   private novelContext: string;
   private novelContextSmall: string;
   private fullText: string;
-  private zh: boolean; // Use Chinese prompts
+  private zh: boolean;
 
   constructor(parsed: ParsedNovel) {
-    // DeepSeek has 1M context — use full coverage
     this.novelContextSmall = buildNovelContext(parsed, 3);
     this.novelContext = buildNovelContext(parsed, 5);
     this.fullText = parsed.fullText;
     this.zh = isChinese(parsed.fullText);
   }
 
-  /** Run the full extraction pipeline */
   async extractAll(): Promise<CharacterProfile[]> {
     const llm = createLLMProvider();
     const tTotal = Date.now();
 
-    // Pass 1: Identify characters
     const rawCharacters = await this.extractCharacterList(llm);
     if (rawCharacters.length === 0) {
       throw new Error("No characters found in the novel text.");
     }
 
-    // Pass 2: Deep-dive the most important characters (limit to top N)
     const MAX_DETAIL_CHARS = 5;
     const priorityOrder = ["protagonist", "antagonist", "supporting"];
     const sortedChars = [...rawCharacters].sort(
@@ -202,38 +202,39 @@ export class CharacterExtractor {
     );
     const detailChars = sortedChars.slice(0, MAX_DETAIL_CHARS);
     console.log(
-      `[Extractor] Pass 2: Deep-diving ${detailChars.length}/${rawCharacters.length} characters (top priority)...`
+      `[Extractor] Pass 2: Deep-diving ${detailChars.length}/${rawCharacters.length} characters...`
     );
 
     const characterMap = new Map<string, CharacterProfile>();
 
-    // First create basic profiles for all characters
     for (const raw of rawCharacters) {
       characterMap.set(raw.name, {
         id: generateId(),
         name: raw.name,
         aliases: raw.aliases || [],
-        personality: { traits: [], description: raw.briefDescription },
-        behavior: { patterns: [], habits: [] },
+        appearance: { summary: raw.briefDescription },
+        personality: { traits: [], description: raw.briefDescription, decisionStyle: "", underPressure: "" },
+        drive: { goal: "", motivation: "", fear: "", weakness: "", bottomLine: "", secret: "" },
+        behavior: { patterns: [], habits: [], attitudeToAuthority: "" },
         worldview: "",
         values: [],
-        speakingStyle: "",
-        background: "",
+        speakingStyle: { description: "", catchphrases: [], sentenceStyle: "", vocabulary: "", emotionalExpression: "" },
+        background: { origin: "", keyEvents: [], description: "" },
         relationships: [],
       });
     }
 
-    // Deep-dive only the priority characters
     for (let i = 0; i < detailChars.length; i++) {
       const raw = detailChars[i];
-      console.log(`[Extractor] Pass 2 [${i + 1}/${detailChars.length}]: Analyzing "${raw.name}"...`);
+      console.log(`[Extractor] Pass 2 [${i + 1}/${detailChars.length}]: "${raw.name}"...`);
       const tChar = Date.now();
       const detail = await this.extractCharacterDetail(llm, raw);
       console.log(`[Extractor] Pass 2 [${i + 1}/${detailChars.length}]: "${raw.name}" done (${Date.now() - tChar}ms)`);
 
-      // Update the existing profile with detailed info
       const existing = characterMap.get(raw.name)!;
+      existing.appearance = detail.appearance;
       existing.personality = detail.personality;
+      existing.drive = detail.drive;
       existing.behavior = detail.behavior;
       existing.worldview = detail.worldview;
       existing.values = detail.values;
@@ -260,6 +261,8 @@ export class CharacterExtractor {
           characterName: rel.characterB,
           type: rel.type,
           description: rel.description,
+          history: rel.history || "",
+          dynamics: rel.dynamics || "",
         });
       }
       if (charB) {
@@ -268,6 +271,8 @@ export class CharacterExtractor {
           characterName: rel.characterA,
           type: rel.type,
           description: rel.description,
+          history: rel.history || "",
+          dynamics: rel.dynamics || "",
         });
       }
     }
@@ -308,39 +313,44 @@ Return JSON with name, aliases, role (protagonist/antagonist/supporting/minor), 
     llm: ReturnType<typeof createLLMProvider>,
     character: RawCharacter
   ): Promise<CharacterDetail> {
-    const promptZh = `分析角色"${character.name}"（${character.briefDescription}）。
+    const promptZh = `深度分析角色"${character.name}"（${character.briefDescription}）。
 
 小说原文：
 ${this.novelContext}
 
 角色: ${character.name} (定位: ${character.role})
 
-请简练分析（每项1-3句话）：
-1. personality: 2-5个性格特征 + 1-2句描述
-2. behavior: 1-3个行为模式 + 1-2个习惯
-3. worldview: 1-2句世界观
-4. values: 3-5个核心价值观
-5. speakingStyle: 1-2句说话风格（语气/词汇/口头禅）
-6. background: 1-2句关键背景
+请基于原文分析以下维度（每项简练，用原文证据支撑）：
 
-基于原文，保持简洁。`;
+1. appearance: 外貌描述（年龄、体型、容貌、着装、气质，2-3句话）
+2. personality: 3-5个性格特征 + 详细描述 + 决策风格（冲动/谨慎？感性/理性？）+ 压力下如何反应
+3. drive: 核心目标 + 动机 + 最大恐惧 + 性格弱点 + 底线 + 秘密（如果有）
+4. behavior: 1-3个行为模式 + 1-2个习惯 + 对权威的态度
+5. worldview: 1-2句世界观
+6. values: 3-5个核心价值观
+7. speakingStyle: 整体描述 + 口头禅 + 句式特点 + 词汇水平 + 情绪表达方式
+8. background: 出身 + 2-3个关键事件 + 整体背景
 
-    const promptEn = `Analyze the character "${character.name}" (${character.briefDescription}) from the novel.
+如果你不确定某个维度（比如小说中没有透露角色的秘密），请根据角色性格合理推断，标注"（推测）"。保持简洁，每个维度不要太长。`;
+
+    const promptEn = `Deep-dive analysis of "${character.name}" (${character.briefDescription}).
 
 NOVEL CONTEXT:
 ${this.novelContext}
 
 Character: ${character.name} (Role: ${character.role})
 
-Provide a CONCISE analysis (each field 1-3 sentences max):
-1. personality: 2-5 traits + 1-2 sentence description
-2. behavior: 1-3 patterns + 1-2 habits
-3. worldview: 1-2 sentences
-4. values: 3-5 core values
-5. speakingStyle: 1-2 sentences about vocabulary/tone/patterns
-6. background: 1-2 sentences about key history
+Analyze based on the text:
+1. appearance: summary (age, build, features, attire, presence)
+2. personality: 3-5 traits + description + decision style + under pressure
+3. drive: goal + motivation + fear + weakness + bottom line + secret
+4. behavior: patterns + habits + attitude to authority
+5. worldview
+6. values: 3-5
+7. speakingStyle: description + catchphrases + sentence style + vocabulary + emotional expression
+8. background: origin + 2-3 key events + overall
 
-Be specific and evidence-based. Keep it BRIEF.`;
+Be evidence-based. Infer reasonably where the text is silent. Keep it CONCISE.`;
 
     const result = await llm.chatWithTool<CharacterDetail>(
       [{ role: "user", content: this.zh ? promptZh : promptEn }],
@@ -359,29 +369,31 @@ Be specific and evidence-based. Keep it BRIEF.`;
 
 角色列表: ${characterNames.join(", ")}
 
-对每对有重要关系的角色，描述：
-- characterA 和 characterB: 两个角色名
-- type: family=家人/friend=朋友/enemy=敌人/rival=对手/lover=恋人/colleague=同僚/mentor-student=师徒/acquaintance=相识/other=其他
+对每对有重要互动的角色，描述：
+- characterA 和 characterB
+- type: family/friend/enemy/rival/lover/colleague/mentor-student/acquaintance/other
 - description: 关系动态的详细描述
+- history: 两人如何认识、经历过什么关键事件
+- dynamics: 权力动态——谁占主导、谁被动、互相利用还是平等？
 
 小说原文：
 ${this.novelContext}
 
-请包含所有重要的关系，不要遗漏任何在小说中有互动的角色对。`;
+包含所有重要关系，不要遗漏。`;
 
-    const promptEn = `You are a literary analyst. Map the relationships between ALL pairs of the following characters from the novel.
+    const promptEn = `Map relationships between these characters.
 
 Characters: ${characterNames.join(", ")}
 
-For each pair that has a meaningful relationship, describe:
-- characterA and characterB: the two characters
-- type: family / friend / enemy / rival / lover / colleague / mentor-student / acquaintance / other
-- description: detailed description of their relationship dynamics
+For each pair with meaningful interaction:
+- characterA and characterB
+- type: family/friend/enemy/rival/lover/colleague/mentor-student/acquaintance/other
+- description: relationship dynamics
+- history: how they met, key shared events
+- dynamics: power balance — who dominates, equal, mutual dependency?
 
 NOVEL CONTEXT:
-${this.novelContext}
-
-Include ALL significant relationships.`;
+${this.novelContext}`;
 
     const result = await llm.chatWithTool<{ relationships: RawRelationship[] }>(
       [{ role: "user", content: this.zh ? promptZh : promptEn }],

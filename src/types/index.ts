@@ -4,30 +4,68 @@
 
 // --- Character Profile ---
 
-export interface CharacterProfile {
-  id: string;
-  name: string;
-  aliases: string[];
-  personality: {
-    traits: string[];
-    description: string;
-  };
-  behavior: {
-    patterns: string[];
-    habits: string[];
-  };
-  worldview: string;
-  values: string[];
-  speakingStyle: string;
-  background: string;
-  relationships: Relationship[];
+export interface Appearance {
+  summary: string; // 综合外貌描述
+}
+
+export interface Personality {
+  traits: string[];
+  description: string;
+  decisionStyle: string;    // 决策风格（冲动/谨慎/感性/理性）
+  underPressure: string;    // 压力下的反应
+}
+
+export interface Drive {
+  goal: string;             // 核心目标/追求
+  motivation: string;       // 为什么要追求这个目标
+  fear: string;             // 最大的恐惧
+  weakness: string;         // 性格弱点
+  bottomLine: string;       // 底线/绝不做什么
+  secret: string;           // 隐藏的秘密
+}
+
+export interface Behavior {
+  patterns: string[];       // 行为模式
+  habits: string[];         // 习惯与癖好
+  attitudeToAuthority: string; // 对权威的态度
+}
+
+export interface SpeakingStyleDetail {
+  description: string;          // 整体说话风格描述
+  catchphrases: string[];       // 口头禅/语气词
+  sentenceStyle: string;        // 句式特点（短促/长篇/反问/陈述）
+  vocabulary: string;           // 词汇水平（粗俗/文雅/专业）
+  emotionalExpression: string;  // 不同情绪下的表达方式
+}
+
+export interface BackgroundDetail {
+  origin: string;               // 出身/家庭/阶层/成长地
+  keyEvents: string[];          // 改变人生的 2-3 个转折点
+  description: string;          // 整体背景描述
 }
 
 export interface Relationship {
   characterId: string;
   characterName: string;
-  type: string; // e.g., "friend", "enemy", "family", "lover", "rival"
-  description: string;
+  type: string;                 // friend/enemy/family/lover/rival/mentor-student/colleague/other
+  description: string;          // 从本角色视角看的关系描述
+  history: string;              // 认识过程/关键事件
+  dynamics: string;             // 权力动态（谁主导、谁被动、平等）
+}
+
+export interface CharacterProfile {
+  id: string;
+  name: string;
+  aliases: string[];
+  appearance: Appearance;
+  personality: Personality;
+  drive: Drive;
+  behavior: Behavior;
+  worldview: string;
+  values: string[];
+  speakingStyle: SpeakingStyleDetail;
+  background: BackgroundDetail;
+  relationships: Relationship[];
 }
 
 // --- Structured Novel Input (folder upload) ---
