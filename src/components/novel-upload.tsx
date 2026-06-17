@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { Upload, Loader2 } from "lucide-react";
+import { useRateLimitCooldown } from "@/lib/rate-limit-ui";
 
 interface NovelUploadProps {
   onParsed: (title: string, fullText: string, preview: string) => void;
@@ -10,6 +11,7 @@ interface NovelUploadProps {
 export default function NovelUpload({ onParsed }: NovelUploadProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const rateLimitHint = useRateLimitCooldown(error);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -90,7 +92,9 @@ export default function NovelUpload({ onParsed }: NovelUploadProps) {
       </div>
 
       {error && (
-        <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">{error}</div>
+        <div className={`p-3 rounded-md text-sm ${rateLimitHint ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-destructive/10 text-destructive"}`}>
+          {rateLimitHint || error}
+        </div>
       )}
     </div>
   );

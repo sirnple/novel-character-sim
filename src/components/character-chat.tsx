@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import type { CharacterProfile } from "@/types";
 import { buildCharacterIdentity } from "@/core/simulation/types";
 import { X, Send, Loader2, User } from "lucide-react";
+import { useRateLimitCooldown } from "@/lib/rate-limit-ui";
 
 interface Message {
   role: "character" | "user";
@@ -28,6 +29,8 @@ export default function CharacterChat({
   const [userRole, setUserRole] = useState<UserRole>({ type: "reader" });
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const rateLimitHint = useRateLimitCooldown(chatError);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Other characters the user can play as (exclude current chat character)
@@ -125,12 +128,13 @@ ${rel ? `你们的关系：${rel.description}` : `你认识${userRole.profile.na
 
       const data = await res.json();
       if (res.ok) {
+        setChatError("");
         setMessages((prev) => [...prev, { role: "character", content: data.reply }]);
       } else {
-        setMessages((prev) => [...prev, { role: "character", content: "抱歉，我现在无法回应..." }]);
+        setChatError(data.error || "");
       }
     } catch {
-      setMessages((prev) => [...prev, { role: "character", content: "抱歉，出了点问题..." }]);
+      setChatError("网络错误");
     } finally {
       setLoading(false);
     }
@@ -195,6 +199,11 @@ ${rel ? `你们的关系：${rel.description}` : `你认识${userRole.profile.na
           <div ref={bottomRef} />
         </div>
 
+        {rateLimitHint && (
+          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-700 text-xs text-center">
+            {rateLimitHint}
+          </div>
+        )}
         <div className="p-4 border-t flex gap-2">
           <input
             className="flex-1 px-3 py-2 border rounded-md bg-background text-sm"

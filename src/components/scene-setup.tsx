@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { CharacterProfile, SceneDefinition, StoryInfo } from "@/types";
 import { Clapperboard, Play, Sparkles, Loader2 } from "lucide-react";
+import { useRateLimitCooldown } from "@/lib/rate-limit-ui";
 
 interface SceneSetupProps {
   characters: CharacterProfile[];
@@ -23,6 +24,8 @@ interface Recommendation {
 
 export default function SceneSetup({ characters, storyInfo, scene, onSceneChange, onStartSimulation, disabled, cachedRecommendations, onCacheRecommendations }: SceneSetupProps) {
   const [recLoading, setRecLoading] = useState(false);
+  const [recError, setRecError] = useState("");
+  const rateLimitHint = useRateLimitCooldown(recError);
   const recommendations = cachedRecommendations || [];
 
   const update = (patch: Partial<SceneDefinition>) => onSceneChange({ ...scene, ...patch });
@@ -51,6 +54,7 @@ export default function SceneSetup({ characters, storyInfo, scene, onSceneChange
 
   const fetchRecommendations = async () => {
     setRecLoading(true);
+    setRecError("");
     try {
       const res = await fetch("/api/scene/recommend", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -58,7 +62,8 @@ export default function SceneSetup({ characters, storyInfo, scene, onSceneChange
       });
       const data = await res.json();
       if (res.ok) onCacheRecommendations(data.recommendations || []);
-    } catch {} finally { setRecLoading(false); }
+      else setRecError(data.error || "生成失败");
+    } catch { setRecError("网络错误"); } finally { setRecLoading(false); }
   };
 
   const canStart = scene.location.trim() && scene.initialSituation.trim() && scene.characterIds.length > 0 && !disabled;
@@ -77,6 +82,11 @@ export default function SceneSetup({ characters, storyInfo, scene, onSceneChange
           {recLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
           {recLoading ? "生成中..." : "AI 推荐场景"}
         </button>
+        {recError && (
+          <p className={`text-xs mt-1 ${rateLimitHint ? "text-amber-600" : "text-destructive"}`}>
+            {rateLimitHint || recError}
+          </p>
+        )}
         {recommendations.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
             {recommendations.map((rec, i) => (

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { CharacterProfile } from "@/types";
 import { Users, Loader2, ChevronDown, ChevronUp, Edit3, Download, MessageCircle } from "lucide-react";
+import { useRateLimitCooldown } from "@/lib/rate-limit-ui";
 import CharacterEditor from "./character-editor";
 import CharacterChat from "./character-chat";
 
@@ -28,6 +29,7 @@ export default function CharacterCards({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [chattingId, setChattingId] = useState<string | null>(null);
+  const rateLimitHint = useRateLimitCooldown(error);
 
   // Persist chat histories across dialog open/close
   const [chatHistories, setChatHistories] = useState<
@@ -165,8 +167,8 @@ ${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.descri
       )}
 
       {error && (
-        <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
-          {error}
+        <div className={`p-3 rounded-md text-sm ${rateLimitHint ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-destructive/10 text-destructive"}`}>
+          {rateLimitHint || error}
         </div>
       )}
 
