@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SimulationState } from "@/types";
-import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
+import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
 // In-memory saved simulations store
 const savedSimulations = new Map<string, SimulationState>();
 
 export async function POST(request: NextRequest) {
-  const ip = getClientIP(request);
-  const rate = checkRateLimit(ip, "simulation_save", { windowMs: 60_000, maxRequests: 30 });
+  const userId = getUserId(request);
+  const rate = checkRateLimit(userId, "simulation_save", { windowMs: 60_000, maxRequests: 30 });
   if (!rate.allowed) {
     return NextResponse.json(
       { error: rateLimitMessage(rate) },
@@ -27,8 +27,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const ip = getClientIP(request);
-  const rate = checkRateLimit(ip, "simulation_save_get", { windowMs: 60_000, maxRequests: 60 });
+  const userId = getUserId(request);
+  const rate = checkRateLimit(userId, "simulation_save_get", { windowMs: 60_000, maxRequests: 60 });
   if (!rate.allowed) {
     return NextResponse.json(
       { error: rateLimitMessage(rate) },

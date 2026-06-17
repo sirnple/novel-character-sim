@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { queryRateLimit, getClientIP } from "@/lib/rate-limit";
+import { queryRateLimit, getUserId } from "@/lib/rate-limit";
 
 const ENDPOINTS = [
   { key: "chat", label: "角色对话", windowMs: 60_000, maxRequests: 20 },
@@ -10,9 +10,9 @@ const ENDPOINTS = [
 ];
 
 export async function GET(request: NextRequest) {
-  const ip = getClientIP(request);
+  const userId = getUserId(request);
   const limits = ENDPOINTS.map((e) => {
-    const status = queryRateLimit(ip, e.key, { windowMs: e.windowMs, maxRequests: e.maxRequests });
+    const status = queryRateLimit(userId, e.key, { windowMs: e.windowMs, maxRequests: e.maxRequests });
     return {
       key: e.key,
       label: e.label,

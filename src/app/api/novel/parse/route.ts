@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseNovel } from "@/core/parser/novel-parser";
-import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
+import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import iconv from "iconv-lite";
 import AdmZip from "adm-zip";
 
@@ -30,8 +30,8 @@ function decodeChineseText(buffer: Buffer): string {
 const MAX_FILE_BYTES = 5 * 1024 * 1024;  // 5 MB
 
 export async function POST(request: NextRequest) {
-  const ip = getClientIP(request);
-  const rate = checkRateLimit(ip, "novel_parse", { windowMs: 60_000, maxRequests: 30 });
+  const userId = getUserId(request);
+  const rate = checkRateLimit(userId, "novel_parse", { windowMs: 60_000, maxRequests: 30 });
   if (!rate.allowed) {
     return NextResponse.json(
       { error: rateLimitMessage(rate) },

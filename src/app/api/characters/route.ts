@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CharacterProfile } from "@/types";
-import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
+import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
 // In-memory character store
 const characterStore = new Map<string, CharacterProfile[]>();
 
 export async function GET(request: NextRequest) {
-  const ip = getClientIP(request);
-  const rate = checkRateLimit(ip, "characters_get", { windowMs: 60_000, maxRequests: 60 });
+  const userId = getUserId(request);
+  const rate = checkRateLimit(userId, "characters_get", { windowMs: 60_000, maxRequests: 60 });
   if (!rate.allowed) {
     return NextResponse.json(
       { error: rateLimitMessage(rate) },
@@ -20,8 +20,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const ip = getClientIP(request);
-  const rate = checkRateLimit(ip, "characters_put", { windowMs: 60_000, maxRequests: 30 });
+  const userId = getUserId(request);
+  const rate = checkRateLimit(userId, "characters_put", { windowMs: 60_000, maxRequests: 30 });
   if (!rate.allowed) {
     return NextResponse.json(
       { error: rateLimitMessage(rate) },

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CharacterProfile, SceneDefinition, SimulationRound, WritingStyle } from "@/types";
 import { SimulationEngine } from "@/core/simulation/engine";
-import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
+import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
 // Store running simulations
 const simulationStore = new Map<
@@ -13,8 +13,8 @@ const simulationStore = new Map<
 >();
 
 export async function POST(request: NextRequest) {
-  const ip = getClientIP(request);
-  const rate = checkRateLimit(ip, "simulation_start", { windowMs: 300_000, maxRequests: 5 });
+  const userId = getUserId(request);
+  const rate = checkRateLimit(userId, "simulation_start", { windowMs: 300_000, maxRequests: 5 });
   if (!rate.allowed) {
     return NextResponse.json(
       { error: rateLimitMessage(rate) },

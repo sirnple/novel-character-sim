@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLLMProvider } from "@/core/llm/factory";
-import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
+import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
 const CHAT_SCHEMA = {
   name: "character_chat_response",
@@ -15,8 +15,8 @@ const CHAT_SCHEMA = {
 };
 
 export async function POST(request: NextRequest) {
-  const ip = getClientIP(request);
-  const rate = checkRateLimit(ip, "chat", { windowMs: 60_000, maxRequests: 20 });
+  const userId = getUserId(request);
+  const rate = checkRateLimit(userId, "chat", { windowMs: 60_000, maxRequests: 20 });
   if (!rate.allowed) {
     return NextResponse.json(
       { error: rateLimitMessage(rate) },

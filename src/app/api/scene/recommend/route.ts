@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLLMProvider } from "@/core/llm/factory";
-import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
+import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import type { CharacterProfile, StoryInfo } from "@/types";
 import { isChinese } from "@/lib/utils";
 
 export async function POST(request: NextRequest) {
-  const ip = getClientIP(request);
-  const rate = checkRateLimit(ip, "scene_recommend", { windowMs: 60_000, maxRequests: 10 });
+  const userId = getUserId(request);
+  const rate = checkRateLimit(userId, "scene_recommend", { windowMs: 60_000, maxRequests: 10 });
   if (!rate.allowed) {
     return NextResponse.json(
       { error: rateLimitMessage(rate) },

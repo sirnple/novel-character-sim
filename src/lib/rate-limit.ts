@@ -117,8 +117,21 @@ export function setRateLimitHeaders(headers: Headers, result: RateLimitResult): 
 export function getClientIP(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim();
-  // Cloudflare / some proxies use cf-connecting-ip
   const cf = request.headers.get("cf-connecting-ip");
   if (cf) return cf.trim();
   return "127.0.0.1";
+}
+
+/**
+ * Get a deterministic guest user ID from the client's IP.
+ * Same IP → same guest ID.  No frontend involvement needed.
+ */
+export function getUserId(request: Request): string {
+  const ip = getClientIP(request);
+  // Simple hash of IP to produce a stable guest ID
+  let hash = 0;
+  for (let i = 0; i < ip.length; i++) {
+    hash = ((hash << 5) - hash + ip.charCodeAt(i)) | 0;
+  }
+  return "guest_" + Math.abs(hash).toString(36);
 }

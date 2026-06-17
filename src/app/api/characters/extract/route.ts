@@ -3,13 +3,13 @@ import { parseNovel } from "@/core/parser/novel-parser";
 import { CharacterExtractor } from "@/core/extractor/character-extractor";
 import { StoryExtractor } from "@/core/extractor/story-extractor";
 import { saveNovel, saveStoryInfo, saveCharacters, getStoryInfo, getCharacters } from "@/lib/db";
-import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
+import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import type { StoryInfo, CharacterProfile } from "@/types";
 
 export async function POST(request: NextRequest) {
   // Extract is very expensive (5+ LLM calls). Strict limit.
-  const ip = getClientIP(request);
-  const rate = checkRateLimit(ip, "extract", { windowMs: 300_000, maxRequests: 3 });
+  const userId = getUserId(request);
+  const rate = checkRateLimit(userId, "extract", { windowMs: 300_000, maxRequests: 3 });
   if (!rate.allowed) {
     return NextResponse.json(
       { error: rateLimitMessage(rate) },
