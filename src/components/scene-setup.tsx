@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { CharacterProfile, SceneDefinition, StoryInfo } from "@/types";
 import { Clapperboard, Play, Sparkles, Loader2 } from "lucide-react";
-import { useRateLimitCooldown } from "@/lib/rate-limit-ui";
+import { useRateLimitCooldown, useRateLimitTip } from "@/lib/rate-limit-ui";
 
 interface SceneSetupProps {
   characters: CharacterProfile[];
@@ -26,6 +26,7 @@ export default function SceneSetup({ characters, storyInfo, scene, onSceneChange
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState("");
   const rateLimitHint = useRateLimitCooldown(recError);
+  const recLimitTip = useRateLimitTip("scene_recommend");
   const recommendations = cachedRecommendations || [];
 
   const update = (patch: Partial<SceneDefinition>) => onSceneChange({ ...scene, ...patch });
@@ -82,6 +83,7 @@ export default function SceneSetup({ characters, storyInfo, scene, onSceneChange
           {recLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
           {recLoading ? "生成中..." : "AI 推荐场景"}
         </button>
+        {recLimitTip && <span className="text-xs text-muted-foreground ml-2">{recLimitTip}</span>}
         {recError && (
           <p className={`text-xs mt-1 ${rateLimitHint ? "text-amber-600" : "text-destructive"}`}>
             {rateLimitHint || recError}

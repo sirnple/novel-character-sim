@@ -68,6 +68,32 @@ export function checkRateLimit(
 }
 
 /**
+ * Query current rate-limit status WITHOUT incrementing the counter.
+ * Used by /api/limit-status to show remaining quota.
+ */
+export function queryRateLimit(
+  ip: string,
+  endpoint: string,
+  config: RateLimitConfig
+): RateLimitResult {
+  cleanExpired();
+
+  const now = Date.now();
+  let buckets = store.get(ip);
+  if (!buckets) {
+    return { allowed: true, remaining: config.maxRequests, limit: config.maxRequests, resetAt: now + config.windowMs };
+  }
+
+  const entry = buckets.get(endpoint);
+  if (!entry || now > entry.resetAt) {
+    return { allowed: true, remaining: config.maxRequests, limit: config.maxRequests, resetAt: now + config.windowMs };
+  }
+
+  const remaining = Math.max(0, config.maxRequests - entry.count);
+  return { allowed: remaining > 0, remaining, limit: config.maxRequests, resetAt: entry.resetAt };
+}
+
+/**
  * Format rate limit error message with counts and time.
  */
 export function rateLimitMessage(result: RateLimitResult): string {

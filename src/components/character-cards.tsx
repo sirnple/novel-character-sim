@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { CharacterProfile } from "@/types";
 import { Users, Loader2, ChevronDown, ChevronUp, Edit3, Download, MessageCircle } from "lucide-react";
-import { useRateLimitCooldown } from "@/lib/rate-limit-ui";
+import { useRateLimitCooldown, useRateLimitTip } from "@/lib/rate-limit-ui";
 import CharacterEditor from "./character-editor";
 import CharacterChat from "./character-chat";
 
@@ -30,6 +30,7 @@ export default function CharacterCards({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [chattingId, setChattingId] = useState<string | null>(null);
   const rateLimitHint = useRateLimitCooldown(error);
+  const extractLimitTip = useRateLimitTip("extract");
 
   // Persist chat histories across dialog open/close
   const [chatHistories, setChatHistories] = useState<
@@ -148,6 +149,7 @@ ${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.descri
               "提取角色"
             )}
           </button>
+          {extractLimitTip && <p className="text-xs text-muted-foreground mt-1">{extractLimitTip}</p>}
         </div>
       )}
 

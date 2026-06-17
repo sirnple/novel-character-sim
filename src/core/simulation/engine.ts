@@ -109,9 +109,14 @@ export class SimulationEngine {
           this.onEvent({ type: "director", decision: directorDecision });
 
           // Build scheduling summary for channel + round record
-          const scheduleSummary = zh
+          let scheduleSummary = zh
             ? `节拍${directorDecision.beatNumber} | 聚焦${directorDecision.focusCharacter} | ${directorDecision.moodTone} | 冲突${directorDecision.conflictIntensity}/10 | ${directorDecision.pacing === "fast" ? "快节奏" : directorDecision.pacing === "slow" ? "慢节奏" : "中速"}`
             : `Beat ${directorDecision.beatNumber} | Focus ${directorDecision.focusCharacter} | ${directorDecision.moodTone} | Conflict ${directorDecision.conflictIntensity}/10 | ${directorDecision.pacing}`;
+
+          // Round 1: include opening situation so characters have a concrete trigger
+          if (roundNum === 0 && this.state.scene.initialSituation) {
+            scheduleSummary = (zh ? `开场：${this.state.scene.initialSituation}\n` : `Opening: ${this.state.scene.initialSituation}\n`) + scheduleSummary;
+          }
 
           this.channels.send("director", "导演", "public", {
             dialogue: `[调度] ${scheduleSummary}`,

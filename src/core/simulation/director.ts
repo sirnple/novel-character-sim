@@ -262,7 +262,7 @@ ${outlineContext}${plotContext}${historyContext}
 - 冲突强度 1-10？
 - 哪些角色需要回应？
 
-如果大纲最后一个节拍已完成或场景到了自然终点，设 isSceneEnd: true。`
+只有场景的戏剧弧线真正完结（冲突已解决、情感已释放、没有更多可发展的）时才设 isSceneEnd: true。即使大纲节拍已全部完成，如果还有戏剧张力，就继续。宁可多一轮也不要草率结束。`
     : `You are the SCHEDULER, not the narrator. Do NOT write narrative.
 
 ${outlineContext}${plotContext}${historyContext}
