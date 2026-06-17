@@ -6,9 +6,10 @@ const DB_PATH = path.join(process.cwd(), "data", "novels.db");
 
 let db: Database.Database | null = null;
 
+let migrated = false;
+
 function getDb(): Database.Database {
   if (!db) {
-    // Ensure data directory exists
     const dir = path.dirname(DB_PATH);
     const fs = require("fs");
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -17,7 +18,39 @@ function getDb(): Database.Database {
     db.pragma("journal_mode = WAL");
     initSchema(db);
   }
+  if (!migrated) {
+    migrateOldData(db!);
+    migrated = true;
+  }
   return db;
+}
+
+/**
+ * Clear character data that uses the old flat schema
+ * (speakingStyle/background as strings).  New code expects nested objects.
+ */
+function migrateOldData(d: Database.Database): void {
+  const rows = d.prepare("SELECT id, data FROM characters").all() as { id: string; data: string }[];
+  if (rows.length === 0) return;
+
+  let needsClean = false;
+  for (const row of rows) {
+    try {
+      const c = JSON.parse(row.data);
+      // Old format: speakingStyle is a string, not an object
+      if (typeof c.speakingStyle === "string") {
+        needsClean = true;
+        break;
+      }
+    } catch { needsClean = true; break; }
+  }
+
+  if (needsClean) {
+    console.log("[DB] Old character data detected — clearing. Please re-extract characters.");
+    d.prepare("DELETE FROM characters").run();
+    d.prepare("DELETE FROM novels").run();
+    d.prepare("DELETE FROM story_info").run();
+  }
 }
 
 function initSchema(db: Database.Database) {
