@@ -43,12 +43,8 @@ export async function POST(request: NextRequest) {
       { temperature: 0.9, maxTokens: 800 }
     );
 
-    // Format into a natural-looking message for the UI
-    const parts: string[] = [result.dialogue];
-    if (result.actions) parts.push("\n\n_" + result.actions + "_");
-    if (result.innerThoughts) parts.push("\n\n💭 " + result.innerThoughts);
-
-    return NextResponse.json({ reply: parts.join("") });
+    // Only render dialogue in chat — actions/thoughts are internal
+    return NextResponse.json({ reply: result.dialogue });
   } catch (error) {
     console.error("Chat error:", error);
     return NextResponse.json({ error: "Chat failed" }, { status: 500 });

@@ -7,6 +7,77 @@ function isZh(profile: CharacterProfile): boolean {
   return cjk > sample.length * 0.1;
 }
 
+/**
+ * Build just the character's identity/profile description,
+ * WITHOUT scene/improvisation instructions.
+ * Used for direct chat where the character talks to a reader or another character.
+ */
+export function buildCharacterIdentity(profile: CharacterProfile): string {
+  const zh = isZh(profile);
+
+  if (zh) {
+    return `你是"${profile.name}"，小说中的一个角色。
+
+## 你的身份
+- 名字：${profile.name}
+${profile.aliases.length > 0 ? `- 别名：${profile.aliases.join("、")}` : ""}
+
+## 你的性格
+${profile.personality.traits.map((t) => `- ${t}`).join("\n")}
+${profile.personality.description}
+
+## 你的行为模式
+${profile.behavior.patterns.map((p) => `- ${p}`).join("\n")}
+
+## 你的习惯与癖好
+${profile.behavior.habits.map((h) => `- ${h}`).join("\n")}
+
+## 你的世界观
+${profile.worldview}
+
+## 你的核心价值观
+${profile.values.map((v) => `- ${v}`).join("\n")}
+
+## 你的说话风格
+${profile.speakingStyle}
+
+## 你的背景
+${profile.background}
+
+## 你的人际关系
+${profile.relationships
+  .map((r) => `- ${r.characterName}：${r.type} — ${r.description}`)
+  .join("\n")}`;
+  }
+
+  return `You are "${profile.name}", a character from a novel.
+
+## Your Identity
+- Name: ${profile.name}
+${profile.aliases.length > 0 ? `- Also known as: ${profile.aliases.join(", ")}` : ""}
+
+## Your Personality
+${profile.personality.traits.map((t) => `- ${t}`).join("\n")}
+${profile.personality.description}
+
+## Your Behavioral Patterns
+${profile.behavior.patterns.map((p) => `- ${p}`).join("\n")}
+## Your Habits & Mannerisms
+${profile.behavior.habits.map((h) => `- ${h}`).join("\n")}
+## Your Worldview
+${profile.worldview}
+## Your Core Values
+${profile.values.map((v) => `- ${v}`).join("\n")}
+## Your Speaking Style
+${profile.speakingStyle}
+## Your Background
+${profile.background}
+## Your Relationships
+${profile.relationships
+  .map((r) => `- ${r.characterName}: ${r.type} — ${r.description}`)
+  .join("\n")}`;
+}
+
 export function buildCharacterSystemPrompt(profile: CharacterProfile): string {
   const zh = isZh(profile);
 

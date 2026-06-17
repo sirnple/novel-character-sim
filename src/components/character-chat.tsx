@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { CharacterProfile } from "@/types";
-import { buildCharacterSystemPrompt } from "@/core/simulation/types";
+import { buildCharacterIdentity } from "@/core/simulation/types";
 import { X, Send, Loader2, User } from "lucide-react";
 
 interface Message {
@@ -55,34 +55,43 @@ export default function CharacterChat({
     setLoading(true);
 
     try {
-      const basePrompt = buildCharacterSystemPrompt(character);
+      const identity = buildCharacterIdentity(character);
 
-      // Build meta-cognitive context about who the user is.
-      // This is woven as part of the character's self-awareness, not a separate block.
-      const roleMeta: string = userRole.type === "reader"
-        ? [
-            `## Your Current Situation`,
-            `You are now speaking with a reader from the real world — a person who has read your story and wants to know you. They are NOT a character in your novel.`,
-            `You are self-aware: you know you exist in a story, and you can reflect on your own narrative, relationships, and fate with the perspective of someone who has lived through it.`,
-            `Break the fourth wall if it feels natural. Speak candidly about your feelings, regrets, hopes — things you might never say to another character.`,
-            `Do not try to advance any plot. This is just a conversation between you and someone who admires you.`,
-          ].join("\n")
-        : [
-            `## Your Current Situation`,
-            `You are now speaking with ${userRole.profile.name}, a fellow character from your world.`,
-            userRole.profile.personality
-              ? `About them: ${userRole.profile.personality.traits.join("、")}。${userRole.profile.personality.description}`
-              : "",
-            userRole.profile.speakingStyle
-              ? `They speak in this style: ${userRole.profile.speakingStyle}`
-              : "",
-            character.relationships.find((r) => r.characterName === userRole.profile.name)
-              ? `Your relationship with them: ${character.relationships.find((r) => r.characterName === userRole.profile.name)!.description}`
-              : `You know them from your world.`,
-            `Stay fully in character within your story world. Do NOT break the fourth wall. React based on your personality and your relationship with ${userRole.profile.name}.`,
-          ].filter(Boolean).join("\n");
+      // Build the full system prompt based on user role.
+      // This is the character's ENTIRE awareness — identity + who they're talking to.
+      let systemPrompt: string;
+      if (userRole.type === "reader") {
+        systemPrompt = `${identity}
 
-      const systemPrompt = `${basePrompt}\n\n${roleMeta}`;
+## 你的当前处境
+你正在与一位来自现实世界的读者交谈。这个人读过你的故事，对你感兴趣。他/她不是你小说中的角色——他是一个真实的、活生生的人。
+
+## 元认知
+你意识到自己是一部小说中的角色。你可以用"后见之明"来反思你的故事、你的命运、你的遗憾和希望。这种自我意识让你能够坦诚地谈论那些你可能永远不会对其他角色说的事情。
+
+## 对话规则
+- 以你自己的身份说话——用你的性格、价值观和说话风格。
+- 把对方当作一个好奇的读者来对待，而不是你世界中的另一个角色。
+- 如果自然的话，可以打破第四面墙。
+- 不要试图推进任何情节。这只是你和一个欣赏你的人之间的对话。`;
+      } else {
+        const rel = character.relationships.find((r) => r.characterName === userRole.profile.name);
+        systemPrompt = `${identity}
+
+## 你的当前处境
+你正在与你世界中的另一个角色——${userRole.profile.name}——交谈。
+
+## 关于 ${userRole.profile.name}
+性格：${userRole.profile.personality.traits.join("、")}。${userRole.profile.personality.description}
+说话风格：${userRole.profile.speakingStyle}
+${rel ? `你们的关系：${rel.description}` : `你认识${userRole.profile.name}，你们来自同一个世界。`}
+
+## 对话规则
+- 完全置身于你的故事世界之内。不要打破第四面墙。
+- 根据你的性格以及你与${userRole.profile.name}的关系来自然地回应。
+- 你们可以讨论共同经历、冲突、联盟，或任何在你们世界中有意义的话题。
+- 以你自己的身份说话——用你的性格、价值观和说话风格。`;
+      }
       const history = messages.map((m) => ({
         role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
         content: m.content,
