@@ -4,13 +4,11 @@ import { checkRateLimit, getClientIP } from "@/lib/rate-limit";
 
 const CHAT_SCHEMA = {
   name: "character_chat_response",
-  description: "Character's response in a free-form chat",
+  description: "What the character says in conversation",
   parameters: {
     type: "object",
     properties: {
       dialogue: { type: "string", description: "What the character says" },
-      actions: { type: "string", description: "Character actions / body language (can be empty)" },
-      innerThoughts: { type: "string", description: "Inner thoughts (can be empty)" },
     },
     required: ["dialogue"],
   },
@@ -33,17 +31,12 @@ export async function POST(request: NextRequest) {
     }
 
     const llm = createLLMProvider();
-    const result = await llm.chatWithTool<{
-      dialogue: string;
-      actions?: string;
-      innerThoughts?: string;
-    }>(
+    const result = await llm.chatWithTool<{ dialogue: string }>(
       [{ role: "system", content: systemPrompt }, ...messages],
       CHAT_SCHEMA,
       { temperature: 0.9, maxTokens: 800 }
     );
 
-    // Only render dialogue in chat — actions/thoughts are internal
     return NextResponse.json({ reply: result.dialogue });
   } catch (error) {
     console.error("Chat error:", error);
