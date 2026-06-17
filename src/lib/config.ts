@@ -1,26 +1,38 @@
 import type { AppConfig, LLMProviderType } from "@/types";
 
+/**
+ * Read an env var at RUNTIME (not build-time).
+ *
+ * IMPORTANT: We use bracket notation `process.env[name]` instead of
+ * `process.env.NAME` because Next.js webpack's DefinePlugin inlines
+ * the latter at build time.  Bracket notation survives bundling so
+ * Railway / Docker runtime variables are picked up correctly.
+ */
+function env(name: string, fallback: string = ""): string {
+  return (process.env as Record<string, string | undefined>)[name] || fallback;
+}
+
 export function getAppConfig(): AppConfig {
-  const provider = (process.env.LLM_PROVIDER || "claude") as LLMProviderType;
+  const provider = (env("LLM_PROVIDER", "claude")) as LLMProviderType;
 
   return {
     llm: {
       provider,
       claude: {
-        apiKey: process.env.ANTHROPIC_API_KEY || "",
-        model: process.env.CLAUDE_MODEL || "claude-sonnet-4-6",
+        apiKey: env("ANTHROPIC_API_KEY"),
+        model: env("CLAUDE_MODEL", "claude-sonnet-4-6"),
       },
       openai: {
-        apiKey: process.env.OPENAI_API_KEY || "",
-        model: process.env.OPENAI_MODEL || "gpt-4o",
+        apiKey: env("OPENAI_API_KEY"),
+        model: env("OPENAI_MODEL", "gpt-4o"),
       },
       deepseek: {
-        apiKey: process.env.DEEPSEEK_API_KEY || "",
-        model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
-        baseURL: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1",
+        apiKey: env("DEEPSEEK_API_KEY"),
+        model: env("DEEPSEEK_MODEL", "deepseek-chat"),
+        baseURL: env("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
       },
-      maxTokens: parseInt(process.env.LLM_MAX_TOKENS || "4096", 10),
-      temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.7"),
+      maxTokens: parseInt(env("LLM_MAX_TOKENS", "4096"), 10),
+      temperature: parseFloat(env("LLM_TEMPERATURE", "0.7")),
     },
   };
 }
