@@ -53,17 +53,6 @@ function migrateOldData(d: Database.Database): void {
   }
 }
 
-/** Add user_id column if missing (migration from old schema). */
-function ensureColumn(db: Database.Database, table: string, col: string, def: string): void {
-  try {
-    // Test if column exists by querying it
-    db.prepare(`SELECT ${col} FROM ${table} LIMIT 1`).get();
-  } catch {
-    console.log(`[DB] Adding ${col} to ${table}...`);
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT NOT NULL DEFAULT '${def}'`);
-  }
-}
-
 function initSchema(db: Database.Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS novels (
@@ -129,11 +118,11 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_novels_user ON novels(user_id);
   `);
 
-  // Migrate old tables that may be missing user_id
-  ensureColumn(db, "novels", "user_id", "guest");
-  ensureColumn(db, "story_info", "user_id", "guest");
-  ensureColumn(db, "characters", "user_id", "guest");
-  ensureColumn(db, "simulations", "user_id", "guest");
+  // Migrate old tables that may be missing user_id.
+  // Use exec with error suppression — SQLite has no IF NOT EXISTS for ALTER TABLE.
+  for (const table of ["novels", "story_info", "characters", "simulations"]) {
+    try { db.exec(`ALTER TABLE ${table} ADD COLUMN user_id TEXT NOT NULL DEFAULT 'guest'`); console.log(`[DB] Added user_id to ${table}`); } catch { /* already exists */ }
+  }
 }
 
 // ---- Novel CRUD ----
