@@ -48,9 +48,16 @@ export default function CharacterChat({
       : [{ role: "character", content: greeting }]
   );
 
-  // Persist to parent whenever messages change
+  // Persist to parent + server whenever messages change
   useEffect(() => {
     onMessagesChange(messages);
+    if (messages.length > 1) {
+      fetch("/api/chat/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ characterId: character.id, messages }),
+      }).catch(() => {});
+    }
   }, [messages]);
 
   // Reset messages when role changes (clear old conversation from other role)

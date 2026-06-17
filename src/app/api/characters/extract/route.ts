@@ -29,8 +29,8 @@ export async function POST(request: NextRequest) {
 
     // Check if cached results exist and refresh not forced
     if (!forceRefresh) {
-      const cachedStory = getStoryInfo(novelId);
-      const cachedChars = getCharacters(novelId);
+      const cachedStory = getStoryInfo(userId, novelId);
+      const cachedChars = getCharacters(userId, novelId);
       if (cachedStory && cachedChars.length > 0) {
         console.log(`[Extract] Using cached data for ${novelId}`);
         return NextResponse.json({ storyInfo: cachedStory, characters: cachedChars, fromCache: true });
@@ -38,19 +38,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Save novel text
-    saveNovel(novelId, parsed.title, text);
+    saveNovel(userId, novelId, parsed.title, text);
 
     // Extract story/world info
     console.log("[Extract] Starting story extraction...");
     const storyExtractor = new StoryExtractor(parsed);
     const storyInfo: StoryInfo = await storyExtractor.extract();
-    saveStoryInfo(novelId, storyInfo);
+    saveStoryInfo(userId, novelId, storyInfo);
 
     // Extract characters
     console.log("[Extract] Starting character extraction...");
     const charExtractor = new CharacterExtractor(parsed);
     const characters: CharacterProfile[] = await charExtractor.extractAll();
-    saveCharacters(novelId, characters);
+    saveCharacters(userId, novelId, characters);
 
     return NextResponse.json({ storyInfo, characters, fromCache: false });
   } catch (error) {

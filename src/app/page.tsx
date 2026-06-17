@@ -165,6 +165,34 @@ export default function Home() {
     }
   };
 
+  // Auto-save scene to DB on change (debounced)
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
+  useEffect(() => {
+    if (!novelId || scene.location.trim() === "") return;
+    const timer = setTimeout(() => {
+      fetch("/api/scene/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sceneId: `scene_${novelId}`, novelId, scene: sceneRef.current }),
+      }).catch(() => {});
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [novelId, scene]);
+
+  // Load persisted scene on novel change
+  useEffect(() => {
+    if (!novelId) return;
+    fetch(`/api/scene/save?sceneId=scene_${novelId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && data.location !== undefined) {
+          setScene(data as SceneDefinition);
+        }
+      })
+      .catch(() => {});
+  }, [novelId]);
+
   const handleStartSimulation = (sceneDef: SceneDefinition) => {
     setScene(sceneDef);
     setSimState(null); // Clear previous simulation results

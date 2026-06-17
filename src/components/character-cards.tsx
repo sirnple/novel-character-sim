@@ -37,6 +37,19 @@ export default function CharacterCards({
     Record<string, { role: "character" | "user"; content: string }[]>
   >({});
 
+  // Load persisted chat history from server when opening a chat
+  const openChat = (charId: string) => {
+    fetch(`/api/chat/history?characterId=${charId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.messages) {
+          setChatHistories((prev) => ({ ...prev, [charId]: data.messages }));
+        }
+      })
+      .catch(() => {});
+    setChattingId(charId);
+  };
+
   const handleDelete = (id: string) => {
     onUpdate(characters.filter((c) => c.id !== id));
   };
@@ -226,7 +239,7 @@ ${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.descri
                     className="p-1 hover:bg-secondary rounded"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setChattingId(char.id);
+                      openChat(char.id);
                     }}
                     title="对话"
                   >
