@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SimulationState } from "@/types";
-import { checkRateLimit, getClientIP } from "@/lib/rate-limit";
+import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
 
 // In-memory saved simulations store
 const savedSimulations = new Map<string, SimulationState>();
@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
   const rate = checkRateLimit(ip, "simulation_save", { windowMs: 60_000, maxRequests: 30 });
   if (!rate.allowed) {
     return NextResponse.json(
-      { error: `请求太频繁，请 ${Math.ceil((rate.resetAt - Date.now()) / 1000)} 秒后重试` },
+      { error: rateLimitMessage(rate) },
       { status: 429 }
     );
   }
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
   const rate = checkRateLimit(ip, "simulation_save_get", { windowMs: 60_000, maxRequests: 60 });
   if (!rate.allowed) {
     return NextResponse.json(
-      { error: `请求太频繁，请 ${Math.ceil((rate.resetAt - Date.now()) / 1000)} 秒后重试` },
+      { error: rateLimitMessage(rate) },
       { status: 429 }
     );
   }

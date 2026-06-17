@@ -32,11 +32,18 @@ function cleanExpired(): void {
   });
 }
 
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  limit: number;       // max requests in window
+  resetAt: number;      // when the window resets (ms timestamp)
+}
+
 export function checkRateLimit(
   ip: string,
   endpoint: string,
   config: RateLimitConfig
-): { allowed: boolean; resetAt: number } {
+): RateLimitResult {
   cleanExpired();
 
   const now = Date.now();
@@ -54,11 +61,27 @@ export function checkRateLimit(
 
   entry.count++;
 
-  if (entry.count > config.maxRequests) {
-    return { allowed: false, resetAt: entry.resetAt };
-  }
+  const remaining = Math.max(0, config.maxRequests - entry.count);
+  const allowed = entry.count <= config.maxRequests;
 
-  return { allowed: true, resetAt: entry.resetAt };
+  return { allowed, remaining, limit: config.maxRequests, resetAt: entry.resetAt };
+}
+
+/**
+ * Format rate limit error message with counts and time.
+ */
+export function rateLimitMessage(result: RateLimitResult): string {
+  const sec = Math.ceil((result.resetAt - Date.now()) / 1000);
+  return `请求太频繁（${result.remaining}/${result.limit} 可用），请 ${sec} 秒后重试`;
+}
+
+/**
+ * Set standard rate-limit response headers.
+ */
+export function setRateLimitHeaders(headers: Headers, result: RateLimitResult): void {
+  headers.set("X-RateLimit-Limit", String(result.limit));
+  headers.set("X-RateLimit-Remaining", String(result.remaining));
+  headers.set("X-RateLimit-Reset", String(result.resetAt));
 }
 
 /**

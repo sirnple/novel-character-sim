@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listNovels, getNovel, getStoryInfo, getCharacters, deleteNovel } from "@/lib/db";
-import { checkRateLimit, getClientIP } from "@/lib/rate-limit";
+import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
   const ip = getClientIP(request);
   const rate = checkRateLimit(ip, "novels_get", { windowMs: 60_000, maxRequests: 60 });
   if (!rate.allowed) {
     return NextResponse.json(
-      { error: `请求太频繁，请 ${Math.ceil((rate.resetAt - Date.now()) / 1000)} 秒后重试` },
+      { error: rateLimitMessage(rate) },
       { status: 429 }
     );
   }
@@ -30,7 +30,7 @@ export async function DELETE(request: NextRequest) {
   const rate = checkRateLimit(ip, "novels_delete", { windowMs: 60_000, maxRequests: 20 });
   if (!rate.allowed) {
     return NextResponse.json(
-      { error: `请求太频繁，请 ${Math.ceil((rate.resetAt - Date.now()) / 1000)} 秒后重试` },
+      { error: rateLimitMessage(rate) },
       { status: 429 }
     );
   }

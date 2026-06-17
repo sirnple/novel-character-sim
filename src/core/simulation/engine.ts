@@ -100,64 +100,9 @@ export class SimulationEngine {
 
         if (isFreeMode) {
           // --- Free Mode ---
-          // Characters take turns; each decides which channel to speak on (or pass)
-          for (const char of presentChars) {
-            this.onEvent({ type: "character_responding", characterName: char.name });
-
-            const visibleChannels = this.channels.getCharChannels(char.id);
-            const charMessages = this.channels.getForCharacter(char.id, lastTimestamp);
-            const charPrivateMsgs = charMessages.filter((m) => m.channelId !== "public");
-            const publicMsgs = charMessages.filter((m) => m.channelId === "public");
-
-            const channelInfo = visibleChannels
-              .map((ch) => {
-                if (ch.id === "public") return "公共频道（所有人可见）";
-                const other = ch.participants.find((p) => p !== char.id);
-                const otherChar = presentChars.find((c) => c.id === other);
-                return `私信频道 → ${otherChar?.name || other}（只有你俩可见）`;
-              })
-              .join("\n");
-
-            const fullContext = [
-              `公共频道：\n${publicMsgs.slice(-5).map((m) => `[${m.fromCharacterName}]：${m.dialogue}`).join("\n")}`,
-              charPrivateMsgs.length > 0 ? `你的私信：\n${charPrivateMsgs.map((m) => `[${m.fromCharacterName} → 你]：${m.dialogue}`).join("\n")}` : "",
-            ].filter(Boolean).join("\n\n");
-
-            const response = await runCharacterAgent(
-              char, sceneDesc,
-              `可用频道：\n${channelInfo}\n\n${fullContext}`,
-              charMessages,
-              roundMessages
-            );
-
-            if (response.dialogue) {
-              // Resolve private channel if targeting a specific character
-              let chId = "public";
-              if (response.channelId !== "public") {
-                const target = presentChars.find((c) => c.name === response.channelId || c.name.includes(response.channelId));
-                if (target) {
-                  const privCh = this.channels.getPrivateChannel(char.id, target.id);
-                  chId = privCh ? privCh.id : "public";
-                }
-              }
-
-              const msg = this.channels.send(char.id, char.name, chId, {
-                dialogue: response.dialogue,
-                actions: response.actions,
-                innerThoughts: response.innerThoughts,
-              });
-              roundMessages.push(msg);
-
-              this.onEvent({
-                type: "character_response",
-                characterName: char.name,
-                dialogue: response.dialogue,
-                actions: response.actions,
-                innerThoughts: response.innerThoughts,
-                channelId: chId,
-              });
-            }
-          }
+          // Two passes: first each character speaks, then reactions
+          await this._runCharacterPass(presentChars, presentChars.map(c => c.name), sceneDesc, lastTimestamp, roundMessages, false);
+          await this._runCharacterPass(presentChars, presentChars.map(c => c.name), sceneDesc, lastTimestamp, roundMessages, true);
         } else {
           // --- Director Mode ---
           const directorDecision = await runDirector(this.state.characters, this.state.scene, this.state.rounds, outline);
@@ -182,65 +127,11 @@ export class SimulationEngine {
           this._lastDirectorBeat = directorDecision.beatNumber;
 
           const activeNames = directorDecision.activeCharacters;
-          for (const char of presentChars) {
-            const isActive = activeNames.length === 0 || activeNames.includes(char.name);
-            if (!isActive) continue;
+          // Pass 1: every active character speaks
+          await this._runCharacterPass(presentChars, activeNames, sceneDesc, lastTimestamp, roundMessages, false);
 
-            this.onEvent({ type: "character_responding", characterName: char.name });
-
-            const visibleChannels = this.channels.getCharChannels(char.id);
-            const charMessages = this.channels.getForCharacter(char.id, lastTimestamp);
-            const charPrivateMsgs = charMessages.filter((m) => m.channelId !== "public");
-            const publicMsgs = charMessages.filter((m) => m.channelId === "public");
-
-            const channelInfo = visibleChannels
-              .map((ch) => {
-                if (ch.id === "public") return "公共频道（所有人可见）";
-                const other = ch.participants.find((p) => p !== char.id);
-                const otherChar = presentChars.find((c) => c.id === other);
-                return `私信频道 → ${otherChar?.name || other}（只有你俩可见）`;
-              })
-              .join("\n");
-
-            const fullContext = [
-              `公共频道：\n${publicMsgs.slice(-5).map((m) => `[${m.fromCharacterName}]：${m.dialogue}`).join("\n")}`,
-              charPrivateMsgs.length > 0 ? `你的私信：\n${charPrivateMsgs.map((m) => `[${m.fromCharacterName} → 你]：${m.dialogue}`).join("\n")}` : "",
-            ].filter(Boolean).join("\n\n");
-
-            const response = await runCharacterAgent(
-              char, sceneDesc,
-              `可用频道：\n${channelInfo}\n\n${fullContext}`,
-              charMessages,
-              roundMessages
-            );
-
-            if (response.dialogue) {
-              let chId = "public";
-              if (response.channelId !== "public") {
-                const target = presentChars.find((c) => c.name === response.channelId || c.name.includes(response.channelId));
-                if (target) {
-                  const privCh = this.channels.getPrivateChannel(char.id, target.id);
-                  chId = privCh ? privCh.id : "public";
-                }
-              }
-
-              const msg = this.channels.send(char.id, char.name, chId, {
-                dialogue: response.dialogue,
-                actions: response.actions,
-                innerThoughts: response.innerThoughts,
-              });
-              roundMessages.push(msg);
-
-              this.onEvent({
-                type: "character_response",
-                characterName: char.name,
-                dialogue: response.dialogue,
-                actions: response.actions,
-                innerThoughts: response.innerThoughts,
-                channelId: chId,
-              });
-            }
-          }
+          // Pass 2 (reactions): quick responses to what others said this round
+          await this._runCharacterPass(presentChars, activeNames, sceneDesc, lastTimestamp, roundMessages, true);
 
           if (directorDecision.isSceneEnd) break;
         }
@@ -291,6 +182,83 @@ export class SimulationEngine {
     }
 
     return this.state;
+  }
+
+  /** Run one pass of character responses. Pass 2 = quick reaction. */
+  private async _runCharacterPass(
+    presentChars: CharacterProfile[],
+    activeNames: string[],
+    sceneDesc: string,
+    lastTimestamp: number,
+    roundMessages: ChannelMessage[],
+    isReactionPass: boolean
+  ): Promise<void> {
+    for (const char of presentChars) {
+      const isActive = activeNames.length === 0 || activeNames.includes(char.name);
+      if (!isActive) continue;
+
+      // On reaction pass, skip characters who haven't received new messages
+      if (isReactionPass) {
+        const newMsgs = this.channels.getForCharacter(char.id, lastTimestamp);
+        if (newMsgs.length === 0) continue;
+      }
+
+      this.onEvent({ type: "character_responding", characterName: char.name });
+
+      const visibleChannels = this.channels.getCharChannels(char.id);
+      const charMessages = this.channels.getForCharacter(char.id, lastTimestamp);
+      const charPrivateMsgs = charMessages.filter((m) => m.channelId !== "public");
+      const publicMsgs = charMessages.filter((m) => m.channelId === "public");
+
+      const channelInfo = visibleChannels
+        .map((ch) => {
+          if (ch.id === "public") return "公共频道（所有人可见）";
+          const other = ch.participants.find((p) => p !== char.id);
+          const otherChar = presentChars.find((c) => c.id === other);
+          return `私信频道 → ${otherChar?.name || other}（只有你俩可见）`;
+        })
+        .join("\n");
+
+      const fullContext = [
+        `公共频道：\n${publicMsgs.slice(-5).map((m) => `[${m.fromCharacterName}]：${m.dialogue}`).join("\n")}`,
+        charPrivateMsgs.length > 0 ? `你的私信：\n${charPrivateMsgs.map((m) => `[${m.fromCharacterName} → 你]：${m.dialogue}`).join("\n")}` : "",
+      ].filter(Boolean).join("\n\n");
+
+      const response = await runCharacterAgent(
+        char, sceneDesc,
+        `可用频道：\n${channelInfo}\n\n${fullContext}`,
+        charMessages,
+        roundMessages,
+        isReactionPass
+      );
+
+      if (response.dialogue) {
+        let chId = "public";
+        if (response.channelId !== "public") {
+          const target = presentChars.find((c) => c.name === response.channelId || c.name.includes(response.channelId));
+          if (target) {
+            const privCh = this.channels.getPrivateChannel(char.id, target.id);
+            chId = privCh ? privCh.id : "public";
+          }
+        }
+
+        const msg = this.channels.send(char.id, char.name, chId, {
+          dialogue: response.dialogue,
+          actions: response.actions,
+          innerThoughts: response.innerThoughts,
+        });
+        roundMessages.push(msg);
+
+        this.onEvent({
+          type: "character_response",
+          characterName: char.name,
+          dialogue: response.dialogue,
+          actions: response.actions,
+          innerThoughts: response.innerThoughts,
+          channelId: chId,
+        });
+      }
+    }
   }
 
   private buildSceneDescription(): string {

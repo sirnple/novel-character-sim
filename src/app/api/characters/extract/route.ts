@@ -3,7 +3,7 @@ import { parseNovel } from "@/core/parser/novel-parser";
 import { CharacterExtractor } from "@/core/extractor/character-extractor";
 import { StoryExtractor } from "@/core/extractor/story-extractor";
 import { saveNovel, saveStoryInfo, saveCharacters, getStoryInfo, getCharacters } from "@/lib/db";
-import { checkRateLimit, getClientIP } from "@/lib/rate-limit";
+import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
 import type { StoryInfo, CharacterProfile } from "@/types";
 
 export async function POST(request: NextRequest) {
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
   const rate = checkRateLimit(ip, "extract", { windowMs: 300_000, maxRequests: 3 });
   if (!rate.allowed) {
     return NextResponse.json(
-      { error: `请求太频繁，请 ${Math.ceil((rate.resetAt - Date.now()) / 1000)} 秒后重试` },
+      { error: rateLimitMessage(rate) },
       { status: 429 }
     );
   }

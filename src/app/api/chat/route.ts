@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLLMProvider } from "@/core/llm/factory";
-import { checkRateLimit, getClientIP } from "@/lib/rate-limit";
+import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
 
 const CHAT_SCHEMA = {
   name: "character_chat_response",
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   const rate = checkRateLimit(ip, "chat", { windowMs: 60_000, maxRequests: 20 });
   if (!rate.allowed) {
     return NextResponse.json(
-      { error: `请求太频繁，请 ${Math.ceil((rate.resetAt - Date.now()) / 1000)} 秒后重试` },
+      { error: rateLimitMessage(rate) },
       { status: 429 }
     );
   }

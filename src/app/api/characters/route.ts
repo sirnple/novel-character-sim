@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CharacterProfile } from "@/types";
-import { checkRateLimit, getClientIP } from "@/lib/rate-limit";
+import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
 
 // In-memory character store
 const characterStore = new Map<string, CharacterProfile[]>();
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   const rate = checkRateLimit(ip, "characters_get", { windowMs: 60_000, maxRequests: 60 });
   if (!rate.allowed) {
     return NextResponse.json(
-      { error: `请求太频繁，请 ${Math.ceil((rate.resetAt - Date.now()) / 1000)} 秒后重试` },
+      { error: rateLimitMessage(rate) },
       { status: 429 }
     );
   }
@@ -24,7 +24,7 @@ export async function PUT(request: NextRequest) {
   const rate = checkRateLimit(ip, "characters_put", { windowMs: 60_000, maxRequests: 30 });
   if (!rate.allowed) {
     return NextResponse.json(
-      { error: `请求太频繁，请 ${Math.ceil((rate.resetAt - Date.now()) / 1000)} 秒后重试` },
+      { error: rateLimitMessage(rate) },
       { status: 429 }
     );
   }

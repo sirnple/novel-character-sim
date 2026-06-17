@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CharacterProfile, SceneDefinition, SimulationRound, WritingStyle } from "@/types";
 import { SimulationEngine } from "@/core/simulation/engine";
-import { checkRateLimit, getClientIP } from "@/lib/rate-limit";
+import { checkRateLimit, getClientIP, rateLimitMessage } from "@/lib/rate-limit";
 
 // Store running simulations
 const simulationStore = new Map<
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   const rate = checkRateLimit(ip, "simulation_start", { windowMs: 300_000, maxRequests: 5 });
   if (!rate.allowed) {
     return NextResponse.json(
-      { error: `请求太频繁，请 ${Math.ceil((rate.resetAt - Date.now()) / 1000)} 秒后重试` },
+      { error: rateLimitMessage(rate) },
       { status: 429 }
     );
   }
