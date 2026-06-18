@@ -401,7 +401,7 @@ ${this.novelContext}`;
     const result = await llm.chatWithTool<{ relationships: RawRelationship[] }>(
       [{ role: "user", content: this.zh ? promptZh : promptEn }],
       RELATIONSHIP_SCHEMA,
-      { temperature: 0.3, maxTokens: 8192 }
+      { temperature: 0.3, maxTokens: 16384 }
     );
 
     return result.relationships || [];

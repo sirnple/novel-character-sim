@@ -92,54 +92,61 @@ export function extractJSON<T>(rawText: string): T {
     );
   }
 
-  // Find matching closing brace/bracket by counting nesting depth
-  const openChar = text[startIdx];
-  const closeChar = endChar;
-  let depth = 0;
+  // Find matching closing brace/bracket by counting nesting depth for both {} and []
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let inString = false;
   let endIdx = startIdx;
 
   for (let i = startIdx; i < text.length; i++) {
     const ch = text[i];
-    if (ch === openChar) depth++;
-    else if (ch === closeChar) {
-      depth--;
-      if (depth === 0) {
-        endIdx = i;
-        break;
-      }
-    }
+    const prev = i > startIdx ? text[i - 1] : "";
+    if (ch === '"' && prev !== '\\') inString = !inString;
+    if (inString) continue;
+    if (ch === '{') braceDepth++;
+    else if (ch === '}') { braceDepth--; if (braceDepth === 0 && bracketDepth === 0) { endIdx = i; break; } }
+    else if (ch === '[') bracketDepth++;
+    else if (ch === ']') { bracketDepth--; if (braceDepth === 0 && bracketDepth === 0) { endIdx = i; break; } }
   }
 
-  if (depth !== 0) {
+  const totalUnclosed = braceDepth + bracketDepth;
+  if (totalUnclosed > 0) {
     // JSON is truncated — try to salvage by auto-closing
-    console.warn(`[extractJSON] Truncated JSON detected (depth=${depth}), attempting auto-close...`);
-    // Append closing brackets to balance the JSON
+    console.warn(`[extractJSON] Truncated JSON (braceDepth=${braceDepth}, bracketDepth=${bracketDepth}), attempting auto-close...`);
     let salvage = text.substring(startIdx);
-    for (let d = 0; d < depth; d++) {
-      salvage += endChar;
-    }
-    // Close any unclosed string
+
+    // Close any unclosed string first
     const lastQuote = salvage.lastIndexOf('"');
-    const afterLastQuote = salvage.substring(lastQuote + 1);
-    if (!afterLastQuote.includes('"') && lastQuote > salvage.length - 20) {
-      salvage = salvage + '"';
+    if (lastQuote >= 0) {
+      // Count quotes after this position — odd means we're inside a string
+      const after = salvage.substring(lastQuote + 1);
+      const quoteCount = (after.match(/"/g) || []).length;
+      if (quoteCount % 2 === 0 && !after.includes('"') && lastQuote > salvage.length - 50) {
+        salvage = salvage + '"';
+      }
     }
 
+    // Close brackets first, then braces
+    for (let d = 0; d < bracketDepth; d++) salvage += ']';
+    for (let d = 0; d < braceDepth; d++) salvage += '}';
+
+    // Try parsing
     try {
       return JSON.parse(salvage) as T;
     } catch {
-      // Try cleaning as well
+      // Clean trailing commas
       const cleaned = salvage
         .replace(/,\s*}/g, "}")
         .replace(/,\s*]/g, "]")
-        .replace(/"\s*\n\s*"/g, '",\n"');
+        .replace(/,\s*,\s*}/g, "}")
+        .replace(/,\s*,\s*]/g, "]");
       try {
         return JSON.parse(cleaned) as T;
-      } catch {
-        console.error(`[extractJSON] Auto-close failed.`);
+      } catch (e2) {
+        console.error(`[extractJSON] Auto-close failed: ${(e2 as Error).message.substring(0, 100)}`);
       }
     }
-    throw new Error(`Unbalanced JSON (depth=${depth}). First 300 chars: "${text.substring(0, 300)}"`);
+    throw new Error(`Unbalanced JSON (braceDepth=${braceDepth}, bracketDepth=${bracketDepth}). First 300 chars: "${text.substring(0, 300)}"`);
   }
 
   const jsonStr = text.substring(startIdx, endIdx + 1);
