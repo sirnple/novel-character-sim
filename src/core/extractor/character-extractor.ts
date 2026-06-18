@@ -161,6 +161,7 @@ interface CharacterDetail {
   worldview: string;
   values: string[];
   speakingStyle: { description: string; catchphrases: string[]; sentenceStyle: string; vocabulary: string; emotionalExpression: string };
+  voice: { description: string };
   background: { origin: string; keyEvents: string[]; description: string };
 }
 
@@ -219,6 +220,7 @@ export class CharacterExtractor {
         worldview: "",
         values: [],
         speakingStyle: { description: "", catchphrases: [], sentenceStyle: "", vocabulary: "", emotionalExpression: "" },
+        voice: { description: "" },
         background: { origin: "", keyEvents: [], description: "" },
         relationships: [],
       });
@@ -239,6 +241,7 @@ export class CharacterExtractor {
       existing.worldview = detail.worldview;
       existing.values = detail.values;
       existing.speakingStyle = detail.speakingStyle;
+      existing.voice = detail.voice || { description: "" };
       existing.background = detail.background;
     }
 

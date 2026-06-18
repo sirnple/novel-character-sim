@@ -3,8 +3,17 @@
 import { useState, useRef, useEffect } from "react";
 import type { CharacterProfile } from "@/types";
 import { buildCharacterIdentity } from "@/core/simulation/types";
-import { X, Send, Loader2, User } from "lucide-react";
+import { X, Send, Loader2, User, Volume2, VolumeX } from "lucide-react";
 import { useRateLimitCooldown } from "@/lib/rate-limit-ui";
+
+/** Build a voice design description from character profile. */
+function buildVoiceDesc(c: CharacterProfile): string {
+  const gender = c.appearance?.summary?.includes("女") || c.name.includes("女") ? "女" : "男";
+  const age = c.appearance?.summary?.match(/(\d+)\s*岁/)?.[1] || "";
+  const traits = c.personality.traits.slice(0, 2).join("、");
+  const style = c.speakingStyle?.description || "";
+  return `${age ? age + "岁" : ""}${gender}声，${traits}，${style}`.replace(/\s+/g, " ").trim();
+}
 
 interface Message {
   role: "character" | "user";
@@ -30,8 +39,37 @@ export default function CharacterChat({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [chatError, setChatError] = useState("");
+  const [speakingIdx, setSpeakingIdx] = useState<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const rateLimitHint = useRateLimitCooldown(chatError);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const playVoice = async (text: string, idx: number) => {
+    if (speakingIdx === idx) {
+      audioRef.current?.pause();
+      setSpeakingIdx(null);
+      return;
+    }
+    setSpeakingIdx(idx);
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voiceDesc: character.voice?.description || buildVoiceDesc(character) }),
+      });
+      if (!res.ok) throw new Error("TTS failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => { setSpeakingIdx(null); URL.revokeObjectURL(url); };
+      audio.onerror = () => { setSpeakingIdx(null); URL.revokeObjectURL(url); };
+      await audio.play();
+    } catch { setSpeakingIdx(null); }
+  };
+
+  // Stop audio on unmount
+  useEffect(() => () => { audioRef.current?.pause(); }, []);
 
   // Other characters the user can play as (exclude current chat character)
   const otherCharacters = allCharacters.filter((c) => c.id !== character.id);
@@ -189,7 +227,18 @@ ${rel ? `你们的关系：${rel.description}` : `你认识${userRole.profile.na
                   : "bg-secondary/40"
               }`}>
                 {m.role === "character" && (
-                  <span className="text-xs font-medium text-primary">{character.name}</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-medium text-primary">{character.name}</span>
+                    <button
+                      className="p-0.5 hover:bg-primary/10 rounded"
+                      onClick={() => playVoice(m.content, i)}
+                      title={speakingIdx === i ? "停止" : "播放语音"}
+                    >
+                      {speakingIdx === i
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                        : <Volume2 className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />}
+                    </button>
+                  </div>
                 )}
                 <p className="whitespace-pre-wrap mt-0.5">{m.content}</p>
               </div>

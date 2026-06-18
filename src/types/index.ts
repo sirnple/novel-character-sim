@@ -30,6 +30,10 @@ export interface Behavior {
   attitudeToAuthority: string; // 对权威的态度
 }
 
+export interface VoiceConfig {
+  description: string;  // Voice Design 描述（如"温柔甜美的年轻女声"）
+}
+
 export interface SpeakingStyleDetail {
   description: string;          // 整体说话风格描述
   catchphrases: string[];       // 口头禅/语气词
@@ -64,6 +68,7 @@ export interface CharacterProfile {
   worldview: string;
   values: string[];
   speakingStyle: SpeakingStyleDetail;
+  voice: VoiceConfig;
   background: BackgroundDetail;
   relationships: Relationship[];
 }

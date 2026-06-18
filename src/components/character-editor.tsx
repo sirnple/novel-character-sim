@@ -134,6 +134,13 @@ export default function CharacterEditor({
             </div>
           </div>
 
+          {/* Voice */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold mb-2">语音</h3>
+            <label className="block text-xs text-muted-foreground mb-1">Voice Design 描述（用于 TTS 语音合成）</label>
+            <input className="w-full px-3 py-2 border rounded-md bg-background text-sm" placeholder="例如：温柔甜美的年轻女声，说话轻柔" value={edited.voice?.description || ""} onChange={(e) => updateField("voice", { ...edited.voice, description: e.target.value })} />
+          </div>
+
           {/* Background */}
           <div className="border-t pt-4">
             <h3 className="text-sm font-semibold mb-2">背景</h3>
