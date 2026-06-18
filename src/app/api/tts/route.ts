@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/lib/rate-limit";
 
 const TTS_URL = process.env.TTS_SERVER_URL || "http://127.0.0.1:8765";
+let _ttsAvailable: boolean | null = null;
+
+export async function GET() {
+  if (_ttsAvailable !== null) {
+    return NextResponse.json({ available: _ttsAvailable });
+  }
+  try {
+    const res = await fetch(`${TTS_URL}/health`, { signal: AbortSignal.timeout(2000) });
+    _ttsAvailable = res.ok;
+  } catch {
+    _ttsAvailable = false;
+  }
+  return NextResponse.json({ available: _ttsAvailable });
+}
 
 export async function POST(request: NextRequest) {
   const { text, voiceDesc } = await request.json();

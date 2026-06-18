@@ -40,9 +40,18 @@ export default function CharacterChat({
   const [loading, setLoading] = useState(false);
   const [chatError, setChatError] = useState("");
   const [speakingIdx, setSpeakingIdx] = useState<number | null>(null);
+  const [ttsAvailable, setTtsAvailable] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const rateLimitHint = useRateLimitCooldown(chatError);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Check TTS availability on mount
+  useEffect(() => {
+    fetch("/api/tts")
+      .then((r) => r.json())
+      .then((d) => setTtsAvailable(d.available))
+      .catch(() => {});
+  }, []);
 
   const playVoice = async (text: string, idx: number) => {
     if (speakingIdx === idx) {
@@ -229,15 +238,17 @@ ${rel ? `你们的关系：${rel.description}` : `你认识${userRole.profile.na
                 {m.role === "character" && (
                   <div className="flex items-center gap-1">
                     <span className="text-xs font-medium text-primary">{character.name}</span>
-                    <button
-                      className="p-0.5 hover:bg-primary/10 rounded"
-                      onClick={() => playVoice(m.content, i)}
-                      title={speakingIdx === i ? "停止" : "播放语音"}
-                    >
-                      {speakingIdx === i
-                        ? <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                        : <Volume2 className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />}
-                    </button>
+                    {ttsAvailable && (
+                      <button
+                        className="p-0.5 hover:bg-primary/10 rounded"
+                        onClick={() => playVoice(m.content, i)}
+                        title={speakingIdx === i ? "停止" : "播放语音"}
+                      >
+                        {speakingIdx === i
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                          : <Volume2 className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />}
+                      </button>
+                    )}
                   </div>
                 )}
                 <p className="whitespace-pre-wrap mt-0.5">{m.content}</p>
