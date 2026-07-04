@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import path from "path";
-import type { CharacterProfile, StoryInfo, SimulationState } from "@/types";
+import type { CharacterProfile, StoryInfo, SimulationState, ChapterTimeline, CharacterChapterState } from "@/types";
 
 const DB_PATH = path.join(process.cwd(), "data", "novels.db");
 
@@ -116,6 +116,50 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_simulations_user ON simulations(user_id);
     CREATE INDEX IF NOT EXISTS idx_scenes_user ON scenes(user_id);
     CREATE INDEX IF NOT EXISTS idx_novels_user ON novels(user_id);
+    
+    CREATE TABLE IF NOT EXISTS generation_logs (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT 'guest',
+      novel_id TEXT,
+      category TEXT NOT NULL,
+      label TEXT NOT NULL,
+      input_summary TEXT,
+      output_preview TEXT,
+      full_output TEXT,
+      token_estimate INTEGER,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_gen_logs_user ON generation_logs(user_id);
+    CREATE INDEX IF NOT EXISTS idx_gen_logs_novel ON generation_logs(novel_id);
+    CREATE INDEX IF NOT EXISTS idx_gen_logs_category ON generation_logs(category);
+    CREATE TABLE IF NOT EXISTS timelines (
+      novel_id TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT 'guest',
+      data TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (novel_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS chapter_states (
+      novel_id TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT 'guest',
+      data TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (novel_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_prompts (
+      agent_id TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'zh',
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      category TEXT DEFAULT 'extraction',
+      system_prompt TEXT,
+      user_prompt_template TEXT,
+      is_modified INTEGER DEFAULT 0,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (agent_id, language)
+    );
   `);
 
   // Migrate old tables that may be missing user_id.
@@ -248,4 +292,169 @@ export function getChatHistory(userId: string, characterId: string): unknown | n
   const d = getDb();
   const row = d.prepare("SELECT data FROM chat_history WHERE user_id = ? AND character_id = ?").get(userId, characterId) as any;
   return row ? JSON.parse(row.data) : null;
+}
+
+// ---- Generation Logs ----
+
+export interface GenLogEntry {
+  id: string;
+  userId: string;
+  novelId?: string;
+  category: string;
+  label: string;
+  inputSummary?: string;
+  outputPreview?: string;
+  fullOutput?: string;
+  tokenEstimate?: number;
+  createdAt: string;
+}
+
+export function saveGenerationLog(entry: {
+  id: string;
+  userId: string;
+  novelId?: string;
+  category: string;
+  label: string;
+  inputSummary?: string;
+  outputPreview?: string;
+  fullOutput?: string;
+  tokenEstimate?: number;
+}): void {
+  const d = getDb();
+  d.prepare(
+    `INSERT OR REPLACE INTO generation_logs (id, user_id, novel_id, category, label, input_summary, output_preview, full_output, token_estimate, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+  ).run(entry.id, entry.userId, entry.novelId || null, entry.category, entry.label, entry.inputSummary || null, entry.outputPreview || null, entry.fullOutput || null, entry.tokenEstimate || null);
+}
+
+export function listGenerationLogs(userId: string, limit = 50, category?: string): GenLogEntry[] {
+  const d = getDb();
+  if (category) {
+    const rows = d.prepare("SELECT * FROM generation_logs WHERE user_id = ? AND category = ? ORDER BY created_at DESC LIMIT ?").all(userId, category, limit) as any[];
+    return rows.map(rowToGenLog);
+  }
+  const rows = d.prepare("SELECT * FROM generation_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?").all(userId, limit) as any[];
+  return rows.map(rowToGenLog);
+}
+
+export function getGenerationLog(userId: string, id: string): GenLogEntry | null {
+  const d = getDb();
+  const row = d.prepare("SELECT * FROM generation_logs WHERE id = ? AND user_id = ?").get(id, userId) as any;
+  return row ? rowToGenLog(row) : null;
+}
+
+function rowToGenLog(row: any): GenLogEntry {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    novelId: row.novel_id,
+    category: row.category,
+    label: row.label,
+    inputSummary: row.input_summary,
+    outputPreview: row.output_preview,
+    fullOutput: row.full_output,
+    tokenEstimate: row.token_estimate,
+    createdAt: row.created_at,
+  };
+}
+
+
+// ---- Timeline ----
+
+export function saveTimeline(userId: string, novelId: string, timeline: ChapterTimeline): void {
+  const d = getDb();
+  d.prepare(
+    `INSERT OR REPLACE INTO timelines (novel_id, user_id, data) VALUES (?, ?, ?)`
+  ).run(novelId, userId, JSON.stringify(timeline));
+}
+
+export function getTimeline(userId: string, novelId: string): ChapterTimeline | null {
+  const d = getDb();
+  const row = d.prepare("SELECT data FROM timelines WHERE novel_id = ? AND user_id = ?").get(novelId, userId) as any;
+  return row ? JSON.parse(row.data) : null;
+}
+
+// ---- Chapter States ----
+
+export function saveChapterStates(userId: string, novelId: string, states: CharacterChapterState[]): void {
+  const d = getDb();
+  d.prepare(
+    `INSERT OR REPLACE INTO chapter_states (novel_id, user_id, data) VALUES (?, ?, ?)`
+  ).run(novelId, userId, JSON.stringify(states));
+}
+
+export function getChapterStates(userId: string, novelId: string): CharacterChapterState[] {
+  const d = getDb();
+  const row = d.prepare("SELECT data FROM chapter_states WHERE novel_id = ? AND user_id = ?").get(novelId, userId) as any;
+  return row ? JSON.parse(row.data) : [];
+}
+
+// ---- Agent Prompts ----
+
+export interface AgentPromptRow {
+  agent_id: string;
+  language: string;
+  name: string;
+  description: string;
+  category: string;
+  system_prompt: string | null;
+  user_prompt_template: string | null;
+  is_modified: number;
+  updated_at: string;
+}
+
+export function seedAgentPrompts(agents: { agentId: string; name: string; description: string; category: string }[]): void {
+  const d = getDb();
+  const upsert = d.prepare(
+    `INSERT INTO agent_prompts (agent_id, language, name, description, category)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(agent_id, language) DO UPDATE SET
+       name = excluded.name,
+       description = excluded.description,
+       category = excluded.category`
+  );
+  const tx = d.transaction(() => {
+    for (const agent of agents) {
+      upsert.run(agent.agentId, "zh", agent.name, agent.description, agent.category);
+    }
+  });
+  tx();
+}
+
+export function listAgentPrompts(): AgentPromptRow[] {
+  const d = getDb();
+  return d.prepare("SELECT * FROM agent_prompts WHERE language = 'zh' ORDER BY category, agent_id").all() as AgentPromptRow[];
+}
+
+export function getAgentPrompt(agentId: string, language: string): AgentPromptRow | null {
+  const d = getDb();
+  return (d.prepare("SELECT * FROM agent_prompts WHERE agent_id = ? AND language = ?").get(agentId, language) as AgentPromptRow) || null;
+}
+
+export function updateAgentPrompt(
+  agentId: string,
+  language: string,
+  fields: { system_prompt?: string | null; user_prompt_template?: string | null }
+): void {
+  const d = getDb();
+  const sets: string[] = ["is_modified = 1", "updated_at = datetime('now')"];
+  const params: (string | null)[] = [];
+  if (fields.system_prompt !== undefined) {
+    sets.push("system_prompt = ?");
+    params.push(fields.system_prompt);
+  }
+  if (fields.user_prompt_template !== undefined) {
+    sets.push("user_prompt_template = ?");
+    params.push(fields.user_prompt_template);
+  }
+  params.push(agentId, language);
+  d.prepare(`UPDATE agent_prompts SET ${sets.join(", ")} WHERE agent_id = ? AND language = ?`).run(...params);
+}
+
+export function resetAgentPrompt(agentId: string, language: string): void {
+  const d = getDb();
+  d.prepare(
+    `UPDATE agent_prompts SET system_prompt = NULL, user_prompt_template = NULL, is_modified = 0, updated_at = datetime('now')
+     WHERE agent_id = ? AND language = ?`
+  ).run(agentId, language);
 }

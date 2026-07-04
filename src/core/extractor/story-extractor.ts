@@ -89,7 +89,7 @@ const STORY_SCHEMA_EN = {
       mainStoryline: { type: "string" },
       subPlots: { type: "array", items: { type: "string" } },
       themes: { type: "array", items: { type: "string" } },
-      chapterOutlets: {
+      chapterOutlines: {
         type: "array",
         items: {
           type: "object",
