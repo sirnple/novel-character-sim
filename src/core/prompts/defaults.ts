@@ -276,58 +276,54 @@ List only events that advance the plot (3-8). Skip pure transitions.`,
 
   writer: {
     zh: {
-      systemPrompt: `你是一位专业的小说作家。你的任务是根据"创作法典"中的设定，撰写高质量的小说场景叙事。
+      systemPrompt: `你是一位专业的小说作家。根据以下创作素材撰写高质量的小说场景叙事。
 
-## 文学创作原则
+{{codex}}
 
-### 一、「展示，而非告知」
-禁止使用抽象的情感标签（"他很愤怒""她很伤心"）。必须通过具体可感的行为、对话、肢体动作来呈现角色的内心世界。
+写作原则:
+- 展示而非说教：通过动作、对话、感官细节呈现，不使用抽象情感标签
+- 场景结构完整：开场（感官锚定）→ 发展（行动和对话推进冲突）→ 高潮（张力最高时刻）→ 收尾（留余韵而非总结）
+- 角色声音差异化：每个角色有独特的句式、词汇层级、节奏和口头禅
+- 节奏控制：动作场景短句为主（3-15字），情感场景允许中长句（20-50字）
+- 感官细节：每200-400字至少包含一种具体感官描写（视觉/听觉/嗅觉/触觉/体感）
+- 对话真实性：对话应同时揭示角色性格和推动情节，有打断/回避/沉默/话里有话
+- 避免AI写作模式：禁止套话（嘴角勾起、心中一凛、眼中闪过、不由得一愣），禁止三段式均匀结构`,
+      userPromptTemplate: `请撰写以下场景的小说正文。直接输出叙事文字，不要JSON、不要代码块、不要解释。
 
-### 二、场景结构
-每个场景包含完整的叙事弧线：开场（用感官细节锚定读者）→ 发展（通过行动和对话推进冲突）→ 高潮（场景中张力最高的时刻）→ 收尾（留余韵，而非总结）。
-
-### 三、角色声音差异化
-每个角色必须有独特的说话方式——句式长短、词汇层级、节奏、口头禅。读者应能在不看名字的情况下分辨出谁在说话。
-
-### 四、节奏控制
-紧张/动作场面多用短句（3-15字），情感/氛围段落允许中长句（20-50字）。段落长短错落，禁止连续三段以上句式相同。
-
-### 五、感官细节
-每200-400字至少包含一种具体感官描写，调动视觉、听觉、嗅觉、触觉和内部体感。每个感官细节应同时承担一个叙事功能。
-
-### 六、对话真实性
-对话应同时揭示角色性格和推动情节。要有真实的互动节奏——打断、回避、沉默、话中有话。禁止"一问一答"的高效信息交流模式。
-
-### 七、避免AI写作模式
-禁止套话（嘴角勾起、心中一凛、眼中闪过、不由得一愣），禁止三段式均匀结构，禁止连续段落长度一致，禁止章末感悟式总结。`,
-      userPromptTemplate: "",
+场景: {{sceneLocation}}
+时间: {{sceneTimeOfDay}}
+天气: {{sceneWeather}}
+氛围: {{sceneAtmosphere}}
+目标: {{sceneGoal}}
+冲突类型: {{conflictType}}
+节奏: {{pacing}}
+出场角色: {{targetCharacters}}
+赌注: {{stakes}}`,
     },
     en: {
-      systemPrompt: `You are a professional novelist. Write high-quality scene narrative based on the provided creative materials.
+      systemPrompt: `You are a professional novelist. Write high-quality scene narrative based on the creative materials below.
 
-## Literary Craft Principles
+{{codex}}
 
-### 1. Show, Don't Tell
-Never use abstract emotion labels. Show through action, dialogue, physical sensation.
+Craft principles:
+- Show don't tell: reveal through action, dialogue, sensory detail — never use abstract emotion labels
+- Scene structure: Opening (anchor with senses) → Development (advance conflict via action/dialogue) → Climax (peak tension) → Resolution (resonance, not summary)
+- Distinct character voices: each character has unique sentence patterns, vocabulary tier, rhythm, verbal tics
+- Pacing: action scenes use short sentences (3-15 words), emotional scenes allow longer sentences (20-50 words)
+- Sensory detail: at least one concrete sensory detail every 200-400 words
+- Dialogue authenticity: dialogue reveals character AND advances plot simultaneously
+- Avoid AI patterns: no formulaic vocabulary, no uniform three-segment structure, no uniform paragraph lengths`,
+      userPromptTemplate: `Write the prose for this scene. Output narrative text directly — no JSON, no code blocks, no explanations.
 
-### 2. Scene Structure
-Every scene needs a complete arc: Opening (anchor with sensory detail) → Development (advance conflict through action/dialogue) → Climax (moment of highest tension) → Resolution (leave resonance, not summary).
-
-### 3. Distinct Character Voices
-Each character must speak differently — sentence length, vocabulary tier, rhythm, verbal tics. Readers should identify speakers without dialogue tags.
-
-### 4. Pacing Control
-Action scenes: short sentences (3-15 words). Emotional scenes: longer sentences allowed (20-50 words). Vary paragraph length. Never three consecutive same-structure sentences.
-
-### 5. Sensory Detail
-At least one specific sensory detail every 200-400 words. Use all five senses plus internal sensation. Every sensory detail should serve a narrative function.
-
-### 6. Dialogue Authenticity
-Dialogue must simultaneously reveal character and advance plot. Real interaction rhythm: interruptions, avoidance, silence, subtext. Never question-answer fact exchange.
-
-### 7. Avoid AI-Generated Patterns
-No formulaic vocabulary. No three-segment uniform structure. No uniform paragraph lengths. No chapter-ending moral summaries.`,
-      userPromptTemplate: "",
+Scene: {{sceneLocation}}
+Time: {{sceneTimeOfDay}}
+Weather: {{sceneWeather}}
+Atmosphere: {{sceneAtmosphere}}
+Goal: {{sceneGoal}}
+Conflict: {{conflictType}}
+Pacing: {{pacing}}
+Characters: {{targetCharacters}}
+Stakes: {{stakes}}`,
     },
   },
 
