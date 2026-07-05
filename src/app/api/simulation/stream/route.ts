@@ -61,35 +61,36 @@ export async function POST(request: NextRequest) {
         .join("\n")
     : "";
 
-  // Build codex for rich context injection
+  // Build codex — DB enrichment requires userId+novelId
+  // Without them, falls back to client-provided data alone
   let codex: WritersCodex | null = null;
   try {
-    codex = buildCodex({
-      scene,
-      characters,
-      storyInfo: null,
-      fullNovelText: "",
-      lastChapterStates: rawLastChapterStates || [],
-      timeline: null,
-    });
+    let storyInfo = null;
+    let fullNovelText = "";
+    let timeline = null;
+
     if (novelId) {
-      saveCodex(novelId, codex);
-      // Also try to load storyInfo and fullNovelText from DB to enrich codex
       try {
         const dbNovel = getNovel(userId, novelId);
         if (dbNovel) {
-          const enriched = buildCodex({
-            scene,
-            characters,
-            storyInfo: getStoryInfo(userId, novelId),
-            fullNovelText: dbNovel.text,
-            lastChapterStates: rawLastChapterStates || [],
-            timeline: getTimeline(userId, novelId),
-          });
-          codex = enriched;
-          saveCodex(novelId, codex);
+          fullNovelText = dbNovel.text;
+          storyInfo = getStoryInfo(userId, novelId);
+          timeline = getTimeline(userId, novelId);
         }
       } catch {}
+    }
+
+    codex = buildCodex({
+      scene,
+      characters,
+      storyInfo,
+      fullNovelText,
+      lastChapterStates: rawLastChapterStates || [],
+      timeline,
+    });
+
+    if (novelId) {
+      saveCodex(novelId, codex);
     }
   } catch (e) {
     console.warn("Codex build failed, falling back to legacy prompt:", e);
