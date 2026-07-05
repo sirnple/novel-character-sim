@@ -4,18 +4,22 @@ import { useState, useRef, useEffect } from "react";
 import type { CharacterProfile, SceneDefinition, StoryInfo, ChapterTimeline, CharacterChapterState } from "@/types";
 import NovelUpload from "@/components/novel-upload";
 import CharacterCards from "@/components/character-cards";
+import CharacterEditor from "@/components/character-editor";
 import RelationshipGraph from "@/components/relationship-graph";
-import SceneSetup from "@/components/scene-setup";
-import SimulationRunner from "@/components/simulation-runner";
-import StoryInfoPanel from "@/components/story-info-panel";
-import AuthorContactFooter from "@/components/author-contact-footer";
-import GenerationsLog from "@/components/generations-log";
 import StoryTimeline from "@/components/story-timeline";
+import StoryInfoPanel from "@/components/story-info-panel";
+import SimulationRunner from "@/components/simulation-runner";
 import { novelFingerprint } from "@/lib/utils";
 import { useUserInfo } from "@/lib/rate-limit-ui";
-import { BookOpen, Users, Clapperboard, Play, RefreshCw } from "lucide-react";
+import {
+  BookOpen, Users, Play, RefreshCw, X, PanelRight, PanelLeft, ChevronDown, ChevronRight,
+  BookMarked, ScrollText, Eye, Wrench, FileText, GitBranch, Sparkles, Clock, Settings,
+  MessageSquare
+} from "lucide-react";
 
-type AppStep = "upload" | "characters" | "scene" | "simulation";
+// ============================================================
+// Types
+// ============================================================
 
 interface SavedNovel {
   id: string;
@@ -24,19 +28,57 @@ interface SavedNovel {
   created_at: string;
 }
 
+interface WritingTask {
+  id: string;
+  scene: SceneDefinition;
+  label: string;
+  createdAt: string;
+  status: "pending" | "writing" | "completed";
+  output?: string;
+  review?: any;
+}
+
+type WorkspaceView = "overview" | "characters" | "timeline" | "world" | "write" | "review";
+
+type SidebarSection = "library" | "tasks" | "codex" | "review";
+
+// ============================================================
+// Main Page
+// ============================================================
+
 export default function Home() {
   const { userId } = useUserInfo();
-  const [step, setStep] = useState<AppStep>("upload");
+
+  // Core state
+  const [novelId, setNovelId] = useState("default");
   const [novelTitle, setNovelTitle] = useState("");
   const [novelText, setNovelText] = useState("");
   const [novelPreview, setNovelPreview] = useState("");
-  const [novelId, setNovelId] = useState("default");
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [storyInfo, setStoryInfo] = useState<StoryInfo | null>(null);
   const [timeline, setTimeline] = useState<ChapterTimeline | null>(null);
   const [lastChapterStates, setLastChapterStates] = useState<CharacterChapterState[]>([]);
+  const [savedNovels, setSavedNovels] = useState<SavedNovel[]>([]);
+
+  // UI state
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("overview");
+  const [showRightPanel, setShowRightPanel] = useState(false);
+  const [rightPanelView, setRightPanelView] = useState<"codex" | "review">("codex");
+  const [expandedSections, setExpandedSections] = useState<Record<SidebarSection, boolean>>({
+    library: true,
+    tasks: true,
+    codex: false,
+    review: false,
+  });
+  const [showUpload, setShowUpload] = useState(false);
+  const [selectedCharacter, setSelectedCharacter] = useState<CharacterProfile | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Extraction state
   const [extractLoading, setExtractLoading] = useState(false);
   const [extractError, setExtractError] = useState("");
+
+  // Scene / Task state
   const [scene, setScene] = useState<SceneDefinition>({
     location: "",
     timeOfDay: "afternoon",
@@ -53,7 +95,19 @@ export default function Home() {
     plot: { conflictType: "", storyBeat: "", emotionalArc: "", keyEvent: "", stakes: "" },
     mode: "director",
   });
-  const [savedNovels, setSavedNovels] = useState<SavedNovel[]>([]);
+  const [writingTasks, setWritingTasks] = useState<WritingTask[]>([]);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+
+  // Scene recommendations cache
+  const [sceneRecommendations, setSceneRecommendations] = useState<{
+    key: string;
+    recommendations: Array<{
+      location: string; timeOfDay: string; weather: string; atmosphere: string;
+      initialSituation: string; whyGood: string; suggestedCharacters: string[];
+    }>;
+  } | null>(null);
+
+  // Simulation state
   const [simState, setSimState] = useState<{
     novelTitle: string;
     characters: CharacterProfile[];
@@ -61,33 +115,20 @@ export default function Home() {
     fullNovel: string;
     status: string;
   } | null>(null);
-
-  // Cache AI scene recommendations so they survive step switching
-  const [sceneRecommendations, setSceneRecommendations] = useState<{
-    key: string; // novelId — invalidate when novel changes
-    recommendations: Array<{
-      location: string; timeOfDay: string; weather: string; atmosphere: string;
-      initialSituation: string; whyGood: string; suggestedCharacters: string[];
-    }>;
-  } | null>(null);
-
-  // Cache simulation outline so it survives step switching
   const [cachedOutline, setCachedOutline] = useState<{
-    key: string; // cache key based on scene — invalidate when scene changes
+    key: string;
     outline: import("@/types").SceneOutline;
   } | null>(null);
-
-  // Build a cache key from scene settings
   const outlineCacheKey = `${novelId}|${scene.location}|${scene.initialSituation}|${scene.characterIds.join(",")}|${scene.plot.conflictType}|${scene.plot.keyEvent}`;
 
   const abortRef = useRef<AbortController | null>(null);
 
-  // Load saved novels on mount
+  // ============================================================
+  // Data Loading
+  // ============================================================
+
   useEffect(() => {
-    fetch("/api/novels")
-      .then((r) => r.json())
-      .then((d) => setSavedNovels(d.novels || []))
-      .catch(() => {});
+    fetch("/api/novels").then(r => r.json()).then(d => setSavedNovels(d.novels || [])).catch(() => {});
   }, []);
 
   const loadNovel = async (id: string) => {
@@ -102,8 +143,8 @@ export default function Home() {
       if (data.timeline) setTimeline(data.timeline);
       if (data.lastChapterStates) setLastChapterStates(data.lastChapterStates);
       if (data.characters?.length) setCharacters(data.characters);
-      if (data.characters?.length) setStep("characters");
-      else setStep("characters");
+      setWorkspaceView("overview");
+      setShowUpload(false);
     }
   };
 
@@ -118,27 +159,22 @@ export default function Home() {
     setTimeline(null);
     setLastChapterStates([]);
     setExtractError("");
-    setStep("characters");
+    setShowUpload(false);
+    setWorkspaceView("overview");
 
-    // Check if we already have cached results for this novel
-    fetch(`/api/novels?id=${id}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.storyInfo) setStoryInfo(data.storyInfo);
-        if (data.timeline) setTimeline(data.timeline);
-        if (data.lastChapterStates) setLastChapterStates(data.lastChapterStates);
-        if (data.characters?.length) setCharacters(data.characters);
-      })
-      .catch(() => {});
+    fetch(`/api/novels?id=${id}`).then(r => r.json()).then(data => {
+      if (data.storyInfo) setStoryInfo(data.storyInfo);
+      if (data.timeline) setTimeline(data.timeline);
+      if (data.lastChapterStates) setLastChapterStates(data.lastChapterStates);
+      if (data.characters?.length) setCharacters(data.characters);
+    }).catch(() => {});
   };
 
   const handleExtractCharacters = async (text: string, forceRefresh = false) => {
     setExtractLoading(true);
     setExtractError("");
-
     const controller = new AbortController();
     abortRef.current = controller;
-
     try {
       const res = await fetch("/api/characters/extract", {
         method: "POST",
@@ -146,20 +182,14 @@ export default function Home() {
         body: JSON.stringify({ sessionId: novelId, text, forceRefresh }),
         signal: controller.signal,
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Extraction failed");
-
       setCharacters(data.characters);
       if (data.storyInfo) setStoryInfo(data.storyInfo);
       if (data.timeline) setTimeline(data.timeline);
       if (data.lastChapterStates) setLastChapterStates(data.lastChapterStates);
       if (!data.fromCache) {
-        // Refresh saved novels list
-        fetch("/api/novels")
-          .then((r) => r.json())
-          .then((d) => setSavedNovels(d.novels || []))
-          .catch(() => {});
+        fetch("/api/novels").then(r => r.json()).then(d => setSavedNovels(d.novels || [])).catch(() => {});
       }
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
@@ -171,260 +201,841 @@ export default function Home() {
   };
 
   const handleCancelExtraction = () => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-      setExtractLoading(false);
-    }
+    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; setExtractLoading(false); }
   };
 
-  // Auto-save scene to DB on change (debounced)
-  const sceneRef = useRef(scene);
-  sceneRef.current = scene;
-  useEffect(() => {
-    if (!novelId || scene.location.trim() === "") return;
-    const timer = setTimeout(() => {
-      fetch("/api/scene/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sceneId: `scene_${novelId}`, novelId, scene: sceneRef.current }),
-      }).catch(() => {});
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [novelId, scene]);
+  // ============================================================
+  // Writing Task Management
+  // ============================================================
 
-  // Load persisted scene on novel change
-  useEffect(() => {
-    if (!novelId) return;
-    fetch(`/api/scene/save?sceneId=scene_${novelId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data && data.location !== undefined) {
-          setScene(data as SceneDefinition);
-        }
-      })
-      .catch(() => {});
-  }, [novelId]);
-
-  const handleStartSimulation = (sceneDef: SceneDefinition) => {
+  const createWritingTask = (sceneDef: SceneDefinition) => {
+    const task: WritingTask = {
+      id: `task_${Date.now()}`,
+      scene: sceneDef,
+      label: sceneDef.initialSituation ? sceneDef.initialSituation.slice(0, 30) + "..." : "新写作任务",
+      createdAt: new Date().toISOString(),
+      status: "pending",
+    };
+    setWritingTasks(prev => [task, ...prev]);
+    setActiveTaskId(task.id);
     setScene(sceneDef);
-    setSimState(null); // Clear previous simulation results
-    setStep("simulation");
+    setWorkspaceView("write");
+    return task;
   };
 
-  const handleGoToScene = () => {
-    // Populate character IDs when entering scene step
-    if (scene.characterIds.length === 0 && characters.length > 0) {
-      setScene((s) => ({ ...s, characterIds: characters.map((c) => c.id) }));
-    }
-    setStep("scene");
+  const startWritingTask = (taskId: string) => {
+    const task = writingTasks.find(t => t.id === taskId);
+    if (!task) return;
+    setActiveTaskId(taskId);
+    setScene(task.scene);
+    setWorkspaceView("write");
   };
 
   const handleSimulationComplete = (fullNovel: string) => {
     setSimState({
       novelTitle,
-      characters: characters.filter((c) => scene!.characterIds.includes(c.id)),
-      scene: scene!,
+      characters: characters.filter(c => scene.characterIds.includes(c.id)),
+      scene,
       fullNovel,
       status: "completed",
     });
-  };
-
-  const canGoToStep = (targetStep: AppStep): boolean => {
-    switch (targetStep) {
-      case "upload": return true;
-      case "characters": return !!novelText;
-      case "scene": return characters.length > 0;
-      case "simulation": return characters.length > 0 && !!scene && scene.location.trim() !== "";
-      default: return false;
+    // Update task
+    if (activeTaskId) {
+      setWritingTasks(prev => prev.map(t =>
+        t.id === activeTaskId ? { ...t, status: "completed" as const, output: fullNovel } : t
+      ));
     }
   };
 
-  const steps = [
-    { key: "upload" as AppStep, label: "上传", icon: <BookOpen className="w-4 h-4" /> },
-    { key: "characters" as AppStep, label: "角色", icon: <Users className="w-4 h-4" /> },
-    { key: "scene" as AppStep, label: "场景", icon: <Clapperboard className="w-4 h-4" /> },
-    { key: "simulation" as AppStep, label: "模拟", icon: <Play className="w-4 h-4" /> },
-  ];
+  // ============================================================
+  // Helpers
+  // ============================================================
+
+  const hasNovel = !!novelText;
+  const hasCharacters = characters.length > 0;
+  const activeTask = writingTasks.find(t => t.id === activeTaskId);
+
+  const toggleSection = (section: SidebarSection) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  // ============================================================
+  // Render
+  // ============================================================
+
+  const hasContent = hasNovel && novelTitle;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="mb-8 text-center">
-        <h1 className="text-3xl font-bold text-foreground mb-2">
-          📖 小说角色模拟器
-        </h1>
-        <p className="text-muted-foreground">
-          提取角色，构建角色代理，在自定义场景中进行剧情演绎
-        </p>
-        {userId && (
-          <p className="text-xs text-muted-foreground/60 mt-1">
-            👤 {userId}
-          </p>
-        )}
-      </div>
-
-      {/* Saved Novels Quick Load */}
-      {step === "upload" && savedNovels.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-muted-foreground mb-2">📚 已保存的小说</h3>
-          <div className="flex flex-wrap gap-2">
-            {savedNovels.map((n) => (
-              <button
-                key={n.id}
-                className="px-3 py-1.5 border rounded-lg text-sm hover:bg-secondary transition-colors"
-                onClick={() => loadNovel(n.id)}
-              >
-                {n.title} ({n.total_length.toLocaleString()} chars)
-              </button>
-            ))}
+    <div className="h-screen flex flex-col bg-[#0a0a0a] text-neutral-200 font-sans overflow-hidden">
+      {/* ============================================================
+          Top Bar
+          ============================================================ */}
+      <header className="flex items-center justify-between px-5 py-2.5 border-b border-neutral-800/60 bg-[#0c0c0c] shrink-0">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className="p-1 rounded text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 transition-colors"
+            title={sidebarCollapsed ? "展开侧栏" : "收起侧栏"}
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
+          <div className="flex items-center gap-2">
+            <BookMarked className="w-4 h-4 text-orange-500" />
+            <h1 className="text-sm font-bold tracking-wider text-neutral-300 font-mono">
+              NOVEL WORKSPACE
+            </h1>
           </div>
+          {hasContent && (
+            <>
+              <span className="w-px h-4 bg-neutral-800" />
+              <span className="text-sm text-neutral-400">{novelTitle}</span>
+              <span className="text-xs text-neutral-600">{novelText.length.toLocaleString()} 字</span>
+            </>
+          )}
         </div>
-      )}
-
-      {/* Step Indicator */}
-      {step !== "simulation" && (
-        <div className="flex items-center justify-center mb-8">
-          {steps.map((s, i) => {
-            const isActive = step === s.key;
-            const isPast = steps.findIndex((st) => st.key === step) > i;
-            const clickable = canGoToStep(s.key) || isPast;
-            return (
-              <div key={s.key} className="flex items-center">
+        <div className="flex items-center gap-3">
+          {hasContent && (
+            <div className="flex rounded border border-neutral-700 overflow-hidden">
+              {[
+                { key: "overview" as WorkspaceView, label: "概览", icon: BookOpen },
+                { key: "characters" as WorkspaceView, label: "角色", icon: Users },
+                { key: "timeline" as WorkspaceView, label: "时间线", icon: Clock },
+                { key: "world" as WorkspaceView, label: "世界观", icon: ScrollText },
+                { key: "write" as WorkspaceView, label: "写作", icon: Play },
+              ].map(v => (
                 <button
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm transition-colors ${
-                    isActive ? "bg-primary text-primary-foreground"
-                    : isPast ? "bg-secondary text-secondary-foreground cursor-pointer hover:bg-secondary/80"
-                    : clickable ? "bg-muted text-muted-foreground cursor-pointer hover:bg-secondary/60"
-                    : "bg-muted text-muted-foreground/50"
+                  key={v.key}
+                  onClick={() => setWorkspaceView(v.key)}
+                  className={`flex items-center gap-1 px-3 py-1 text-xs transition-colors ${
+                    workspaceView === v.key
+                      ? "bg-neutral-700 text-neutral-200"
+                      : "bg-transparent text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800"
                   }`}
-                  onClick={() => { if (clickable) setStep(s.key); }}
                 >
-                  {s.icon} {s.label}
+                  <v.icon className="w-3 h-3" /> {v.label}
                 </button>
-                {i < steps.length - 1 && (
-                  <div className={`w-8 h-0.5 mx-1 ${isPast ? "bg-primary" : "bg-border"}`} />
-                )}
-              </div>
-            );
-          })}
+              ))}
+            </div>
+          )}
+          <button
+            onClick={() => { setShowRightPanel(!showRightPanel); if (!showRightPanel) setRightPanelView("codex"); }}
+            className={`p-1 rounded transition-colors ${showRightPanel ? 'text-orange-400 bg-orange-500/10' : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800'}`}
+            title="切换右侧面板"
+          >
+            <PanelRight className="w-4 h-4" />
+          </button>
+          <a href="/admin" className="flex items-center gap-1 text-xs text-neutral-600 hover:text-neutral-400 transition-colors font-mono">
+            <Settings className="w-3 h-3" /> ADMIN
+          </a>
         </div>
-      )}
+      </header>
 
+      {/* ============================================================
+          Body
+          ============================================================ */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* ============================================================
+            Left Sidebar
+            ============================================================ */}
+        {!sidebarCollapsed && (
+          <aside className="w-[260px] shrink-0 border-r border-neutral-800/60 bg-[#0c0c0c] flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
 
-      {/* Story Timeline — visible in all steps when timeline exists */}
-      {timeline && timeline.chapters.length > 0 && (
-        <StoryTimeline timeline={timeline} lastChapterStates={lastChapterStates} />
-      )}
+              {/* Section: Library */}
+              <SidebarSectionHeader
+                section="library"
+                icon={<BookMarked className="w-3 h-3" />}
+                label="作品库"
+                expanded={expandedSections.library}
+                onToggle={() => toggleSection("library")}
+              />
+              {expandedSections.library && (
+                <div className="px-3 pb-2 space-y-1">
+                  <button
+                    onClick={() => setShowUpload(true)}
+                    className="w-full text-left px-3 py-2 rounded text-xs text-orange-400 hover:bg-orange-500/5 border border-dashed border-neutral-700 hover:border-orange-500/30 transition-colors font-mono"
+                  >
+                    + 导入新小说
+                  </button>
+                  {savedNovels.map(n => (
+                    <button
+                      key={n.id}
+                      onClick={() => loadNovel(n.id)}
+                      className={`w-full text-left px-3 py-2 rounded text-xs transition-colors ${
+                        n.id === novelId
+                          ? "bg-orange-500/5 border-l-2 border-orange-500 text-neutral-200"
+                          : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
+                      }`}
+                    >
+                      <div className="font-medium truncate">{n.title}</div>
+                      <div className="text-[10px] text-neutral-600 mt-0.5">{n.total_length.toLocaleString()} 字</div>
+                    </button>
+                  ))}
+                </div>
+              )}
 
-      {/* Main Content */}
-      <div className="bg-card border rounded-xl shadow-sm p-6">
-        {step === "upload" && (
-          <div className="space-y-4">
-            <NovelUpload onParsed={handleNovelParsed} />
-            {novelText && (
-              <div className="p-4 border rounded-lg bg-secondary/30">
-                <p className="text-sm text-muted-foreground">
-                  📄 当前加载：<span className="font-medium text-foreground">{novelTitle}</span>{" "}
-                  ({novelText.length.toLocaleString()} characters)
+              {/* Section: Writing Tasks */}
+              <SidebarSectionHeader
+                section="tasks"
+                icon={<Play className="w-3 h-3" />}
+                label="写作任务"
+                expanded={expandedSections.tasks}
+                onToggle={() => toggleSection("tasks")}
+              />
+              {expandedSections.tasks && (
+                <div className="px-3 pb-2 space-y-1">
+                  {writingTasks.length === 0 && (
+                    <p className="text-xs text-neutral-600 px-3 py-2">
+                      暂无任务。在写作视图中创建场景推荐后开始。
+                    </p>
+                  )}
+                  {writingTasks.map(task => (
+                    <button
+                      key={task.id}
+                      onClick={() => startWritingTask(task.id)}
+                      className={`w-full text-left px-3 py-2 rounded text-xs transition-colors ${
+                        task.id === activeTaskId
+                          ? "bg-orange-500/5 border-l-2 border-orange-500 text-neutral-200"
+                          : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                          task.status === "completed" ? "bg-green-500" : task.status === "writing" ? "bg-orange-500" : "bg-neutral-600"
+                        }`} />
+                        <span className="truncate">{task.label}</span>
+                      </div>
+                      <div className="text-[10px] text-neutral-600 mt-0.5">
+                        {task.status === "completed" ? "已完成" : task.status === "writing" ? "写作中" : "待开始"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Section: Codex */}
+              <SidebarSectionHeader
+                section="codex"
+                icon={<BookMarked className="w-3 h-3" />}
+                label="创作法典"
+                expanded={expandedSections.codex}
+                onToggle={() => toggleSection("codex")}
+              />
+              {expandedSections.codex && (
+                <div className="px-3 pb-2 space-y-1">
+                  {["角色卷宗", "世界观百科", "前文摘要", "伏笔账本", "灵感库"].map(item => (
+                    <button
+                      key={item}
+                      onClick={() => { setShowRightPanel(true); setRightPanelView("codex"); }}
+                      className="w-full text-left px-3 py-1.5 rounded text-xs text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300 transition-colors"
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Section: Review */}
+              <SidebarSectionHeader
+                section="review"
+                icon={<Eye className="w-3 h-3" />}
+                label="审查"
+                expanded={expandedSections.review}
+                onToggle={() => toggleSection("review")}
+              />
+              {expandedSections.review && (
+                <div className="px-3 pb-2">
+                  {activeTask?.review ? (
+                    <div className="space-y-1">
+                      <p className="text-xs text-neutral-500 px-3 py-1">上次审查报告</p>
+                      <button
+                        onClick={() => { setShowRightPanel(true); setRightPanelView("review"); }}
+                        className="w-full text-left px-3 py-2 rounded text-xs bg-orange-500/5 border border-orange-500/20 text-orange-400 hover:bg-orange-500/10 transition-colors"
+                      >
+                        查看详情 →
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-neutral-600 px-3 py-2">暂无审查记录</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
+
+        {/* ============================================================
+            Main Content Area
+            ============================================================ */}
+        <main className="flex-1 overflow-hidden flex flex-col bg-[#0a0a0a]">
+          {/* Upload modal */}
+          {showUpload && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+              <div className="w-full max-w-lg bg-[#0e0e0e] border border-neutral-800 rounded-lg p-6 shadow-2xl">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-semibold text-neutral-300 font-mono">导入小说</h2>
+                  <button onClick={() => setShowUpload(false)} className="text-neutral-500 hover:text-neutral-300">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <NovelUpload onParsed={(title, text, preview) => {
+                  handleNovelParsed(title, text, preview);
+                }} />
+              </div>
+            </div>
+          )}
+
+          {/* If no novel loaded, show welcome */}
+          {!hasContent ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center max-w-md">
+                <BookMarked className="w-12 h-12 mx-auto mb-4 text-neutral-700" />
+                <h2 className="text-lg font-semibold text-neutral-400 mb-2 font-mono">欢迎使用小说写作工作台</h2>
+                <p className="text-sm text-neutral-600 mb-6">
+                  导入小说，提取角色和世界观，构建创作法典，开始续写。
                 </p>
                 <button
-                  className="mt-2 px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm"
-                  onClick={() => setStep("characters")}
+                  onClick={() => setShowUpload(true)}
+                  className="px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white text-sm font-mono rounded-lg transition-colors"
                 >
-                  Continue to Character Extraction →
+                  导入小说
                 </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {step === "characters" && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>📄 {novelTitle} ({novelText.length.toLocaleString()} chars)</span>
-              <div className="flex gap-2">
-                <button className="px-3 py-1 border rounded-md text-sm hover:bg-secondary transition-colors" onClick={() => setStep("upload")}>← 返回上传</button>
-                {characters.length > 0 && (
-                  <button
-                    className="text-primary hover:underline flex items-center gap-1"
-                    onClick={() => handleExtractCharacters(novelText, true)}
-                  >
-                    <RefreshCw className="w-3 h-3" /> 重新提取
-                  </button>
+                {savedNovels.length > 0 && (
+                  <div className="mt-8">
+                    <h3 className="text-xs text-neutral-500 font-mono uppercase tracking-wider mb-3">最近作品</h3>
+                    <div className="space-y-2">
+                      {savedNovels.slice(0, 5).map(n => (
+                        <button
+                          key={n.id}
+                          onClick={() => loadNovel(n.id)}
+                          className="w-full text-left px-4 py-2.5 rounded-lg bg-[#0c0c0c] border border-neutral-800 hover:border-neutral-700 text-neutral-400 hover:text-neutral-200 transition-colors text-sm"
+                        >
+                          <span className="font-medium">{n.title}</span>
+                          <span className="text-neutral-600 ml-2 text-xs">{n.total_length.toLocaleString()} 字</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+              {/* ============================================================
+                  OVERVIEW
+                  ============================================================ */}
+              {workspaceView === "overview" && (
+                <div className="max-w-4xl mx-auto space-y-6">
+                  {/* Novel Summary Card */}
+                  <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h2 className="text-lg font-semibold text-neutral-200 font-mono">{novelTitle}</h2>
+                        <p className="text-xs text-neutral-500 mt-1">{novelText.length.toLocaleString()} 字</p>
+                      </div>
+                      <button
+                        onClick={() => { if (!extractLoading) handleExtractCharacters(novelText, false); }}
+                        disabled={extractLoading}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono transition-colors ${
+                          extractLoading
+                            ? "bg-neutral-800 text-neutral-600 cursor-not-allowed"
+                            : "bg-orange-600 hover:bg-orange-500 text-white"
+                        }`}
+                      >
+                        {extractLoading ? (
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-3 h-3" />
+                        )}
+                        {extractLoading ? "提取中..." : hasCharacters ? "重新提取" : "提取角色与世界观"}
+                      </button>
+                    </div>
 
-            <CharacterCards
-              characters={characters}
-              loading={extractLoading}
-              error={extractError}
-              onExtract={(t) => handleExtractCharacters(t, false)}
-              onCancelExtraction={handleCancelExtraction}
-              onUpdate={setCharacters}
-              novelText={novelText}
-              timeline={timeline}
-              lastChapterStates={lastChapterStates}
-            />
+                    {/* Stats */}
+                    <div className="grid grid-cols-4 gap-4">
+                      <StatCard label="角色" value={characters.length.toString()} icon={<Users className="w-4 h-4" />} />
+                      <StatCard label="章节" value={timeline ? timeline.totalChapters.toString() : "-"} icon={<GitBranch className="w-4 h-4" />} />
+                      <StatCard label="事件" value={timeline ? timeline.chapters.reduce((s, c) => s + c.events.length, 0).toString() : "-"} icon={<Clock className="w-4 h-4" />} />
+                      <StatCard label="任务" value={writingTasks.length.toString()} icon={<FileText className="w-4 h-4" />} />
+                    </div>
 
-            {storyInfo && <StoryInfoPanel storyInfo={storyInfo} />}
-            {characters.length > 1 && <RelationshipGraph characters={characters} />}
+                    {extractError && (
+                      <p className="text-xs text-red-400 mt-3">{extractError}</p>
+                    )}
+                  </div>
 
-            {characters.length > 0 && (
-              <div className="sticky bottom-4 flex justify-end z-10">
+                  {/* Quick Actions */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <ActionCard
+                      icon={<Sparkles className="w-5 h-5" />}
+                      title="新建写作场景"
+                      description="基于角色和世界观，AI 推荐场景设定，开始续写"
+                      onClick={() => setWorkspaceView("write")}
+                    />
+                    <ActionCard
+                      icon={<Users className="w-5 h-5" />}
+                      title="探索角色"
+                      description="查看角色档案、语录和关系图谱"
+                      onClick={() => setWorkspaceView("characters")}
+                    />
+                    <ActionCard
+                      icon={<Clock className="w-5 h-5" />}
+                      title="故事时间线"
+                      description="浏览章节事件和角色状态演变"
+                      onClick={() => setWorkspaceView("timeline")}
+                    />
+                    <ActionCard
+                      icon={<ScrollText className="w-5 h-5" />}
+                      title="世界观百科"
+                      description="查看力量体系、社会结构和势力分布"
+                      onClick={() => setWorkspaceView("world")}
+                    />
+                  </div>
+
+                  {/* Recent Tasks */}
+                  {writingTasks.length > 0 && (
+                    <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-5">
+                      <h3 className="text-xs font-semibold text-neutral-400 font-mono uppercase tracking-wider mb-3">
+                        最近写作任务
+                      </h3>
+                      <div className="space-y-2">
+                        {writingTasks.slice(0, 5).map(task => (
+                          <button
+                            key={task.id}
+                            onClick={() => startWritingTask(task.id)}
+                            className="w-full flex items-center justify-between px-3 py-2 rounded bg-neutral-800/30 hover:bg-neutral-800/50 transition-colors text-left"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${task.status === "completed" ? "bg-green-500" : task.status === "writing" ? "bg-orange-500" : "bg-neutral-600"}`} />
+                              <span className="text-sm text-neutral-300 truncate max-w-[400px]">{task.label}</span>
+                            </div>
+                            <span className="text-[10px] text-neutral-600 font-mono">
+                              {task.status === "completed" ? "已完成" : task.status === "writing" ? "写作中" : "待开始"}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ============================================================
+                  CHARACTERS
+                  ============================================================ */}
+              {workspaceView === "characters" && (
+                <div className="max-w-4xl mx-auto space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider">角色档案</h2>
+                    {!hasCharacters && !extractLoading && (
+                      <button
+                        onClick={() => handleExtractCharacters(novelText, false)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-orange-600 hover:bg-orange-500 text-white transition-colors"
+                      >
+                        <Sparkles className="w-3 h-3" /> 提取角色
+                      </button>
+                    )}
+                  </div>
+                  <CharacterCards
+                    characters={characters}
+                    loading={extractLoading}
+                    error={extractError}
+                    onExtract={(t) => handleExtractCharacters(t, false)}
+                    onCancelExtraction={handleCancelExtraction}
+                    onUpdate={setCharacters}
+                    novelText={novelText}
+                    timeline={timeline}
+                    lastChapterStates={lastChapterStates}
+                  />
+                  {characters.length > 1 && <RelationshipGraph characters={characters} />}
+                  {selectedCharacter && (
+                    <CharacterEditor
+                      profile={selectedCharacter}
+                      allCharacters={characters}
+                      onSave={(updated) => {
+                        setCharacters(prev => prev.map(c => c.id === updated.id ? updated : c));
+                        setSelectedCharacter(null);
+                      }}
+                      onCancel={() => setSelectedCharacter(null)}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* ============================================================
+                  TIMELINE
+                  ============================================================ */}
+              {workspaceView === "timeline" && (
+                <div className="max-w-4xl mx-auto space-y-6">
+                  <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider">故事时间线</h2>
+                  {timeline && timeline.chapters.length > 0 ? (
+                    <StoryTimeline timeline={timeline} lastChapterStates={lastChapterStates} />
+                  ) : (
+                    <div className="text-center py-12 text-neutral-600">
+                      <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm font-mono">暂无时间线数据。请先提取角色和世界观。</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ============================================================
+                  WORLD BUILDING
+                  ============================================================ */}
+              {workspaceView === "world" && (
+                <div className="max-w-4xl mx-auto space-y-6">
+                  <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider">世界观百科</h2>
+                  {storyInfo ? (
+                    <StoryInfoPanel storyInfo={storyInfo} />
+                  ) : (
+                    <div className="text-center py-12 text-neutral-600">
+                      <ScrollText className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm font-mono">暂无世界观数据。请先提取角色和世界观。</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ============================================================
+                  WRITE
+                  ============================================================ */}
+              {workspaceView === "write" && (
+                <div className="max-w-4xl mx-auto space-y-6">
+                  <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider">写作工作区</h2>
+
+                  {!hasCharacters ? (
+                    <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-8 text-center">
+                      <Sparkles className="w-10 h-10 mx-auto mb-3 text-neutral-600" />
+                      <p className="text-sm text-neutral-500 font-mono mb-4">需要先提取角色和世界观才能开始写作</p>
+                      <button
+                        onClick={() => handleExtractCharacters(novelText, false)}
+                        disabled={extractLoading}
+                        className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-sm font-mono rounded-lg transition-colors disabled:bg-neutral-800 disabled:text-neutral-600"
+                      >
+                        {extractLoading ? "提取中..." : "提取角色与世界观"}
+                      </button>
+                    </div>
+                  ) : (
+                    !activeTask ? (
+                      /* Scene recommendations */
+                      <div className="space-y-4">
+                        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-5">
+                          <h3 className="text-xs font-semibold text-neutral-400 font-mono uppercase tracking-wider mb-4">
+                            AI 场景推荐
+                          </h3>
+                          <p className="text-xs text-neutral-500 mb-4">
+                            基于已提取的角色和故事信息，AI 将为你的小说推荐续写场景。
+                          </p>
+
+                          {/* Reuse SceneSetup for scene config and recommendations */}
+                          {/* Simplified: directly show scene setup for writing */}
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-xs text-neutral-500 font-mono mb-1">场景地点</label>
+                              <input
+                                type="text"
+                                value={scene.location}
+                                onChange={e => setScene(s => ({ ...s, location: e.target.value }))}
+                                className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono focus:outline-none focus:border-orange-600/50 transition-colors"
+                                placeholder="如：城东旧茶馆二楼"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs text-neutral-500 font-mono mb-1">时间</label>
+                                <select
+                                  value={scene.timeOfDay}
+                                  onChange={e => setScene(s => ({ ...s, timeOfDay: e.target.value }))}
+                                  className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono"
+                                >
+                                  {["morning", "afternoon", "evening", "night", "dawn", "dusk"].map(v => (
+                                    <option key={v} value={v}>{v}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-neutral-500 font-mono mb-1">天气</label>
+                                <select
+                                  value={scene.weather}
+                                  onChange={e => setScene(s => ({ ...s, weather: e.target.value }))}
+                                  className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono"
+                                >
+                                  {["clear", "cloudy", "rain", "storm", "snow", "fog", "windy"].map(v => (
+                                    <option key={v} value={v}>{v}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs text-neutral-500 font-mono mb-1">氛围</label>
+                                <select
+                                  value={scene.atmosphere}
+                                  onChange={e => setScene(s => ({ ...s, atmosphere: e.target.value }))}
+                                  className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono"
+                                >
+                                  {["tense", "calm", "romantic", "mysterious", "chaotic", "melancholic", "hopeful"].map(v => (
+                                    <option key={v} value={v}>{v}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-neutral-500 font-mono mb-1">节奏</label>
+                                <select
+                                  value={scene.narrativeStyle.targetLength}
+                                  onChange={e => setScene(s => ({ ...s, narrativeStyle: { ...s.narrativeStyle, targetLength: e.target.value as any } }))}
+                                  className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono"
+                                >
+                                  {["short", "medium", "long"].map(v => (
+                                    <option key={v} value={v}>{v === "short" ? "快速" : v === "medium" ? "中速" : "慢速"}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs text-neutral-500 font-mono mb-1">初始情境 / 场景描述</label>
+                              <textarea
+                                value={scene.initialSituation}
+                                onChange={e => setScene(s => ({ ...s, initialSituation: e.target.value }))}
+                                rows={3}
+                                className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono focus:outline-none focus:border-orange-600/50 transition-colors resize-none"
+                                placeholder="简要描述这个场景要写什么…"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-neutral-500 font-mono mb-1">冲突类型</label>
+                              <input
+                                type="text"
+                                value={scene.plot.conflictType}
+                                onChange={e => setScene(s => ({ ...s, plot: { ...s.plot, conflictType: e.target.value } }))}
+                                className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono focus:outline-none focus:border-orange-600/50 transition-colors"
+                                placeholder="如：内心挣扎、人物对峙、意外发现"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs text-neutral-500 font-mono mb-1">故事节点</label>
+                                <select
+                                  value={scene.plot.storyBeat}
+                                  onChange={e => setScene(s => ({ ...s, plot: { ...s.plot, storyBeat: e.target.value } }))}
+                                  className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono"
+                                >
+                                  {["", "铺垫", "转折", "高潮", "收尾"].map(v => (
+                                    <option key={v} value={v}>{v || "未指定"}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-neutral-500 font-mono mb-1">赌注</label>
+                                <input
+                                  type="text"
+                                  value={scene.plot.stakes}
+                                  onChange={e => setScene(s => ({ ...s, plot: { ...s.plot, stakes: e.target.value } }))}
+                                  className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono focus:outline-none focus:border-orange-600/50 transition-colors"
+                                  placeholder="角色面临着什么风险？"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-6 flex gap-3">
+                            <button
+                              onClick={() => {
+                                const task = createWritingTask({ ...scene, characterIds: characters.map(c => c.id) });
+                              }}
+                              disabled={!scene.location.trim()}
+                              className="flex-1 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors flex items-center justify-center gap-2"
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                              创建任务并开始写作
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Scene Recommendations from AI */}
+                        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-5">
+                          <h3 className="text-xs font-semibold text-neutral-400 font-mono uppercase tracking-wider mb-3">
+                            灵感推荐
+                          </h3>
+                          <p className="text-xs text-neutral-500">
+                            完成角色提取后，AI 将基于角色关系和故事背景推荐场景创意。
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Active Writing Task */
+                      <div className="space-y-4">
+                        {/* Task Info Bar */}
+                        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-4 flex items-center justify-between">
+                          <div>
+                            <h3 className="text-sm font-semibold text-neutral-300 font-mono">
+                              {activeTask?.label}
+                            </h3>
+                            <div className="flex items-center gap-3 mt-1 text-xs text-neutral-500">
+                              <span>{activeTask?.scene.location}</span>
+                              <span>·</span>
+                              <span>{activeTask?.scene.timeOfDay}</span>
+                              <span>·</span>
+                              <span>{activeTask?.scene.atmosphere}</span>
+                              <span>·</span>
+                              <span>节奏: {activeTask?.scene.narrativeStyle.targetLength === "short" ? "快速" : activeTask?.scene.narrativeStyle.targetLength === "long" ? "慢速" : "中速"}</span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setActiveTaskId(null)}
+                            className="text-xs text-neutral-500 hover:text-neutral-300 font-mono"
+                          >
+                            ← 返回任务列表
+                          </button>
+                        </div>
+
+                        {/* Writer */}
+                        <SimulationRunner
+                          novelTitle={novelTitle}
+                          characters={characters.filter(c => activeTask?.scene.characterIds.includes(c.id))}
+                          scene={activeTask?.scene || scene}
+                          writingStyle={storyInfo?.writingStyle}
+                          onBack={() => setActiveTaskId(null)}
+                          onComplete={handleSimulationComplete}
+                          initialFullNovel={activeTask?.output}
+                          cachedOutline={cachedOutline?.key === outlineCacheKey ? cachedOutline.outline : null}
+                          onCacheOutline={(outline) => setCachedOutline({ key: outlineCacheKey, outline })}
+                          timeline={timeline}
+                          lastChapterStates={lastChapterStates}
+                        />
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+
+              {/* ============================================================
+                  REVIEW
+                  ============================================================ */}
+              {workspaceView === "review" && (
+                <div className="max-w-4xl mx-auto space-y-6">
+                  <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider">审查报告</h2>
+                  {activeTask?.review ? (
+                    <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-5">
+                      <pre className="text-xs text-neutral-400 font-mono whitespace-pre-wrap">{JSON.stringify(activeTask.review, null, 2)}</pre>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-neutral-600">
+                      <Eye className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm font-mono">完成写作任务后可在此查看审查报告。</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+
+        {/* ============================================================
+            Right Panel (Codex / Review)
+            ============================================================ */}
+        {showRightPanel && (
+          <aside className="w-[280px] shrink-0 border-l border-neutral-800/60 bg-[#0c0c0c] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-800/40">
+              <div className="flex rounded border border-neutral-700 overflow-hidden">
                 <button
-                  className="px-8 py-3 bg-primary text-primary-foreground rounded-lg shadow-lg hover:bg-primary/90 transition-colors font-semibold"
-                  onClick={handleGoToScene}
+                  onClick={() => setRightPanelView("codex")}
+                  className={`px-2.5 py-1 text-[10px] font-mono transition-colors ${rightPanelView === "codex" ? "bg-neutral-700 text-neutral-200" : "bg-transparent text-neutral-500 hover:text-neutral-300"}`}
                 >
-                  进入场景设置 →
+                  CODEX
+                </button>
+                <button
+                  onClick={() => setRightPanelView("review")}
+                  className={`px-2.5 py-1 text-[10px] font-mono transition-colors ${rightPanelView === "review" ? "bg-neutral-700 text-neutral-200" : "bg-transparent text-neutral-500 hover:text-neutral-300"}`}
+                >
+                  REVIEW
                 </button>
               </div>
-            )}
-          </div>
-        )}
-
-        {step === "scene" && (
-          <div className="space-y-6">
-            <div className="text-sm text-muted-foreground flex justify-between">
-              <span>👥 {characters.length} 个角色已就绪</span>
-              <button className="px-3 py-1 border rounded-md text-sm hover:bg-secondary transition-colors" onClick={() => setStep("characters")}>← 返回角色</button>
+              <button
+                onClick={() => setShowRightPanel(false)}
+                className="text-neutral-500 hover:text-neutral-300"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <SceneSetup
-              characters={characters}
-              storyInfo={storyInfo}
-              scene={scene}
-              onSceneChange={setScene}
-              onStartSimulation={handleStartSimulation}
-              disabled={characters.length === 0}
-              cachedRecommendations={sceneRecommendations?.key === novelId ? sceneRecommendations.recommendations : null}
-              onCacheRecommendations={(recs) => setSceneRecommendations({ key: novelId, recommendations: recs })}
-              timeline={timeline}
-              lastChapterStates={lastChapterStates}
-            />
-          </div>
-        )}
-
-        {step === "simulation" && scene && (
-          <SimulationRunner
-            novelTitle={novelTitle}
-            characters={characters.filter((c) => scene.characterIds.includes(c.id))}
-            scene={scene}
-            writingStyle={storyInfo?.writingStyle}
-            onBack={() => setStep("scene")}
-            onComplete={handleSimulationComplete}
-            initialFullNovel={simState?.fullNovel}
-            cachedOutline={cachedOutline?.key === outlineCacheKey ? cachedOutline.outline : null}
-            onCacheOutline={(outline) => setCachedOutline({ key: outlineCacheKey, outline })}
-            timeline={timeline}
-            lastChapterStates={lastChapterStates}
-          />
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
+              {rightPanelView === "codex" ? (
+                <div className="space-y-4">
+                  <h3 className="text-[10px] text-neutral-500 font-mono uppercase tracking-widest">创作法典</h3>
+                  <CodexPanelSection title="角色卷宗" count={characters.length} />
+                  <CodexPanelSection title="世界观百科" count={storyInfo ? 1 : 0} />
+                  <CodexPanelSection title="前文摘要" count={timeline?.chapters?.length || 0} />
+                  <CodexPanelSection title="伏笔账本" count={0} detail="（手动添加）" />
+                  <CodexPanelSection title="灵感库" count={0} detail="（手动添加）" />
+                  <CodexPanelSection title="风格包" count={storyInfo?.writingStyle ? 1 : 0} />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <h3 className="text-[10px] text-neutral-500 font-mono uppercase tracking-widest">审查报告</h3>
+                  <p className="text-xs text-neutral-600">完成写作后自动显示审查结果。</p>
+                </div>
+              )}
+            </div>
+          </aside>
         )}
       </div>
-      <div className="mt-16 border-t pt-6">
-        <GenerationsLog />
-      </div>
+    </div>
+  );
+}
 
-      <AuthorContactFooter />
+// ============================================================
+// Sub-components
+// ============================================================
+
+function SidebarSectionHeader({
+  section, icon, label, expanded, onToggle,
+}: {
+  section: string; icon: React.ReactNode; label: string; expanded: boolean; onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className="w-full flex items-center justify-between px-4 py-2 text-[10px] text-neutral-500 font-mono uppercase tracking-widest hover:bg-neutral-800/30 transition-colors"
+    >
+      <span className="flex items-center gap-1.5">{icon} {label}</span>
+      {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+    </button>
+  );
+}
+
+function StatCard({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
+  return (
+    <div className="bg-neutral-800/20 rounded-lg p-3 text-center">
+      <div className="text-neutral-500 mb-1 flex justify-center">{icon}</div>
+      <div className="text-lg font-bold text-neutral-200 font-mono">{value}</div>
+      <div className="text-[10px] text-neutral-600 font-mono uppercase mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+function ActionCard({ icon, title, description, onClick }: {
+  icon: React.ReactNode; title: string; description: string; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-5 text-left hover:border-orange-500/30 hover:bg-orange-500/[0.02] transition-colors group"
+    >
+      <div className="text-orange-500/60 mb-3 group-hover:text-orange-500 transition-colors">{icon}</div>
+      <h3 className="text-sm font-semibold text-neutral-300 font-mono mb-1">{title}</h3>
+      <p className="text-xs text-neutral-600">{description}</p>
+    </button>
+  );
+}
+
+function CodexPanelSection({ title, count, detail }: { title: string; count: number; detail?: string }) {
+  return (
+    <div className="border border-neutral-800/40 rounded p-3">
+      <div className="flex items-center justify-between mb-1">
+        <h4 className="text-xs font-medium text-neutral-400">{title}</h4>
+        <span className="text-[10px] text-neutral-600 font-mono">{count}</span>
+      </div>
+      <p className="text-[10px] text-neutral-600">{detail || (count > 0 ? "已就绪" : "暂无数据")}</p>
     </div>
   );
 }
