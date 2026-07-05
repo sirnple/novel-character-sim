@@ -229,7 +229,7 @@ export default function WritingWorkspace({
   const hasContent = !!outputText;
 
   return (
-    <div className="flex gap-4" style={{ minHeight: "calc(100vh - 180px)" }}>
+    <div className="h-full flex gap-3" style={{ height: "calc(100vh - 130px)" }}>
       {/* ============================================================
           LEFT COLUMN (320px): Script + Actions
           ============================================================ */}
