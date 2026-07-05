@@ -2,7 +2,7 @@ import type { CharacterProfile, SceneDefinition, SimulationState, WritingStyle, 
 import { generateId, isChinese } from "@/lib/utils";
 import { getAppConfig } from "@/lib/config";
 import { createLLMProvider } from "@/core/llm/factory";
-import { runOutlineWriter } from "./director";
+import { runOutlineWriter } from "./outline-agent";
 import { buildCodex } from "@/core/codex/builder";
 import { renderCodexAsPrompt } from "@/core/codex/renderer";
 import { runFullReview } from "@/core/codex/review-orchestrator";
@@ -74,9 +74,10 @@ export function buildWriterPrompt(opts: {
 
   let outlineGuidance = "";
   if (outline) {
+    const beats = outline.beats || outline.plotPoints || [];
     outlineGuidance = zh
-      ? `\n## 场景大纲\n- 场景目标：${outline.sceneGoal}\n- 情感弧线：${outline.emotionalArc}\n- 场景结局：${outline.sceneEnding}\n- 情节节拍：\n${outline.beats.map(b => `  节拍${b.beatNumber}：${b.description} [出场：${b.activeCharacters.join("、")}] [氛围：${b.mood}]`).join("\n")}`
-      : `\n## Scene Outline\n- Goal: ${outline.sceneGoal}\n- Arc: ${outline.emotionalArc}\n- Ending: ${outline.sceneEnding}\n- Beats:\n${outline.beats.map(b => `  Beat ${b.beatNumber}: ${b.description} [${b.activeCharacters.join(", ")}] [${b.mood}]`).join("\n")}`;
+      ? `\n## 场景大纲\n- 场景目标：${outline.sceneGoal || outline.chapterGoal}\n- 情感弧线：${outline.emotionalArc}\n- 场景结局：${outline.sceneEnding || outline.chapterEnding}\n- 情节节拍：\n${beats.map((b: any) => `  节拍${b.beatNumber || b.sequence}：${b.description} [出场：${(b.activeCharacters || b.involvedCharacters || []).join("、")}] [氛围：${b.mood}]`).join("\n")}`
+      : `\n## Scene Outline\n- Goal: ${outline.sceneGoal || outline.chapterGoal}\n- Arc: ${outline.emotionalArc}\n- Ending: ${outline.sceneEnding || outline.chapterEnding}\n- Beats:\n${beats.map((b: any) => `  Beat ${b.beatNumber || b.sequence}: ${b.description} [${(b.activeCharacters || b.involvedCharacters || []).join(", ")}] [${b.mood}]`).join("\n")}`;
   }
 
   const systemPrompt = zh
@@ -156,11 +157,12 @@ export class SimulationEngine {
           this.onEvent({ type: "outline", outline: existingOutline });
         } else {
           try {
-            const result = await runOutlineWriter(
-              presentChars,
-              this.state.scene,
-              this.state.fullNovelOutput || undefined
-            );
+            const result = await runOutlineWriter({
+              characters: presentChars,
+              continueFromChapter: (this.state.rounds?.length || 0),
+              continueFromLabel: "当前已写内容",
+              previousProse: this.state.fullNovelOutput || undefined,
+            });
             outline = result.outline;
             this.onEvent({
               type: "outline",

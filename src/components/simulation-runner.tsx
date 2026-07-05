@@ -277,7 +277,7 @@ export default function SimulationRunner({
                   <p>情感弧线：{outline.emotionalArc}</p>
                   <p>结局：{outline.sceneEnding}</p>
                   <div className="mt-2 space-y-0.5">
-                    {outline.beats.map((b) => (
+                    {(outline.beats || outline.plotPoints || []).map((b: any) => (
                       <div key={b.beatNumber} className="flex gap-2">
                         <span className="text-primary font-mono">#{b.beatNumber}</span>
                         <span>{b.description} [{b.mood}]</span>

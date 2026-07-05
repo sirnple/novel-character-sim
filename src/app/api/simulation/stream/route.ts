@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
         if (outlineOnly) {
           // Outline-only mode: run the outline writer, emit, then stop
           const llm = createLLMProvider();
-          const { runOutlineWriter } = await import("@/core/simulation/director");
+          const { runOutlineWriter } = await import("@/core/simulation/outline-agent");
           const presentChars = characters.filter(c => scene.characterIds.includes(c.id));
           try {
             // Build a default scene if none provided (outline-only mode from writing workspace)
@@ -138,11 +138,12 @@ export async function POST(request: NextRequest) {
                   location: "续写场景",
                   characterIds: characters.map(c => c.id),
                 };
-            const result = await runOutlineWriter(
-              presentChars.length > 0 ? presentChars : characters,
-              outlineScene,
-              ""
-            );
+            const result = await runOutlineWriter({
+              characters: presentChars.length > 0 ? presentChars : characters,
+              continueFromChapter: 0,
+              continueFromLabel: "当前内容",
+              previousProse: "",
+            });
             sendEvent({
               type: "outline",
               outline: result.outline,

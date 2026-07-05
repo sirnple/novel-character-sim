@@ -222,12 +222,32 @@ export interface SceneBeat {
 }
 
 export interface SceneOutline {
-  sceneTitle: string;         // 场景标题
-  sceneGoal: string;          // 场景目标（这个场景要达成什么）
-  beats: SceneBeat[];         // 3-5 个关键节拍
-  emotionalArc: string;       // 情感弧线描述
-  sceneEnding: string;        // 场景如何收尾
-  estimatedRounds: number;    // 预计轮数
+  sceneTitle?: string;
+  chapterTitle?: string;
+  sceneGoal?: string;
+  chapterGoal?: string;
+  beats?: SceneBeat[];
+  plotPoints?: {
+    sequence: number;
+    description: string;
+    involvedCharacters: string[];
+    mood: string;
+  }[];
+  characterThreads?: {
+    characterName: string;
+    development: string;
+  }[];
+  newForeshadowing?: {
+    description: string;
+    type: string;
+    suggestedRevealWindow?: string;
+  }[];
+  foreshadowingToReveal?: string[];
+  emotionalArc: string;
+  sceneEnding?: string;
+  chapterEnding?: string;
+  estimatedRounds?: number;
+  pacing?: string;
 }
 
 // --- Scene ---
