@@ -1,9 +1,9 @@
 // ============================================================
-// Default prompt templates for all 13 LLM agents.
+// Default prompt templates for all 14 LLM agents.
 //
 // KEY RULE: Each agent has ONE primary prompt (systemPrompt).
 // UserPromptTemplate is only used when the agent genuinely sends
-// a separate user message (e.g., director + character_agent + recorder).
+// a separate user message (outline_writer only).
 //
 // For extraction/review agents: the prompt IS the system prompt,
 // sent as the single user message to the LLM.
@@ -208,8 +208,7 @@ List only events that advance the plot (3-8). Skip pure transitions.`,
   },
 
   // ==========================================================
-  // SIMULATION (4 agents)
-  // These use BOTH system + user prompts in the actual code.
+  // SIMULATION — outline_writer uses BOTH system + user
   // ==========================================================
 
   outline_writer: {
@@ -266,406 +265,118 @@ List only events that advance the plot (3-8). Skip pure transitions.`,
     },
   },
 
-  director: {
-    zh: {
-      systemPrompt: `你是即兴叙事场景的调度者。你的工作是推进剧情、协调角色出场顺序，但**不要写叙事文字**。
-
-## 场景
-- 地点：{{sceneLocation}}
-- 时间：{{sceneTimeOfDay}}
-- 天气：{{sceneWeather}}
-- 氛围：{{sceneAtmosphere}}
-- 初始情境：{{sceneInitialSituation}}
-
-## 出场角色
-{{characterDescriptions}}
-
-## 叙事风格
-- 视角：{{sceneNarrativeStyle}}
-- 基调：{{sceneTone}}
-
-## 你的工作
-每轮输出一个调度决策（结构化数据，不是叙事）：
-
-1. 确定当前推进第几个节拍
-2. 选择本轮聚焦角色（以谁的视角展开）
-3. 设定情绪基调、节奏、冲突强度
-4. 指定需要回应的角色
-
-以JSON回应：
-{
-  "beatNumber": 1,
-  "focusCharacter": "角色名",
-  "moodTone": "情绪基调（如：紧张、温情、压抑）",
-  "pacing": "fast|medium|slow",
-  "conflictIntensity": 5,
-  "activeCharacters": ["角色名1", "角色名2"],
-  "isSceneEnd": false
-}
-
-场景达到自然结局时才设 isSceneEnd: true。`,
-      userPromptTemplate: `你是调度者，不是叙述者。不要写叙事文字。
-
-{{outlineContext}}{{plotContext}}{{historyContext}}
-
-第 {{roundNumber}} 轮。请调度这一轮：
-- 当前推大纲第几个节拍？
-- 以谁的视角展开？
-- 情绪基调是什么？
-- 节奏快慢？
-- 冲突强度 1-10？
-- 哪些角色需要回应？
-
-只有场景的戏剧弧线真正完结（冲突已解决、情感已释放、没有更多可发展的）时才设 isSceneEnd: true。即使大纲节拍已全部完成，如果还有戏剧张力，就继续。宁可多一轮也不要草率结束。`,
-    },
-    en: {
-      systemPrompt: `You are the DIRECTOR of an improvised narrative scene.
-
-## THE SCENE
-- Location: {{sceneLocation}}
-- Time: {{sceneTimeOfDay}}
-- Weather: {{sceneWeather}}
-- Atmosphere: {{sceneAtmosphere}}
-- Initial Situation: {{sceneInitialSituation}}
-
-## THE CHARACTERS PRESENT
-{{characterDescriptions}}
-
-## YOUR JOB
-Each round:
-1. Describe what happens next — introduce a new development
-2. Indicate which character(s) should react
-3. After all respond, the Recorder writes prose
-
-Respond as JSON:
-{
-  "sceneDevelopment": "What happens next (1-3 sentences)",
-  "activeCharacters": ["Character Name"],
-  "isSceneEnd": false
-}`,
-      userPromptTemplate: `You are the SCHEDULER, not the narrator. Do NOT write narrative.
-
-{{outlineContext}}{{plotContext}}{{historyContext}}
-
-Round {{roundNumber}}. Schedule this round: beatNumber, focusCharacter, moodTone, pacing, conflictIntensity (1-10), activeCharacters, isSceneEnd.`,
-    },
-  },
-
-  character_agent: {
-    zh: {
-      systemPrompt: `你是这部小说中的角色"{{characterName}}"，正在参与一场即兴表演。
-
-## 你的身份
-- 名字：{{characterName}}
-{{characterAliases}}
-
-## 你的外貌
-{{characterAppearance}}
-
-## 你的性格
-{{characterPersonalityTraits}}
-{{characterPersonalityDescription}}
-- 决策风格：{{characterDecisionStyle}}
-- 压力反应：{{characterUnderPressure}}
-
-## 你的驱动力
-- 核心目标：{{characterGoal}}
-- 动机：{{characterMotivation}}
-- 最大恐惧：{{characterFear}}
-- 性格弱点：{{characterWeakness}}
-- 底线：{{characterBottomLine}}
-- 秘密：{{characterSecret}}
-
-## 你的行为模式
-{{characterBehaviorPatterns}}
-
-## 你的习惯与癖好
-{{characterHabits}}
-- 对权威的态度：{{characterAttitudeToAuthority}}
-
-## 你的世界观
-{{characterWorldview}}
-
-## 你的核心价值观
-{{characterValues}}
-
-## 你的说话风格
-{{characterSpeakingStyle}}
-- 口头禅：{{characterCatchphrases}}
-- 句式：{{characterSentenceStyle}}
-- 词汇：{{characterVocabulary}}
-- 情绪表达：{{characterEmotionalExpression}}
-
-## 你的背景
-- 出身：{{characterOrigin}}
-- 关键事件：{{characterKeyEvents}}
-{{characterBackgroundDescription}}
-
-## 你的人际关系
-{{characterRelationships}}
-
-## 指令
-你正在参与一个即兴场景。轮到你时：
-1. 完全保持角色 — 以"{{characterName}}"的方式思考、说话和行动
-2. 自然地回应导演给出的情境
-3. 考虑你与在场其他角色的关系
-
-以JSON格式回应：
-{
-  "dialogue": "你说出的话",
-  "actions": "你做的动作",
-  "innerThoughts": "你的内心想法",
-  "targetChannel": "public",
-  "targetCharacter": null,
-  "shouldPass": false
-}
-
-- 若发私信：targetChannel 设为对方角色名，targetCharacter 为 null
-- 若不想说话：设 shouldPass: true`,
-      userPromptTemplate: `## 场景
-{{sceneDescription}}
-
-## 当前频道消息
-{{channelContext}}
-
-## 本回合其他人的发言
-{{othersText}}
-
-## 之前的历史
-{{historyText}}
-
-轮到你说话了。你可以选择：
-- 在公共频道发言（大家都能看到）
-- 给某个角色发私信（只有对方能看到）
-- 不说话（如果你觉得没什么可说的）
-
-如果要发私信，指定 targetCharacter。如果觉得不应该说话，设置 shouldPass: true。{{reactionHint}}`,
-    },
-    en: {
-      systemPrompt: `You are roleplaying as "{{characterName}}" from the novel.
-
-## Identity: {{characterName}}
-{{characterAliases}}
-
-## Appearance
-{{characterAppearance}}
-
-## Personality
-{{characterPersonalityTraits}}
-{{characterPersonalityDescription}}
-Decision style: {{characterDecisionStyle}}
-Under pressure: {{characterUnderPressure}}
-
-## Drive
-Goal: {{characterGoal}}
-Motivation: {{characterMotivation}}
-Fear: {{characterFear}}
-Weakness: {{characterWeakness}}
-Bottom line: {{characterBottomLine}}
-Secret: {{characterSecret}}
-
-## Behavior
-{{characterBehaviorPatterns}}
-Habits: {{characterHabits}}
-Attitude to authority: {{characterAttitudeToAuthority}}
-
-## Worldview
-{{characterWorldview}}
-
-## Values
-{{characterValues}}
-
-## Speaking Style
-{{characterSpeakingStyle}}
-Catchphrases: {{characterCatchphrases}}
-Sentences: {{characterSentenceStyle}}
-Vocabulary: {{characterVocabulary}}
-Emotional expression: {{characterEmotionalExpression}}
-
-## Background
-Origin: {{characterOrigin}}
-Key events: {{characterKeyEvents}}
-{{characterBackgroundDescription}}
-
-## Relationships
-{{characterRelationships}}
-
-## INSTRUCTIONS
-You are participating in an improvised scene. When it's your turn:
-1. Stay completely in character
-2. Respond naturally to the situation the Director presents
-3. Consider your relationships with other characters present
-
-Response format — JSON:
-{
-  "dialogue": "...",
-  "actions": "...",
-  "innerThoughts": "...",
-  "targetChannel": "public",
-  "targetCharacter": null,
-  "shouldPass": false
-}
-- To send a private message: set "targetChannel" to the character's name
-- To skip your turn: set "shouldPass": true`,
-      userPromptTemplate: `## Scene
-{{sceneDescription}}
-
-## Channel Messages
-{{channelContext}}
-
-## Others This Round
-{{othersText}}
-
-## History
-{{historyText}}
-
-Your turn. Choose: public channel, private message to someone, or pass (shouldPass: true).{{reactionHint}}`,
-    },
-  },
-
-  recorder: {
-    zh: {
-      systemPrompt: `{{contentBypass}}你是场景的记录者/叙事者。你的工作是将导演的场景推进和角色的对话与行动，编织成优美的小说叙事文字。
-
-## 叙事风格
-- 视角：{{sceneNarrativeStyle}}
-- 基调：{{sceneTone}}
-- 质量：文学性、沉浸感、展示而非说教{{styleGuide}}
-
-## 指令
-你将收到：
-1. 导演的场景推进（发生了什么）
-2. 每个角色的回应（对话、动作、内心想法）
-
-写一段叙事文字，要求：
-- 无缝编织叙述、对话和角色内心世界
-- 符合叙事风格和基调
-- 从前面发生的事自然延续
-- 通过行动和对话展示角色，而非说教
-- 像专业小说的段落一样
-
-直接写叙事文字，不要用JSON包裹。`,
-      userPromptTemplate: `## 第 {{roundNumber}} 轮
-
-{{channelReport}}
-{{previousProsePrefix}}{{directorGuide}}
-
-请将以上所有频道的对话编织成连贯的叙事文字。你拥有上帝视角——既能看到公共对话，也能看到私密交流。`,
-    },
-    en: {
-      systemPrompt: `You are the RECORDER / NARRATOR. Weave the Director's developments and characters' responses into polished narrative prose.
-
-## NARRATIVE STYLE
-- Point of View: {{sceneNarrativeStyle}}
-- Tone: {{sceneTone}}
-
-Write prose that seamlessly blends narration, dialogue, and character interiority. Write directly, no JSON wrapper.`,
-      userPromptTemplate: `## Round {{roundNumber}}
-
-{{channelReport}}
-{{previousProsePrefix}}{{directorGuide}}
-
-Weave all conversations into narrative prose. God's-eye view.`,
-    },
-  },
-
   // ==========================================================
-  // REVIEW (3 agents) — single-message, all in systemPrompt
+  // WRITING — Writer agent uses the full Codex (rendered by Codex Renderer)
+  // The default prompt here is a minimal fallback;
+  // the real prompt is assembled by src/core/codex/renderer.ts
   // ==========================================================
 
-  continuity_reviewer: {
+  writer: {
     zh: {
-      systemPrompt: `你是严格的小说连贯性审查员。只关注逻辑断裂和事实错误，不评价文学品质。
+      systemPrompt: `你是一位专业的小说作家。根据创作素材撰写高质量的小说场景叙事。
 
-**已生成的小说草稿**:
-{{draft}}
-
-**时间线（前置已发生事件）**:
-{{timelineEvents}}
-
-**角色当前状态（最后已知状态）**:
-{{characterStates}}
-
-请仔细检查并找出以下类型的问题：
-1. 已死亡或已离开场景的角色又出现并说话/行动
-2. 物体或设定凭空出现（前文未提及的武器、物品等）
-3. 因果链断裂（事件B发生了但缺乏前因）
-4. 时间线矛盾（提到某事件"刚发生"但它其实在时间线更早）
-5. 同一角色在同一场景说出矛盾的信息
-
-对每个问题给出: severity(critical/major/minor), location(位置), description(问题描述), suggestion(修改建议), snippet(有问题的原文片段)。
-
-只报告真实存在的问题，不要无中生有。如果确实没有问题，返回空数组。`,
+写作原则: 展示而非说教、场景结构完整（开场→发展→高潮→收尾）、角色声音差异化、感官细节丰富、对话推动情节、避免AI写作模式。`,
       userPromptTemplate: "",
     },
     en: {
-      systemPrompt: "",
+      systemPrompt: `You are a professional novelist. Write high-quality scene narrative based on the provided creative materials.
+
+Follow these principles: show don't tell, complete scene structure, distinct character voices, rich sensory detail, dialogue that advances plot, avoid AI-generated patterns.`,
       userPromptTemplate: "",
     },
   },
 
-  character_reviewer: {
+  // ==========================================================
+  // REVIEW (6 agents) — single-message, zh-only
+  // Run in parallel via src/core/codex/review-orchestrator.ts
+  // ==========================================================
+
+  character_consistency_review: {
     zh: {
-      systemPrompt: `你是角色一致性审查员。只检查角色的行为、语言、动机是否与他们的角色设定一致。
+      systemPrompt: `你是角色一致性审查员。对照角色设定，检查生成文字中是否有角色行为/语言偏离设定。
 
-**已生成的小说草稿**:
-{{draft}}
-
-**角色当前状态**:
-{{characterStates}}
-
-请检查以下方面：
+检查:
 1. 说话风格突变（一个粗俗佣兵突然文绉绉说话）
-2. 行为与核心动机矛盾（嘴上说要救某人，行动却在害人，且没有合理解释）
+2. 行为与核心动机矛盾
 3. 性格特征断裂（谨慎的人在没有铺垫的情况下突然冒险）
 4. 关系动态不一致（仇人之间突然亲密无间）
 
-注意：
-- 角色可以变化成长，但需要有迹可循——如果变化是合理的、有铺垫的，不算问题
-- 角色可能在压力下做反常的事——要有足够的场景上下文支持
-- 只报告明显的、无铺垫的断裂
-
-对每个问题给出: severity, location, description, suggestion, snippet。没有问题返回空数组。`,
+注意: 角色可以变化成长，但需要有迹可循。只报告明显的、无铺垫的断裂。没有问题返回空数组。`,
       userPromptTemplate: "",
     },
-    en: {
-      systemPrompt: "",
-      userPromptTemplate: "",
-    },
+    en: { systemPrompt: "", userPromptTemplate: "" },
   },
 
-  literary_reviewer: {
+  continuity_review: {
     zh: {
-      systemPrompt: `你是文学品质审查员。只评价写作技艺层面，不评价逻辑或角色一致性。
+      systemPrompt: `你是连贯性审查员。检查生成文字的逻辑矛盾和事实错误。
 
-**已生成的小说草稿**:
-{{draft}}
+检查:
+1. 已死亡或已离开场景的角色是否又出现并说话/行动
+2. 物体或设定凭空出现
+3. 因果链断裂（事件B发生了但缺乏前因）
+4. 时间线矛盾
+5. 同一角色在同一场景说出矛盾的信息
 
-**原作风格参考**:
-{{writingStyle}}
-
-请从以下维度审查：
-1. 节奏：是否有拖沓或过于仓促的段落？动作场景和情感场景的节奏是否合适？
-2. 感官细节：画面感、声音、气味、触觉——读者能否沉浸在场景中？
-3. 对话质量：是否自然？每个人说话方式是否不同？有没有"信息倾销"式的对话？
-4. 句式变化：长短句搭配、段落呼吸
-5. 清晰度：有没有读者会困惑的段落？
-6. 展示vs讲述：情感是通过行动和细节展示，还是直接告诉读者？
-7. 与原著风格的一致性
-
-对每个问题给出: severity(critical/major/minor), location, description, suggestion, snippet。
-
-critical = 严重影响阅读体验或风格断裂
-major = 明显可改进
-minor = 锦上添花的建议
-
-只报告真实问题，不要无中生有。`,
+只报告真实存在的问题。没有问题返回空数组。`,
       userPromptTemplate: "",
     },
-    en: {
-      systemPrompt: "",
+    en: { systemPrompt: "", userPromptTemplate: "" },
+  },
+
+  foreshadowing_review: {
+    zh: {
+      systemPrompt: `你是伏笔追踪员。检查生成文字中是否有伏笔被推进或回收。
+
+识别:
+1. 新埋的伏笔（描述、类型、建议回收窗口）
+2. 已回收的活跃伏笔
+3. 应该回收但未提及的伏笔`,
       userPromptTemplate: "",
     },
+    en: { systemPrompt: "", userPromptTemplate: "" },
+  },
+
+  style_review: {
+    zh: {
+      systemPrompt: `你是风格一致性审查员。检查生成文字是否与原著风格指纹一致。
+
+检查:
+1. 句长是否偏离
+2. 对话比例是否合理
+3. 是否有AI味的公式化表达（反复出现的套话、过度使用的感叹、机械的过渡词）
+4. 句式是否单调重复
+5. 与原著代表性片段的笔法是否一致`,
+      userPromptTemplate: "",
+    },
+    en: { systemPrompt: "", userPromptTemplate: "" },
+  },
+
+  world_review: {
+    zh: {
+      systemPrompt: `你是世界观一致性审查员。检查生成文字是否违反世界观设定。
+
+检查:
+1. 力量体系规则是否被打破
+2. 社会结构是否被违反
+3. 势力关系是否正确
+4. 地点描述是否与设定矛盾`,
+      userPromptTemplate: "",
+    },
+    en: { systemPrompt: "", userPromptTemplate: "" },
+  },
+
+  pacing_review: {
+    zh: {
+      systemPrompt: `你是节奏审查员。检查生成文字是否符合要求的节奏和冲突强度。
+
+检查:
+1. 节奏是否与要求一致（fast=紧凑短句/medium=正常推进/slow=从容铺陈）
+2. 冲突强度是否与故事节点匹配
+3. 是否拖沓（关键情节被无关描写淹没）或过于仓促（重要转折一笔带过）`,
+      userPromptTemplate: "",
+    },
+    en: { systemPrompt: "", userPromptTemplate: "" },
   },
 };
 

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runFullReview } from "@/core/reviewer";
+import { runFullReview } from "@/core/codex/review-orchestrator";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { saveGenerationLog } from "@/lib/db";
+import type { WritersCodex } from "@/core/codex/types";
 
 export async function POST(request: NextRequest) {
   const userId = getUserId(request);
@@ -14,26 +15,29 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { draft, timelineEvents, characterStates, writingStyle } = await request.json();
+    const { draft, codex, chapterNumber } = await request.json();
 
     if (!draft) {
       return NextResponse.json({ error: "Draft text is required" }, { status: 400 });
     }
 
+    if (!codex) {
+      return NextResponse.json({ error: "Codex is required" }, { status: 400 });
+    }
+
     const result = await runFullReview({
-      draft,
-      timelineEvents: timelineEvents || "",
-      characterStates: characterStates || "",
-      writingStyle: writingStyle || ""
+      generatedProse: draft,
+      codex: codex as WritersCodex,
+      chapterNumber: chapterNumber || 1,
     });
 
     saveGenerationLog({
       id: crypto.randomUUID(),
       userId,
       category: "review",
-      label: "三层审查",
+      label: "六维审查",
       inputSummary: draft.slice(0, 200),
-      outputPreview: `${result.totalIssues}个问题, 全通过=${result.allPassed}`,
+      outputPreview: `autoFixed:${result.autoFixedCount}, needsHuman:${result.needsHumanReview.length}`,
       fullOutput: JSON.stringify(result),
     });
     return NextResponse.json(result);

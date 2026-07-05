@@ -6,22 +6,22 @@ export interface AgentPromptMeta {
   agentId: string;
   name: string;
   description: string;
-  category: "extraction" | "simulation" | "review";
+  category: "extraction" | "simulation" | "writing" | "review";
   variables: string[];
-  bilingual: boolean; // has both zh and en versions
+  bilingual: boolean;
 }
 
 /**
- * All 13 agents registered with metadata.
- * Actual prompt text stays in the source files by default;
- * only user-edited prompts are stored in the DB.
+ * Active agents registered with metadata.
+ * Only agents that are actually called at runtime should be listed here.
+ * Dead code agents (director, character_agent, recorder, old reviewers) removed.
  */
 export const AGENT_REGISTRY: AgentPromptMeta[] = [
-  // ---- Extraction ----
+  // ---- Extraction (6 agents) ----
   {
     agentId: "character_list",
     name: "角色列表提取 (Pass 1)",
-    description: "从小说中识别所有有名有姓的角色，提取名字、别名、角色定位",
+    description: "从小说中识别所有具名角色，提取名字、别名、角色定位",
     category: "extraction",
     variables: ["novelContext"],
     bilingual: true,
@@ -29,7 +29,7 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
   {
     agentId: "character_detail",
     name: "角色详情提取 (Pass 2)",
-    description: "对单个角色进行深度剖析：性格、驱动力、行为模式、说话风格等",
+    description: "对单个角色深度剖析：性格、驱动力、行为模式、说话风格等 8 个维度",
     category: "extraction",
     variables: ["characterName", "characterBrief", "characterRole", "novelContext"],
     bilingual: true,
@@ -37,7 +37,7 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
   {
     agentId: "relationships",
     name: "关系网络提取 (Pass 3)",
-    description: "分析角色之间的关系网络（类型、动态、历史）",
+    description: "分析角色之间的关系网络：类型、动态、历史、权力关系",
     category: "extraction",
     variables: ["characterNames", "novelContext"],
     bilingual: true,
@@ -45,7 +45,7 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
   {
     agentId: "chapter_end_states",
     name: "末章状态提取",
-    description: "提取所有角色在小说完结时的最终状态快照",
+    description: "提取所有角色在小说最新内容中的当前状态快照",
     category: "extraction",
     variables: ["recentText", "knownNames"],
     bilingual: true,
@@ -61,69 +61,81 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
   {
     agentId: "timeline",
     name: "时间线提取",
-    description: "提取小说的章节时间线和事件序列",
+    description: "逐章提取关键事件、涉及角色和事件结果",
     category: "extraction",
     variables: ["chapterTitle", "truncated"],
     bilingual: true,
   },
 
-  // ---- Simulation ----
+  // ---- Simulation (1 agent) ----
   {
     agentId: "outline_writer",
     name: "剧本大纲编写器",
-    description: "导演在场景开始前编写完整剧本大纲：节拍、情感弧线、结局",
+    description: "在 Writer 创作前编写场景剧本大纲：节拍、情感弧线、结局",
     category: "simulation",
-    variables: ["sceneLocation", "sceneTimeOfDay", "sceneWeather", "sceneAtmosphere", "sceneInitialSituation", "sceneConflictType", "sceneStoryBeat", "sceneStakes", "charSummaries", "previousProse"],
-    bilingual: true,
-  },
-  {
-    agentId: "director",
-    name: "导演/调度者",
-    description: "每轮调度：选择焦点角色、情绪基调、节奏、冲突强度",
-    category: "simulation",
-    variables: ["characterDescriptions", "sceneLocation", "sceneTimeOfDay", "sceneWeather", "sceneAtmosphere", "sceneInitialSituation", "sceneNarrativeStyle", "outlineContext", "plotContext", "historyContext", "roundNumber"],
-    bilingual: true,
-  },
-  {
-    agentId: "character_agent",
-    name: "角色扮演代理",
-    description: "角色以第一人称参与即兴场景，产出对话、动作、内心想法",
-    category: "simulation",
-    variables: ["profile (name, aliases, appearance, personality, drive, behavior, worldview, values, speakingStyle, background, relationships)", "sceneDescription", "channelContext", "othersText", "historyText", "reactionHint"],
-    bilingual: true,
-  },
-  {
-    agentId: "recorder",
-    name: "记录者/叙事者",
-    description: "将导演调度和角色对话编织成优美的小说叙事文字",
-    category: "simulation",
-    variables: ["sceneNarrativeStyle", "writingStyle (genre, styleDescription, narrativeTechniques, languageFeatures, pacingDescription, tone, examplePassages, contentRating)", "roundNumber", "channelReport", "previousProse", "directorGuide"],
+    variables: ["sceneLocation", "sceneTimeOfDay", "sceneWeather", "sceneAtmosphere",
+      "sceneInitialSituation", "sceneConflictType", "sceneStoryBeat", "sceneStakes",
+      "charSummaries", "previousProse"],
     bilingual: true,
   },
 
-  // ---- Review ----
+  // ---- Writing (1 agent, uses full Codex) ----
   {
-    agentId: "continuity_reviewer",
-    name: "连贯性审查员",
-    description: "检查生成文字的逻辑断裂和事实错误：角色状态、因果链、时间线",
+    agentId: "writer",
+    name: "小说作家",
+    description: "根据完整创作法典（风格包 + 角色卷宗 + 世界观 + 前文 + 伏笔 + 灵感库）撰写场景叙事。使用 Codex Renderer 组装系统提示词",
+    category: "writing",
+    variables: ["codex (全 7 段创作法典: styleProfiles, characterDossiers, worldBible, narrativeContext, foreshadowingLedger, ideaBank, currentTask)"],
+    bilingual: true,
+  },
+
+  // ---- Review (6 agents, run in parallel via Codex review-orchestrator) ----
+  {
+    agentId: "character_consistency_review",
+    name: "角色一致性审查",
+    description: "对照角色卷宗检查：说话风格漂移、性格行为偏差、关系动态错误",
     category: "review",
-    variables: ["draft", "timelineEvents", "characterStates"],
+    variables: ["characterDossiers", "generatedProse"],
     bilingual: false,
   },
   {
-    agentId: "character_reviewer",
-    name: "角色一致性审查员",
-    description: "检查角色行为、语言、动机是否符合角色设定",
+    agentId: "continuity_review",
+    name: "连贯性审查",
+    description: "检查逻辑矛盾：因果链断裂、物体凭空出现、已死角色说话、时间线错乱",
     category: "review",
-    variables: ["draft", "characterStates"],
+    variables: ["chapterSummaries", "characterStates", "generatedProse"],
     bilingual: false,
   },
   {
-    agentId: "literary_reviewer",
-    name: "文学品质审查员",
-    description: "评价写作技艺：节奏、感官细节、对话质量、句式变化、展示vs讲述",
+    agentId: "foreshadowing_review",
+    name: "伏笔追踪审查",
+    description: "识别新埋伏笔、标记已回收伏笔、警告到达回收窗口的伏笔",
     category: "review",
-    variables: ["draft", "writingStyle"],
+    variables: ["foreshadowingLedger", "generatedProse"],
+    bilingual: false,
+  },
+  {
+    agentId: "style_review",
+    name: "风格一致性审查",
+    description: "对照风格指纹检查：句长偏离、AI味表达、句式单调、对话比例异常",
+    category: "review",
+    variables: ["styleProfiles", "generatedProse"],
+    bilingual: false,
+  },
+  {
+    agentId: "world_review",
+    name: "世界观审查",
+    description: "检查力量体系规则是否被打破、社会结构/势力关系是否正确、地点矛盾",
+    category: "review",
+    variables: ["worldBible", "generatedProse"],
+    bilingual: false,
+  },
+  {
+    agentId: "pacing_review",
+    name: "节奏审查",
+    description: "检查节奏是否符合要求、冲突强度是否匹配故事节点、是否拖沓或仓促",
+    category: "review",
+    variables: ["currentTask", "generatedProse"],
     bilingual: false,
   },
 ];
@@ -136,10 +148,13 @@ export function getAgentsByCategory(): Record<string, AgentPromptMeta[]> {
   const groups: Record<string, AgentPromptMeta[]> = {
     extraction: [],
     simulation: [],
+    writing: [],
     review: [],
   };
   for (const agent of AGENT_REGISTRY) {
-    groups[agent.category].push(agent);
+    if (groups[agent.category]) {
+      groups[agent.category].push(agent);
+    }
   }
   return groups;
 }

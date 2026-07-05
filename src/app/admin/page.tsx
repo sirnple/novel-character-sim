@@ -17,12 +17,14 @@ interface AgentRow {
 const CATEGORY_LABELS: Record<string, string> = {
   extraction: "提取",
   simulation: "模拟",
+  writing: "写作",
   review: "审查",
 };
 
 const CATEGORY_ICONS: Record<string, string> = {
   extraction: "🔍",
-  simulation: "🎭",
+  simulation: "📋",
+  writing: "✍️",
   review: "✅",
 };
 
