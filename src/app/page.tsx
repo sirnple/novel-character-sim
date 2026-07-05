@@ -14,7 +14,7 @@ import { useUserInfo } from "@/lib/rate-limit-ui";
 import {
   BookOpen, Users, Play, RefreshCw, X, PanelRight, PanelLeft, ChevronDown, ChevronRight,
   BookMarked, ScrollText, Eye, Wrench, FileText, GitBranch, Sparkles, Clock, Settings,
-  MessageSquare
+  MessageSquare, Loader2
 } from "lucide-react";
 
 // ============================================================
@@ -73,6 +73,7 @@ export default function Home() {
   const [showUpload, setShowUpload] = useState(false);
   const [selectedCharacter, setSelectedCharacter] = useState<CharacterProfile | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [recommendLoading, setRecommendLoading] = useState(false);
 
   // Extraction state
   const [extractLoading, setExtractLoading] = useState(false);
@@ -837,6 +838,7 @@ export default function Home() {
                           <div className="mt-5 flex gap-3">
                             <button
                               onClick={async () => {
+                                setRecommendLoading(true);
                                 try {
                                   const res = await fetch("/api/scene/recommend", {
                                     method: "POST",
@@ -849,13 +851,19 @@ export default function Home() {
                                   }
                                 } catch (e) {
                                   console.error("Failed to get recommendations:", e);
+                                } finally {
+                                  setRecommendLoading(false);
                                 }
                               }}
-                              disabled={!hasCharacters}
+                              disabled={!hasCharacters || recommendLoading}
                               className="flex items-center gap-2 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors"
                             >
-                              <Sparkles className="w-3.5 h-3.5" />
-                              AI 推荐场景
+                              {recommendLoading ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Sparkles className="w-3.5 h-3.5" />
+                              )}
+                              {recommendLoading ? "生成中..." : "AI 推荐场景"}
                             </button>
                             <button
                               onClick={() => {
