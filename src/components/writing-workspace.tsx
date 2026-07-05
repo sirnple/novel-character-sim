@@ -204,7 +204,7 @@ export default function WritingWorkspace({
           novelTitle, novelId,
           characters: characters.filter(c => sc.characterIds.includes(c.id)),
           scene: sc, writingStyle, outlineOnly: true,
-          timelineEvents: (timeline?.chapters || []).flatMap(ch => (ch.events || [])),
+          timelineEvents: (timeline?.chapters || []).flatMap(ch => (ch?.events || [])),
           lastChapterStates,
         }),
         signal: new AbortController().signal,

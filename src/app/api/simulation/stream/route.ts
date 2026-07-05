@@ -130,9 +130,17 @@ export async function POST(request: NextRequest) {
           const { runOutlineWriter } = await import("@/core/simulation/director");
           const presentChars = characters.filter(c => scene.characterIds.includes(c.id));
           try {
+            // Build a default scene if none provided (outline-only mode from writing workspace)
+            const outlineScene: SceneDefinition = scene.location?.trim()
+              ? scene
+              : {
+                  ...scene,
+                  location: "续写场景",
+                  characterIds: characters.map(c => c.id),
+                };
             const result = await runOutlineWriter(
-              presentChars,
-              scene,
+              presentChars.length > 0 ? presentChars : characters,
+              outlineScene,
               ""
             );
             sendEvent({
