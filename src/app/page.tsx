@@ -221,12 +221,13 @@ export default function Home() {
         const allTasks = JSON.parse(raw) as WritingTask[];
         const novelTasks = allTasks.filter(t => t.novelId === novelId);
         setWritingTasks(novelTasks);
-        // Restore active task if it exists
-        if (activeTaskId && !novelTasks.find(t => t.id === activeTaskId)) {
-          setActiveTaskId(null);
-        }
       }
     } catch {}
+  }, [novelId]);
+
+  // When novel changes, clear active task so user sees the task picker
+  useEffect(() => {
+    setActiveTaskId(null);
   }, [novelId]);
 
   const createWritingTask = (sceneDef: SceneDefinition) => {
