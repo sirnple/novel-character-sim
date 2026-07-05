@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import type { CharacterProfile, SceneDefinition, WritingStyle, SceneOutline, TimelineEvent, CharacterChapterState } from "@/types";
 import { SimulationEngine, type SimulationEvent } from "@/core/simulation/engine";
 import { buildCodex } from "@/core/codex/builder";
-import { saveCodex } from "@/lib/db";
+import { saveCodex, getNovel, getStoryInfo, getTimeline } from "@/lib/db";
 import type { WritersCodex } from "@/core/codex/types";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { saveGenerationLog } from "@/lib/db";
@@ -72,7 +72,25 @@ export async function POST(request: NextRequest) {
       lastChapterStates: rawLastChapterStates || [],
       timeline: null,
     });
-    if (novelId) saveCodex(novelId, codex);
+    if (novelId) {
+      saveCodex(novelId, codex);
+      // Also try to load storyInfo and fullNovelText from DB to enrich codex
+      try {
+        const dbNovel = getNovel(userId, novelId);
+        if (dbNovel) {
+          const enriched = buildCodex({
+            scene,
+            characters,
+            storyInfo: getStoryInfo(userId, novelId),
+            fullNovelText: dbNovel.text,
+            lastChapterStates: rawLastChapterStates || [],
+            timeline: getTimeline(userId, novelId),
+          });
+          codex = enriched;
+          saveCodex(novelId, codex);
+        }
+      } catch {}
+    }
   } catch (e) {
     console.warn("Codex build failed, falling back to legacy prompt:", e);
   }

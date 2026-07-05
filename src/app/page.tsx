@@ -972,6 +972,7 @@ export default function Home() {
 
                         {/* Writer */}
                         <WritingWorkspace
+                          novelId={novelId}
                           novelTitle={novelTitle}
                           characters={characters}
                           scene={activeTask?.scene || scene}

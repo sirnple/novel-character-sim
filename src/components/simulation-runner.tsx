@@ -9,6 +9,7 @@ import ReviewPanel from "./review-panel";
 
 interface SimulationRunnerProps {
   novelTitle: string;
+  novelId?: string;
   characters: CharacterProfile[];
   scene: SceneDefinition;
   writingStyle?: WritingStyle;
@@ -23,6 +24,7 @@ interface SimulationRunnerProps {
 
 export default function SimulationRunner({
   novelTitle,
+  novelId,
   characters,
   scene,
   writingStyle,
@@ -63,7 +65,7 @@ export default function SimulationRunner({
       const res = await fetch("/api/simulation/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novelTitle, characters, scene, writingStyle, outline: cachedOutline, timelineEvents: timeline?.chapters?.flatMap((ch: any) => ch.events) ?? [], lastChapterStates }),
+        body: JSON.stringify({ novelTitle, novelId, characters, scene, writingStyle, outline: cachedOutline, timelineEvents: timeline?.chapters?.flatMap((ch: any) => ch.events) ?? [], lastChapterStates }),
         signal: controller.signal,
       });
 

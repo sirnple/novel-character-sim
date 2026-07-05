@@ -6,6 +6,7 @@ import type { ReviewReport } from "@/core/codex/types";
 import { Loader2, Play, Sparkles, RefreshCw, BookOpen, Shield, ScrollText, Check, AlertCircle, Copy, Download, Edit3, ChevronDown, ChevronUp, PanelLeft } from "lucide-react";
 
 interface WritingWorkspaceProps {
+  novelId: string;
   novelTitle: string;
   characters: CharacterProfile[];
   scene: SceneDefinition;
@@ -32,6 +33,7 @@ interface WritingWorkspaceProps {
 // ============================================================
 
 export default function WritingWorkspace({
+  novelId,
   novelTitle,
   characters,
   scene,
@@ -121,6 +123,7 @@ export default function WritingWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           novelTitle,
+          novelId,
           characters: characters.filter(c => scene.characterIds.includes(c.id)),
           scene,
           writingStyle,
