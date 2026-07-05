@@ -253,7 +253,22 @@ export default function WritingWorkspace({
   // --- Writing ---
   const startWriting = useCallback(async () => {
     const taskScene = activeTask?.scene || scene;
-    if (!taskScene.location.trim()) return;
+    // Script-based writing: extract location from script if scene has none
+    const location = taskScene.location?.trim() || "";
+    if (!location && !scriptText.trim()) return;
+
+    // Build a scene from the script text if no location set
+    let effectiveScene = taskScene;
+    if (!location) {
+      // Parse location from script: "地点：xxx"
+      const locMatch = scriptText.match(/地点：(.+)/);
+      const sitMatch = scriptText.match(/初始情境[：:]\s*(.+)/);
+      effectiveScene = {
+        ...taskScene,
+        location: locMatch?.[1] || "续写",
+        initialSituation: sitMatch?.[1] || taskScene.initialSituation || "",
+      };
+    }
     updateTask(activeTaskId!, { status: "writing" });
     setStatus("generating");
     setError(""); setOutputText(""); setReview(null); setShowReview(false); setShowPrompt(false);
