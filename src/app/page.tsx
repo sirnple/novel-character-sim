@@ -702,8 +702,7 @@ export default function Home() {
                   WRITE
                   ============================================================ */}
               {workspaceView === "write" && (
-                <div className="max-w-4xl mx-auto space-y-6">
-                  <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider">写作工作区</h2>
+                <div className="h-full">  {/* no max-w / no mx-auto / no space-y — full width */}
 
                   {!hasCharacters ? (
                     <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-8 text-center">
