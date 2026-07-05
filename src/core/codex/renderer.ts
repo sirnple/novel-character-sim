@@ -144,7 +144,7 @@ ${segments.join("\n\n---\n\n")}
   // ============================================================
 
   const sceneGoal = codex.currentTask.sceneGoal || "推进剧情";
-  const characters = codex.currentTask.targetCharacters.join("、");
+  const characters = (Array.isArray(codex.currentTask.targetCharacters) ? codex.currentTask.targetCharacters : []).join("、");
   const pacing = codex.currentTask.pacing;
   const pacingGuidance =
     pacing === "fast"
@@ -185,7 +185,7 @@ function renderStylePack(codex: WritersCodex): string {
 ### 原著文风
 - 类型: ${writingStyle.genre}
 - 风格描述: ${writingStyle.styleDescription}
-- 叙事手法: ${(writingStyle.narrativeTechniques || []).join("、") || "无"}
+- 叙事手法: ${Array.isArray(writingStyle.narrativeTechniques) ? writingStyle.narrativeTechniques.join("、") : "无"}
 - 语言特点: ${writingStyle.languageFeatures}
 - 节奏特点: ${writingStyle.pacingDescription}
 - 基调: ${writingStyle.tone}
@@ -194,8 +194,8 @@ function renderStylePack(codex: WritersCodex): string {
 - 平均句长: ${fp.avgSentenceLength} 字
 - 对话占比: ${Math.round(fp.dialogueRatio * 100)}%
 - 叙述占比: ${Math.round(fp.narrationRatio * 100)}%
-- 常用句式开头: ${fp.commonOpeners.join("、")}
-- 常用转折词: ${fp.commonConnectors.join("、")}
+- 常用句式开头: ${Array.isArray(fp.commonOpeners) ? fp.commonOpeners.join("、") : ""}
+- 常用转折词: ${Array.isArray(fp.commonConnectors) ? fp.commonConnectors.join("、") : ""}
 - 标点密度（每千字）: 问号${fp.punctuationProfile.questionMarksPer1k} 感叹号${fp.punctuationProfile.exclamationPer1k} 省略号${fp.punctuationProfile.ellipsisPer1k}
 - 词汇层级: ${fp.vocabularyTier}
 - 节奏特征: ${fp.pacingSignature}
@@ -212,13 +212,13 @@ function renderCharacterDossiers(codex: WritersCodex): string {
     const state = codex.characterDossiers.currentStates.find(s => s.characterId === profile.id);
     const quotes = codex.characterDossiers.quotes[profile.name] || [];
 
-    const traits = profile.personality?.traits?.join("、") || "";
+    const traits = (Array.isArray(profile.personality?.traits) ? profile.personality!.traits : []).join("、");
     const goal = profile.drive?.goal || "?";
     const fear = profile.drive?.fear || "?";
     const weakness = profile.drive?.weakness || "?";
     const bottomLine = profile.drive?.bottomLine || "?";
     const speakingStyle = profile.speakingStyle?.description || "";
-    const catchphrases = (profile.speakingStyle?.catchphrases || []).join("、");
+    const catchphrases = (Array.isArray(profile.speakingStyle?.catchphrases) ? profile.speakingStyle!.catchphrases : []).join("、");
 
     const rels = (profile.relationships || [])
       .map(r => `  - ${r.characterName}: ${r.type} — ${r.description}（${r.dynamics}）`)
@@ -267,8 +267,8 @@ function renderWorldBible(codex: WritersCodex): string {
 - 主要地点: ${w.location}
 - 社会结构: ${w.socialStructure}
 - 力量体系: ${w.powerSystem}
-- 势力/门派: ${w.factions.join("、") || "无"}
-- 世界规则: ${w.rules.join("、") || "无"}
+- 势力/门派: ${Array.isArray(w.factions) ? w.factions.join("、") : "无"}
+- 世界规则: ${Array.isArray(w.rules) ? w.rules.join("、") : "无"}
 - 世界观氛围: ${w.atmosphere}`;
 }
 
