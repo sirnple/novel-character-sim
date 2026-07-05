@@ -164,7 +164,8 @@ export default function WritingWorkspace({
       characterIds: characters.map(c => c.id),
     };
     const label = newTaskLabel || `${chapterTitle}续写`;
-    const script = buildScript(characters, null, sc);
+    // Empty script — user clicks 'AI 生成剧本' to fill it
+    const script = `# 写作剧本\n\n## 场景\n承接：${chapterTitle}末\n\n> 请点击"AI 生成剧本"按钮生成场景大纲，或手动编辑此剧本`;
 
     const task: WritingTask = {
       id: `task_${Date.now()}`,
