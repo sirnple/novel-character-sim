@@ -31,12 +31,15 @@ interface SavedNovel {
 
 interface WritingTask {
   id: string;
+  novelId: string;
   scene: SceneDefinition;
   label: string;
   createdAt: string;
   status: "pending" | "writing" | "completed";
   output?: string;
   review?: any;
+  continueFrom?: string;
+  script?: string;
 }
 
 type WorkspaceView = "overview" | "characters" | "timeline" | "world" | "write" | "review";
@@ -207,12 +210,29 @@ export default function Home() {
   };
 
   // ============================================================
-  // Writing Task Management
+  // Writing Task Management — sync from localStorage
   // ============================================================
+
+  // Load tasks from localStorage on mount, synced with novelId
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("writing_tasks");
+      if (raw) {
+        const allTasks = JSON.parse(raw) as WritingTask[];
+        const novelTasks = allTasks.filter(t => t.novelId === novelId);
+        setWritingTasks(novelTasks);
+        // Restore active task if it exists
+        if (activeTaskId && !novelTasks.find(t => t.id === activeTaskId)) {
+          setActiveTaskId(null);
+        }
+      }
+    } catch {}
+  }, [novelId]);
 
   const createWritingTask = (sceneDef: SceneDefinition) => {
     const task: WritingTask = {
       id: `task_${Date.now()}`,
+      novelId,
       scene: sceneDef,
       label: sceneDef.initialSituation ? sceneDef.initialSituation.slice(0, 30) + "..." : "新写作任务",
       createdAt: new Date().toISOString(),
