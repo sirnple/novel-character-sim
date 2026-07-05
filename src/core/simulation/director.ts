@@ -1,10 +1,9 @@
 import type { CharacterProfile, SceneDefinition, SimulationRound, SceneOutline } from "@/types";
 import { createLLMProvider } from "@/core/llm/factory";
-import { buildDirectorSystemPrompt } from "./types";
 import { isChinese } from "@/lib/utils";
 
 // ============================================================
-// Outline Writer — 导演先编写场景剧本大纲
+// Outline Writer — 编剧生成场景剧本大纲
 // ============================================================
 
 const OUTLINE_SCHEMA = {
@@ -65,68 +64,72 @@ export async function runOutlineWriter(
   const llm = createLLMProvider();
   const zh = characters.length > 0 && isChinese(characters[0].personality.description);
 
-  // Build character summaries
+  // Build character summaries — rich descriptions so the AI understands who these people are
   const charSummaries = characters
     .map((c) => {
       const traits = Array.isArray(c.personality.traits) ? c.personality.traits.join("、") : String(c.personality.traits || "");
       const values = Array.isArray(c.values) ? c.values.join("、") : String(c.values || "");
+      const goal = c.drive?.goal || "";
+      const weakness = c.drive?.weakness || "";
+      const speaking = c.speakingStyle?.description || "";
+      const worldview = c.worldview || "";
       const rels = (Array.isArray(c.relationships) ? c.relationships : [])
         .filter((r) => characters.some((sc) => sc.name === r.characterName))
-        .map((r) => `${r.characterName}（${r.type}）`)
-        .join("、");
-      return `【${c.name}】性格：${traits}。${c.personality.description} 价值观：${values}。${rels ? ` 与在场角色的关系：${rels}` : ""}`;
+        .map((r) => `${r.characterName}（${r.type}，${r.dynamics}）`)
+        .join("；");
+      return `【${c.name}】
+  性格：${traits}。${c.personality.description}
+  ${goal ? `目标：${goal}。` : ""}${weakness ? `弱点：${weakness}。` : ""}
+  说话风格：${speaking}。${worldview ? `世界观：${worldview}。` : ""}
+  ${rels ? `与在场角色的关系：${rels}` : ""}`;
     })
     .join("\n\n");
 
   const systemPrompt = zh
-    ? `你是一位经验丰富的编剧。为以下场景设计一个紧凑的剧本大纲。
+    ? `你是一位经验丰富的创意编剧。为你接手的这个场景构思一个精彩的剧本大纲。
 
-## 场景设定
-- 地点：${scene.location}
-- 时间：${scene.timeOfDay}
-- 天气：${scene.weather}
-- 氛围：${scene.atmosphere}
-- 初始情境：${scene.initialSituation}
-- 情节类型：${scene.plot.conflictType || "未指定"}
-- 故事节点：${scene.plot.storyBeat || "未指定"}
-- 赌注：${scene.plot.stakes || "未指定"}
+## 场景
+地点：${scene.location || "待定"}
+时间：${scene.timeOfDay}
+天气：${scene.weather}
+氛围：${scene.atmosphere}
+${scene.initialSituation ? `初始情境：${scene.initialSituation}` : ""}
 
 ## 出场角色
 ${charSummaries}
 
-## 要求
-- 设计 3-5 个紧凑的情节节拍，每个节拍推动场景向结局发展
-- 情感弧线要有起伏，避免平铺直叙
-- 每个节拍明确指定出场的角色
-- 场景结局要有力度：可以是转折、揭示、冲突升级或暂时平静
-${previousProse ? `\n## 已有前文\n${previousProse.slice(-300)}\n请在此基础上延续场景。` : ""}`
-    : `You are an experienced screenwriter. Design a compact scene outline.
+## 创作要求
+- 设计 3-5 个连续的情节节拍，推动场景从开场走向一个有力的结局
+- 每个节拍要利用角色之间的关系——冲突、结盟、背叛、谈判、揭露——让角色互动驱动剧情
+- 情感弧线要有起伏：可以是紧张→爆发→缓和，也可以是平静→暗流→危机→转折
+- 场景结局不能平淡收场——要有转折、揭示、危机升级、或角色关系的重大变化${previousProse ? `\n\n## 衔接前文\n${previousProse.slice(-300)}\n请在以上内容的基础上设计延续的场景。` : ""}`
+    : `You are an experienced creative screenwriter. Design a compelling scene outline for the following setup.
 
 ## Scene
-- Location: ${scene.location}
-- Time: ${scene.timeOfDay}
-- Weather: ${scene.weather}
-- Atmosphere: ${scene.atmosphere}
-- Situation: ${scene.initialSituation}
+Location: ${scene.location || "TBD"}
+Time: ${scene.timeOfDay}
+Weather: ${scene.weather}
+Atmosphere: ${scene.atmosphere}
+${scene.initialSituation ? `Initial Situation: ${scene.initialSituation}` : ""}
 
 ## Characters
 ${charSummaries}
 
 ## Requirements
-- Design 3-5 tight beats
-- Each beat specifies which characters are involved
-- Clear emotional arc
-- Strong ending${previousProse ? `\n\n## Previous prose\n${previousProse.slice(-300)}` : ""}`;
+- Design 3-5 consecutive beats that drive the scene from opening to a decisive ending
+- Each beat must exploit character relationships — conflict, alliance, betrayal, negotiation, revelation — let character dynamics drive the plot
+- Emotional arc must have meaningful shape: rising tension, reversal, or earned resolution
+- The ending must not be flat — it requires a twist, revelation, escalation, or significant relationship change${previousProse ? `\n\n## Previous Prose\n${previousProse.slice(-300)}\nContinue from here.` : ""}`;
 
   const userPrompt = zh
     ? `请为这个场景编写剧本大纲。包括：
-1. 场景标题
-2. 场景目标
+1. 场景标题（5-15字）
+2. 场景目标（这个场景要达成什么，1-2句话）
 3. 3-5个情节节拍（每个节拍：描述、出场角色、氛围）
-4. 情感弧线
-5. 场景结局
-6. 预计轮数`
-    : `Write a scene outline with title, goal, 3-5 beats, emotional arc, ending, and estimated rounds.`;
+4. 情感弧线（从开场到结束的情绪变化，如"紧张→冲突→爆发→余波"）
+5. 场景结局（如何收尾）
+6. 预计轮数（3-6轮）`
+    : `Write a scene outline with: 1. scene title, 2. scene goal, 3. 3-5 beats (description, active characters, mood), 4. emotional arc, 5. scene ending, 6. estimated rounds (3-6).`;
 
   console.log(`[OutlineWriter] Writing scene outline (zh=${zh}, chars=${characters.length})...`);
   const t0 = Date.now();
@@ -142,140 +145,4 @@ ${charSummaries}
 
   console.log(`[OutlineWriter] Done in ${Date.now() - t0}ms: "${result.sceneTitle}" (${result.beats?.length || 0} beats, ${result.estimatedRounds} rounds)`);
   return { outline: result, prompt: { system: systemPrompt, user: userPrompt } };
-}
-
-// ============================================================
-// Round Director — 调度者，不写叙述
-// ============================================================
-
-export interface DirectorDecision {
-  beatNumber: number;          // 当前推进大纲第几个节拍
-  focusCharacter: string;      // 本轮 POV 角色名
-  moodTone: string;            // 本轮情绪基调
-  pacing: "fast" | "medium" | "slow";
-  conflictIntensity: number;   // 1-10
-  activeCharacters: string[];  // 需要回应的角色
-  isSceneEnd: boolean;
-}
-
-const DIRECTOR_SCHEMA = {
-  name: "director_decision",
-  description: "Director's scheduling decision — who speaks, what mood, what beat",
-  parameters: {
-    type: "object",
-    properties: {
-      beatNumber: {
-        type: "number",
-        description: "当前推进大纲第几个节拍（1-based）。若没有大纲则填当前轮次。",
-      },
-      focusCharacter: {
-        type: "string",
-        description: "本轮聚焦的角色名——以谁的主观视角来展开这一轮",
-      },
-      moodTone: {
-        type: "string",
-        description: "本轮情绪基调，如：紧张、温情、压抑、爆发、暧昧、绝望",
-      },
-      pacing: {
-        type: "string",
-        enum: ["fast", "medium", "slow"],
-        description: "节奏：fast=快节奏短对话冲突升级，medium=正常推进，slow=内心独白氛围铺垫",
-      },
-      conflictIntensity: {
-        type: "number",
-        minimum: 1,
-        maximum: 10,
-        description: "当前冲突强度 1-10。1=风平浪静，5=暗流涌动，10=全面爆发",
-      },
-      activeCharacters: {
-        type: "array",
-        items: { type: "string" },
-        description: "本轮应该回应的角色名列表",
-      },
-      isSceneEnd: {
-        type: "boolean",
-        description: "场景是否达到自然终点",
-      },
-    },
-    required: ["beatNumber", "focusCharacter", "moodTone", "pacing", "conflictIntensity", "activeCharacters", "isSceneEnd"],
-  },
-};
-
-export async function runDirector(
-  characters: CharacterProfile[],
-  scene: SceneDefinition,
-  previousRounds: SimulationRound[],
-  outline?: SceneOutline | null
-): Promise<DirectorDecision> {
-  const llm = createLLMProvider();
-  const zh = characters.length > 0 && isChinese(characters[0].personality.description);
-
-  // Build system prompt with strong scheduling-only constraint
-  const systemPrompt = buildDirectorSystemPrompt(characters, scene);
-
-  // Build outline context
-  let outlineContext = "";
-  if (outline?.beats?.length) {
-    const currentBeatIndex = Math.min(previousRounds.length, outline.beats.length - 1);
-
-    outlineContext = zh
-      ? `\n## 场景大纲
-目标：${outline.sceneGoal}
-情感弧线：${outline.emotionalArc}
-结局：${outline.sceneEnding}
-
-节拍进度：
-${outline.beats.map((b, i) => {
-  const marker = i < currentBeatIndex ? "✅" : i === currentBeatIndex ? "▶️ 当前" : "⏳";
-  return `${marker} 节拍${b.beatNumber}：${b.description} [出场: ${b.activeCharacters.join("、")}] [氛围: ${b.mood}]`;
-}).join("\n")}
-
-已完成 ${previousRounds.length} 轮 / 预计 ${outline.estimatedRounds} 轮。严格按节拍顺序推进。当前应该推进节拍 ${outline.beats[Math.min(previousRounds.length, outline.beats.length - 1)]?.beatNumber || 1}。`
-      : `\n## Outline\nGoal: ${outline.sceneGoal}\nBeats: ${outline.beats.map((b) => `Beat ${b.beatNumber}: ${b.description} [${b.activeCharacters.join(", ")}]`).join(" | ")}\nProgress: ${previousRounds.length}/${outline.estimatedRounds}`;
-  }
-
-  // Build scene plot context
-  const plotContext = zh
-    ? `\n## 情节约束（必须遵循）
-- 冲突类型：${scene.plot.conflictType || "未指定"}
-- 故事节点：${scene.plot.storyBeat || "未指定"}
-- 关键事件：${scene.plot.keyEvent || "未指定"}
-- 赌注：${scene.plot.stakes || "未指定"}
-- 情感弧线：${scene.plot.emotionalArc || "未指定"}`
-    : "";
-
-  // Build history
-  const historyContext = previousRounds.length > 0
-    ? `\n\n## 之前的轮次\n${previousRounds.map((r) =>
-        `${zh ? '第' : 'R'}${r.roundNumber}${zh ? '轮' : ''}: ${zh ? '聚焦' : 'Focus'} ${r.characterResponses[0]?.characterName || '?'} | ${zh ? '情绪' : 'Mood'}: ${r.directorAction}`).join("\n")}`
-    : "";
-
-  const userPrompt = zh
-    ? `你是调度者，不是叙述者。不要写叙事文字。
-
-${outlineContext}${plotContext}${historyContext}
-
-第 ${previousRounds.length + 1} 轮。请调度这一轮：
-- 当前推大纲第几个节拍？
-- 以谁的视角展开？
-- 情绪基调是什么？
-- 节奏快慢？
-- 冲突强度 1-10？
-- 哪些角色需要回应？
-
-只有场景的戏剧弧线真正完结（冲突已解决、情感已释放、没有更多可发展的）时才设 isSceneEnd: true。即使大纲节拍已全部完成，如果还有戏剧张力，就继续。宁可多一轮也不要草率结束。`
-    : `You are the SCHEDULER, not the narrator. Do NOT write narrative.
-
-${outlineContext}${plotContext}${historyContext}
-
-Round ${previousRounds.length + 1}. Schedule this round: beatNumber, focusCharacter, moodTone, pacing, conflictIntensity (1-10), activeCharacters, isSceneEnd.`;
-
-  return llm.chatWithTool<DirectorDecision>(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    DIRECTOR_SCHEMA,
-    { temperature: 0.7, maxTokens: 400 }
-  );
 }
