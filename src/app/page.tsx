@@ -717,18 +717,14 @@ export default function Home() {
                     </div>
                   ) : (
                     !activeTask ? (
-                      /* Scene recommendations */
+                      /* Scene setup + recommendations */
                       <div className="space-y-4">
+                        {/* Scene Configuration */}
                         <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-5">
                           <h3 className="text-xs font-semibold text-neutral-400 font-mono uppercase tracking-wider mb-4">
-                            AI 场景推荐
+                            场景设定
                           </h3>
-                          <p className="text-xs text-neutral-500 mb-4">
-                            基于已提取的角色和故事信息，AI 将为你的小说推荐续写场景。
-                          </p>
 
-                          {/* Reuse SceneSetup for scene config and recommendations */}
-                          {/* Simplified: directly show scene setup for writing */}
                           <div className="space-y-4">
                             <div>
                               <label className="block text-xs text-neutral-500 font-mono mb-1">场景地点</label>
@@ -786,9 +782,9 @@ export default function Home() {
                                   onChange={e => setScene(s => ({ ...s, narrativeStyle: { ...s.narrativeStyle, targetLength: e.target.value as any } }))}
                                   className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono"
                                 >
-                                  {["short", "medium", "long"].map(v => (
-                                    <option key={v} value={v}>{v === "short" ? "快速" : v === "medium" ? "中速" : "慢速"}</option>
-                                  ))}
+                                  <option value="short">快速</option>
+                                  <option value="medium">中速</option>
+                                  <option value="long">慢速</option>
                                 </select>
                               </div>
                             </div>
@@ -838,10 +834,32 @@ export default function Home() {
                             </div>
                           </div>
 
-                          <div className="mt-6 flex gap-3">
+                          <div className="mt-5 flex gap-3">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch("/api/scene/recommend", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ characters, storyInfo }),
+                                  });
+                                  const data = await res.json();
+                                  if (data.recommendations) {
+                                    setSceneRecommendations({ key: novelId, recommendations: data.recommendations });
+                                  }
+                                } catch (e) {
+                                  console.error("Failed to get recommendations:", e);
+                                }
+                              }}
+                              disabled={!hasCharacters}
+                              className="flex items-center gap-2 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              AI 推荐场景
+                            </button>
                             <button
                               onClick={() => {
-                                const task = createWritingTask({ ...scene, characterIds: characters.map(c => c.id) });
+                                createWritingTask({ ...scene, characterIds: characters.map(c => c.id) });
                               }}
                               disabled={!scene.location.trim()}
                               className="flex-1 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors flex items-center justify-center gap-2"
@@ -852,15 +870,69 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* Scene Recommendations from AI */}
-                        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-5">
-                          <h3 className="text-xs font-semibold text-neutral-400 font-mono uppercase tracking-wider mb-3">
-                            灵感推荐
-                          </h3>
-                          <p className="text-xs text-neutral-500">
-                            完成角色提取后，AI 将基于角色关系和故事背景推荐场景创意。
-                          </p>
-                        </div>
+                        {/* AI Scene Recommendations */}
+                        {sceneRecommendations?.recommendations && sceneRecommendations.key === novelId && (
+                          <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-5">
+                            <h3 className="text-xs font-semibold text-neutral-400 font-mono uppercase tracking-wider mb-4">
+                              AI 推荐场景
+                            </h3>
+                            <div className="space-y-3">
+                              {sceneRecommendations.recommendations.map((rec, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => {
+                                    setScene(s => ({
+                                      ...s,
+                                      location: rec.location,
+                                      timeOfDay: rec.timeOfDay,
+                                      weather: rec.weather,
+                                      atmosphere: rec.atmosphere,
+                                      initialSituation: rec.initialSituation,
+                                      characterIds: rec.suggestedCharacters
+                                        .map(name => characters.find(c => c.name === name)?.id || "")
+                                        .filter(Boolean),
+                                    }));
+                                    createWritingTask({
+                                      ...scene,
+                                      location: rec.location,
+                                      timeOfDay: rec.timeOfDay,
+                                      weather: rec.weather,
+                                      atmosphere: rec.atmosphere,
+                                      initialSituation: rec.initialSituation,
+                                      characterIds: rec.suggestedCharacters
+                                        .map(name => characters.find(c => c.name === name)?.id || "")
+                                        .filter(Boolean),
+                                    });
+                                  }}
+                                  className="w-full text-left p-4 rounded border border-neutral-800 hover:border-orange-500/30 bg-neutral-800/20 hover:bg-neutral-800/40 transition-colors group"
+                                >
+                                  <div className="flex items-start justify-between mb-2">
+                                    <div>
+                                      <span className="text-sm font-semibold text-neutral-200 font-mono">
+                                        {rec.location}
+                                      </span>
+                                      <span className="text-xs text-neutral-500 ml-2">
+                                        {rec.timeOfDay} · {rec.weather} · {rec.atmosphere}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-orange-500/60 font-mono group-hover:text-orange-400 transition-colors">
+                                      选用 →
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-neutral-400 mb-1.5">{rec.initialSituation}</p>
+                                  <p className="text-[10px] text-neutral-600">{rec.whyGood}</p>
+                                  <div className="flex gap-1 mt-2">
+                                    {rec.suggestedCharacters.map(ch => (
+                                      <span key={ch} className="px-1.5 py-0.5 bg-neutral-700/50 rounded text-[10px] text-neutral-400 font-mono">
+                                        {ch}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       /* Active Writing Task */
