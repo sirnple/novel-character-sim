@@ -38,3 +38,4 @@ test_novel.txt
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.claude/worktrees/

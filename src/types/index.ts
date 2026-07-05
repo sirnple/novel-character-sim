@@ -100,6 +100,42 @@ export interface FileEntry {
   category: string; // which subfolder group it belongs to
 }
 
+// --- Timeline ---
+
+export interface TimelineEvent {
+  id: string;
+  sequence: number;
+  chapterNumber: number;
+  title: string;
+  description: string;
+  involvedCharacters: string[];
+  outcomes: string[];
+  charactersChanged: Record<string, string>;
+  precedingEvent: string | null;
+}
+
+export interface ChapterTimeline {
+  novelId: string;
+  totalChapters: number;
+  chapters: ChapterSnapshot[];
+}
+
+export interface ChapterSnapshot {
+  chapterNumber: number;
+  title: string;
+  events: TimelineEvent[];
+  characterStates: CharacterChapterState[];
+}
+
+export interface CharacterChapterState {
+  characterId: string;
+  name: string;
+  lastSeenChapter: number;
+  alive: boolean;
+  location: string;
+  delta: string;
+}
+
 // --- Novel ---
 
 export interface NovelChunk {

@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import type { CharacterProfile, SceneDefinition, SimulationRound, WritingStyle, SceneOutline } from "@/types";
+import type { CharacterProfile, SceneDefinition, SimulationRound, WritingStyle, SceneOutline, ChapterTimeline, CharacterChapterState } from "@/types";
 import type { SimulationEvent } from "@/core/simulation/engine";
-import { Loader2, MessageCircle, BookOpen, StopCircle, ArrowUp, ArrowDown, Eye, X, ScrollText, Target, Activity } from "lucide-react";
+import { Loader2, BookOpen, StopCircle, ArrowUp, ArrowDown, ScrollText, Activity, Shield } from "lucide-react";
 import NovelOutput from "./novel-output";
-import type { ChannelMessage } from "@/types";
+import ReviewPanel from "./review-panel";
 
 interface SimulationRunnerProps {
   novelTitle: string;
@@ -17,6 +17,8 @@ interface SimulationRunnerProps {
   initialFullNovel?: string;
   cachedOutline?: SceneOutline | null;
   onCacheOutline?: (outline: SceneOutline) => void;
+  timeline?: ChapterTimeline | null;
+  lastChapterStates?: CharacterChapterState[];
 }
 
 export default function SimulationRunner({
@@ -28,20 +30,18 @@ export default function SimulationRunner({
   onComplete,
   initialFullNovel,
   cachedOutline,
+  timeline,
+  lastChapterStates,
   onCacheOutline,
 }: SimulationRunnerProps) {
   const [status, setStatus] = useState<"connecting" | "running" | "completed" | "error">("connecting");
-  const [rounds, setRounds] = useState<SimulationRound[]>([]);
   const [currentEvent, setCurrentEvent] = useState<string>("");
   const [fullNovel, setFullNovel] = useState(initialFullNovel || "");
+  const [revisedNovel, setRevisedNovel] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [outline, setOutline] = useState<SceneOutline | null>(null);
-  const [activeTab, setActiveTab] = useState<"live" | "novel">("live");
-  const [charDetail, setCharDetail] = useState<string | null>(null); // character name for detail view
+  const [activeTab, setActiveTab] = useState<"live" | "novel" | "review">("live");
   const abortRef = useRef<AbortController | null>(null);
-
-  // Collect all channel messages for character detail view
-  const allMessages = rounds.flatMap((r) => r.channelMessages || []);
 
   useEffect(() => {
     startSimulation();
@@ -61,7 +61,7 @@ export default function SimulationRunner({
       const res = await fetch("/api/simulation/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novelTitle, characters, scene, writingStyle, outline: cachedOutline }),
+        body: JSON.stringify({ novelTitle, characters, scene, writingStyle, outline: cachedOutline, timelineEvents: timeline?.chapters?.flatMap((ch: any) => ch.events) ?? [], lastChapterStates }),
         signal: controller.signal,
       });
 
@@ -105,112 +105,19 @@ export default function SimulationRunner({
 
   const handleEvent = (event: SimulationEvent) => {
     switch (event.type) {
-      case "round_start":
-        setCurrentEvent(`第 ${event.round} 轮开始`);
-        break;
       case "outline":
         setOutline(event.outline);
         setCurrentEvent(`📋 剧本大纲已生成：${event.outline.sceneTitle}`);
         if (onCacheOutline) onCacheOutline(event.outline);
         break;
-      case "director":
-        const d = event.decision;
-        setCurrentEvent(`🎬 节拍${d.beatNumber} | 聚焦${d.focusCharacter} | ${d.moodTone} | 冲突${d.conflictIntensity}/10 | ${d.pacing === "fast" ? "⚡快" : d.pacing === "slow" ? "🐢慢" : "➡中"}`);
-        break;
-      case "character_responding":
-        setCurrentEvent(`${event.characterName} 正在思考...`);
-        break;
-      case "character_response":
-        const chLabel = (event as any).channelId !== "public" ? "🔒" : "📢";
-        setCurrentEvent(`${chLabel} ${event.characterName} 发言`);
-        setRounds((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && !last.characterResponses?.some((cr: any) => cr.characterName === event.characterName)) {
-            const newResp = {
-              characterId: "",
-              characterName: event.characterName,
-              dialogue: event.dialogue,
-              actions: event.actions,
-              innerThoughts: event.innerThoughts,
-              channelId: (event as any).channelId,
-            };
-            const newMsg: ChannelMessage = {
-              id: Math.random().toString(36).slice(2),
-              fromCharacterId: "",
-              fromCharacterName: event.characterName,
-              channelId: (event as any).channelId || "public",
-              dialogue: event.dialogue,
-              actions: event.actions,
-              innerThoughts: event.innerThoughts,
-              timestamp: Date.now(),
-            };
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...last,
-                characterResponses: [...(last.characterResponses || []), newResp],
-                channelMessages: [...(last.channelMessages || []), newMsg],
-              },
-            ];
-          }
-          return prev;
-        });
-        break;
-      case "recording":
-        setCurrentEvent("记录者正在写作...");
-        break;
       case "prose":
-        setCurrentEvent("");
-        setRounds((prev) => {
-          const last = prev[prev.length - 1];
-          if (last) {
-            return [...prev.slice(0, -1), { ...last, proseOutput: event.prose }];
-          }
-          return [
-            {
-              roundNumber: 1,
-              directorAction: "",
-              channelMessages: [],
-              characterResponses: [],
-              proseOutput: event.prose,
-            },
-          ];
-        });
-        setFullNovel((prev) => prev + (prev ? "\n\n" : "") + event.prose);
-        break;
-      case "round_end":
-        // Ensure the round has a prose output
-        setRounds((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && !last.proseOutput) {
-            return prev;
-          }
-          // Add a placeholder for the next round
-          return [
-            ...prev,
-            {
-              roundNumber: event.round + 1,
-              directorAction: "",
-              channelMessages: [],
-              characterResponses: [],
-              proseOutput: "",
-            },
-          ];
-        });
+        setFullNovel(event.prose);
+        setCurrentEvent("✅ 场景正文已生成");
+        setActiveTab("novel");
         break;
       case "scene_end":
         setStatus("completed");
-        setFullNovel(event.fullNovel);
-        setCurrentEvent("");
-        if (onComplete) onComplete(event.fullNovel);
-        // Remove the placeholder last round if empty
-        setRounds((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && !last.proseOutput && !last.directorAction) {
-            return prev.slice(0, -1);
-          }
-          return prev;
-        });
+        onComplete?.(event.fullNovel);
         break;
       case "error":
         setStatus("error");
@@ -219,293 +126,185 @@ export default function SimulationRunner({
     }
   };
 
-  const handleStop = () => {
+  const stopSimulation = () => {
     abortRef.current?.abort();
     setStatus("completed");
   };
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-foreground">
-            {scene.location}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {scene.atmosphere} · {scene.timeOfDay} · {characters.map((c) => c.name).join("、")}
-          </p>
-          <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs font-medium ${scene.mode === "free" ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"}`}>
-            {scene.mode === "free" ? "🗣 自由对话" : "🎬 导演模式"}
-          </span>
+  if (error) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-6 text-center">
+          <p className="text-lg text-destructive mb-2">❌ 生成失败</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
+          <button
+            className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-lg"
+            onClick={onBack}
+          >
+            返回
+          </button>
         </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <button
-            className="px-3 py-1.5 border rounded-md text-sm flex items-center gap-1 hover:bg-secondary transition-colors"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             onClick={onBack}
           >
             ← 返回
           </button>
+          <h2 className="text-lg font-semibold">{scene.location}</h2>
+        </div>
+        <div className="flex items-center gap-2">
           {status === "running" && (
             <button
-              className="px-3 py-1.5 border border-destructive text-destructive rounded-md text-sm flex items-center gap-1 hover:bg-destructive/10 transition-colors"
-              onClick={handleStop}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-destructive/10 text-destructive rounded-lg hover:bg-destructive/20 transition-colors"
+              onClick={stopSimulation}
             >
-              <StopCircle className="w-4 h-4" />
-              停止
+              <StopCircle className="w-4 h-4" /> 停止
             </button>
           )}
-          <span
-            className={`px-2 py-1 rounded-full text-xs font-medium ${
-              status === "running"
-                ? "bg-green-100 text-green-700"
-                : status === "completed"
-                ? "bg-blue-100 text-blue-700"
-                : status === "error"
-                ? "bg-red-100 text-red-700"
-                : "bg-yellow-100 text-yellow-700"
-            }`}
-          >
-            {status === "connecting"
-              ? "连接中..."
-              : status === "running"
-              ? "运行中"
-              : status === "completed"
-              ? "已完成"
-              : "错误"}
+          <span className={`text-xs px-2 py-0.5 rounded-full ${
+            status === "running" ? "bg-blue-100 text-blue-700" :
+            status === "completed" ? "bg-green-100 text-green-700" :
+            status === "connecting" ? "bg-yellow-100 text-yellow-700" :
+            "bg-muted text-muted-foreground"
+          }`}>
+            {status === "connecting" ? "连接中..." :
+             status === "running" ? "写作中..." :
+             status === "completed" ? "已完成" : "就绪"}
           </span>
         </div>
       </div>
 
-      {error && (
-        <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Scene Outline */}
-      {outline && scene.mode === "director" && (
-        <div className="border rounded-lg overflow-hidden bg-gradient-to-r from-orange-50/50 to-amber-50/50">
-          <div className="bg-orange-100/60 px-4 py-3 border-b flex items-center gap-2">
-            <ScrollText className="w-5 h-5 text-orange-600" />
-            <span className="font-semibold text-orange-800">📋 {outline.sceneTitle}</span>
-          </div>
-          <div className="p-4 space-y-3">
-            {/* Goal */}
-            <div className="flex items-start gap-2">
-              <Target className="w-4 h-4 text-orange-500 mt-0.5 shrink-0" />
-              <p className="text-sm text-foreground/80"><span className="font-medium">场景目标：</span>{outline.sceneGoal}</p>
-            </div>
-
-            {/* Beats */}
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1">
-                <Activity className="w-3.5 h-3.5" /> 情节节拍
-              </p>
-              <div className="space-y-2">
-                {outline.beats.map((beat, i) => {
-                  const currentBeat = outline.beats.findIndex(
-                    (b) => rounds.length > 0 && b.beatNumber === outline.beats[Math.min(rounds.length, outline.beats.length - 1)]?.beatNumber
-                  );
-                  const isDone = i < (rounds.length > 0 ? Math.min(rounds.length, outline.beats.length) : 0);
-                  const isCurrent = !isDone && i === (rounds.length > 0 ? Math.min(rounds.length, outline.beats.length) : 0);
-                  return (
-                    <div
-                      key={beat.beatNumber}
-                      className={`flex items-start gap-3 p-2.5 rounded-md text-sm transition-colors ${
-                        isCurrent
-                          ? "bg-orange-100/80 border border-orange-300"
-                          : isDone
-                          ? "bg-green-50/50 opacity-60"
-                          : "bg-white/60"
-                      }`}
-                    >
-                      <span className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                        isCurrent
-                          ? "bg-orange-500 text-white"
-                          : isDone
-                          ? "bg-green-500 text-white"
-                          : "bg-muted text-muted-foreground"
-                      }`}>
-                        {isDone ? "✓" : beat.beatNumber}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className={`${isCurrent ? "font-medium text-foreground" : "text-foreground/70"}`}>
-                          {beat.description}
-                        </p>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          <span className="text-xs bg-secondary px-1.5 py-0.5 rounded text-muted-foreground">
-                            {beat.mood}
-                          </span>
-                          {beat.activeCharacters.map((name) => (
-                            <span key={name} className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                              {name}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Emotional Arc + Ending */}
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-              <span>🎭 情感弧线：{outline.emotionalArc}</span>
-              <span>🏁 结局：{outline.sceneEnding}</span>
-              <span className="text-orange-600 font-medium">预计 {outline.estimatedRounds} 轮</span>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Tabs */}
-      <div className="flex border-b">
+      <div className="flex gap-1 mb-4 border-b">
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === "live"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
+            activeTab === "live" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
           onClick={() => setActiveTab("live")}
         >
-          <MessageCircle className="w-4 h-4 inline mr-1" />
-          实时
+          <Activity className="w-4 h-4 inline mr-1" />
+          进度
         </button>
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === "novel"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
+            activeTab === "novel" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
           onClick={() => setActiveTab("novel")}
         >
           <BookOpen className="w-4 h-4 inline mr-1" />
-          小说
+          正文
+        </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "review" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => { if (status === "completed") setActiveTab("review"); }}
+          disabled={status !== "completed"}
+          title={status !== "completed" ? "模拟完成后可审查" : "审查生成的小说"}
+        >
+          <Shield className="w-4 h-4 inline mr-1" />
+          审查
         </button>
       </div>
 
+      {/* Content */}
       {activeTab === "live" ? (
         <div className="space-y-4">
-          {status === "connecting" && (
-            <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Connecting to simulation...
-            </div>
-          )}
-
-          {currentEvent && status === "running" && (
-            <div className="flex items-center gap-2 p-3 bg-accent/5 rounded-md">
-              <Loader2 className="w-4 h-4 animate-spin text-primary flex-shrink-0" />
-              <span className="text-sm">{currentEvent}</span>
-            </div>
-          )}
-
-          {rounds
-            .filter((r) => r.proseOutput || r.characterResponses.length > 0)
-            .map((round) => (
-              <div key={round.roundNumber} className="border rounded-lg overflow-hidden">
-                <div className="bg-secondary/50 px-4 py-2 border-b">
-                  <span className="text-sm font-semibold">第 {round.roundNumber} 轮</span>
-                  {round.directorAction && scene.mode === "director" && (
-                    <p className="text-xs text-muted-foreground mt-0.5">🎬 {round.directorAction}</p>
-                  )}
-                </div>
-
-                {round.characterResponses.length > 0 && (
-                  <div className="p-4 space-y-3">
-                    {round.characterResponses.map((cr: any, i: number) => {
-                      const isPrivate = cr.channelId && cr.channelId !== "public";
-                      return (
-                      <div key={i} className={`text-sm ${scene.mode === "free" ? "flex gap-3 items-start" : ""}`}>
-                        {scene.mode === "free" ? (
-                          <>
-                            <span className="font-semibold text-primary shrink-0 min-w-[3rem] cursor-pointer hover:underline"
-                              onClick={(e) => { e.stopPropagation(); setCharDetail(cr.characterName); }}>{cr.characterName}</span>
-                            <div className={`flex-1 rounded-lg px-3 py-2 ${isPrivate ? "bg-purple-50 border border-purple-200" : "bg-secondary/40"}`}>
-                              {isPrivate && <span className="text-xs text-purple-500 font-medium">🔒 私信</span>}
-                              <p className="italic">&ldquo;{cr.dialogue}&rdquo;</p>
-                              {cr.actions && <p className="text-xs text-muted-foreground mt-1">{cr.actions}</p>}
-                              {cr.innerThoughts && <p className="text-xs text-muted-foreground/50 mt-0.5">💭 {cr.innerThoughts}</p>}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <span className="font-semibold cursor-pointer hover:underline"
-                              onClick={() => setCharDetail(cr.characterName)}>{cr.characterName}{isPrivate ? " 🔒" : ""}：</span>
-                            <span className="italic">&ldquo;{cr.dialogue}&rdquo;</span>
-                            {cr.actions && <p className="text-muted-foreground mt-0.5">{cr.actions}</p>}
-                            {cr.innerThoughts && <p className="text-xs text-muted-foreground/60 mt-0.5">💭 {cr.innerThoughts}</p>}
-                          </>
-                        )}
-                      </div>
-                    )})}
-                  </div>
-                )}
+          {/* Status */}
+          <div className="bg-card border rounded-lg p-6 text-center">
+            {status === "connecting" && (
+              <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <p>正在连接...</p>
               </div>
-            ))}
+            )}
+            {status === "running" && (
+              <div className="flex flex-col items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                  <p className="text-primary font-medium">Writer 写作中...</p>
+                </div>
+                {currentEvent && <p className="text-xs text-muted-foreground">{currentEvent}</p>}
+              </div>
+            )}
+            {outline && (
+              <div className="mt-4 pt-4 border-t text-left">
+                <div className="flex items-center gap-2 mb-2">
+                  <ScrollText className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-medium">剧本大纲：{outline.sceneTitle}</span>
+                </div>
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  <p>目标：{outline.sceneGoal}</p>
+                  <p>情感弧线：{outline.emotionalArc}</p>
+                  <p>结局：{outline.sceneEnding}</p>
+                  <div className="mt-2 space-y-0.5">
+                    {outline.beats.map((b) => (
+                      <div key={b.beatNumber} className="flex gap-2">
+                        <span className="text-primary font-mono">#{b.beatNumber}</span>
+                        <span>{b.description} [{b.mood}]</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            {status === "completed" && (
+              <div className="flex flex-col items-center gap-2">
+                <div className="text-3xl">✅</div>
+                <p className="text-green-600 font-medium">场景生成完成！</p>
+                <button
+                  className="mt-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg"
+                  onClick={() => setActiveTab("novel")}
+                >
+                  <BookOpen className="w-4 h-4 inline mr-1" />
+                  查看正文
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Scene info card */}
+          <div className="bg-muted/30 border rounded-lg p-4">
+            <h3 className="text-sm font-medium mb-2">场景信息</h3>
+            <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+              <div><span className="font-medium">地点：</span>{scene.location}</div>
+              <div><span className="font-medium">时间：</span>{scene.timeOfDay}</div>
+              <div><span className="font-medium">天气：</span>{scene.weather}</div>
+              <div><span className="font-medium">氛围：</span>{scene.atmosphere}</div>
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              <span className="font-medium">出场角色：</span>
+              {characters.filter(c => scene.characterIds.includes(c.id)).map(c => c.name).join("、")}
+            </div>
+          </div>
         </div>
+      ) : activeTab === "review" ? (
+        <ReviewPanel
+          draft={fullNovel}
+          timelineEvents={JSON.stringify(timeline?.chapters?.flatMap((ch: any) => ch.events) ?? [])}
+          characterStates={JSON.stringify(lastChapterStates ?? [])}
+          writingStyle={JSON.stringify(writingStyle ?? {})}
+          sceneDesc={`地点：${scene.location}，时间：${scene.timeOfDay}，天气：${scene.weather}，氛围：${scene.atmosphere}，情境：${scene.initialSituation}`}
+          onRevised={(text) => { setFullNovel(text); setRevisedNovel(text); }}
+        />
       ) : (
         <NovelOutput
           title={novelTitle}
-          content={fullNovel}
+          content={revisedNovel || fullNovel}
           isComplete={status === "completed"}
         />
       )}
 
-      {/* Character Detail Modal */}
-      {charDetail && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setCharDetail(null)}>
-          <div className="bg-card rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="sticky top-0 bg-card p-4 border-b flex items-center justify-between">
-              <h3 className="text-lg font-semibold">👤 {charDetail} 的视角</h3>
-              <button className="p-1 hover:bg-secondary rounded" onClick={() => setCharDetail(null)}>
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4 space-y-4">
-              {allMessages
-                .filter((m) => m.fromCharacterName === charDetail ||
-                  (m.channelId !== "public" && allMessages.some(
-                    (x) => x.channelId === m.channelId && x.fromCharacterName === charDetail
-                  )))
-                .map((m, i) => {
-                const isSelf = m.fromCharacterName === charDetail;
-                const isPrivate = m.channelId !== "public";
-                const otherParty = isPrivate
-                  ? m.channelId.replace("priv-", "").split("-").find((n: string) => n !== charDetail) || ""
-                  : "";
-                return (
-                  <div key={i} className={`flex ${isSelf ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
-                      isPrivate
-                        ? "bg-purple-50 border border-purple-200"
-                        : isSelf
-                        ? "bg-primary/10 border border-primary/20"
-                        : "bg-secondary/40"
-                    }`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-medium">{isSelf ? charDetail : m.fromCharacterName}</span>
-                        {isPrivate && <span className="text-xs text-purple-500">🔒 → {otherParty}</span>}
-                        {!isPrivate && <span className="text-xs text-muted-foreground">📢 公共</span>}
-                      </div>
-                      <p className="italic">&ldquo;{m.dialogue}&rdquo;</p>
-                      {m.actions && <p className="text-xs text-muted-foreground mt-1">{m.actions}</p>}
-                      {m.innerThoughts && <p className="text-xs text-muted-foreground/50 mt-0.5">💭 {m.innerThoughts}</p>}
-                    </div>
-                  </div>
-                );
-              })}
-              {allMessages.filter((m) => m.fromCharacterName === charDetail ||
-                (m.channelId !== "public" && m.channelId.includes(charDetail))).length === 0 && (
-                <p className="text-center text-muted-foreground text-sm">暂无消息</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Floating scroll buttons */}
+            {/* Floating scroll buttons */}
       <div className="fixed right-6 bottom-24 flex flex-col gap-2 z-50">
         <button
           className="p-2 bg-card border rounded-full shadow-md hover:bg-secondary transition-colors"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { CharacterProfile, SceneDefinition, StoryInfo } from "@/types";
+import type { CharacterProfile, SceneDefinition, StoryInfo, ChapterTimeline, CharacterChapterState } from "@/types";
 import { Clapperboard, Play, Sparkles, Loader2 } from "lucide-react";
 import { useRateLimitCooldown, useRateLimitTip } from "@/lib/rate-limit-ui";
 
@@ -15,6 +15,8 @@ interface SceneSetupProps {
   /** Cached recommendations from parent — survive step switching */
   cachedRecommendations: Recommendation[] | null;
   onCacheRecommendations: (recs: Recommendation[]) => void;
+  timeline?: ChapterTimeline | null;
+  lastChapterStates?: CharacterChapterState[];
 }
 
 interface Recommendation {
@@ -22,7 +24,7 @@ interface Recommendation {
   initialSituation: string; whyGood: string; suggestedCharacters: string[];
 }
 
-export default function SceneSetup({ characters, storyInfo, scene, onSceneChange, onStartSimulation, disabled, cachedRecommendations, onCacheRecommendations }: SceneSetupProps) {
+export default function SceneSetup({ characters, storyInfo, scene, onSceneChange, onStartSimulation, disabled, cachedRecommendations, onCacheRecommendations, timeline, lastChapterStates }: SceneSetupProps) {
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState("");
   const rateLimitHint = useRateLimitCooldown(recError);
@@ -261,11 +263,28 @@ export default function SceneSetup({ characters, storyInfo, scene, onSceneChange
         </div>
       </div>
 
+            {/* Character States */}
+      {lastChapterStates && lastChapterStates.length > 0 && (
+        <div className="border rounded-lg p-4 bg-secondary/10">
+          <p className="text-sm font-medium mb-2">👥 角色当前状态</p>
+          <div className="flex flex-wrap gap-2">
+            {lastChapterStates.map((st) => (
+              <span
+                key={st.characterId}
+                className={`px-2.5 py-1 text-xs rounded-full border ${st.alive ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}
+                title={st.delta || ''}
+              >
+                {st.name}{st.alive ? '' : ' †'} · {st.location}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       <button
         className="w-full py-3 bg-primary text-primary-foreground rounded-md font-semibold hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-2"
         disabled={!canStart} onClick={() => onStartSimulation(scene)}>
         <Play className="w-5 h-5" /> 开始模拟
-      </button>
-    </div>
+      </button>    </div>
   );
 }

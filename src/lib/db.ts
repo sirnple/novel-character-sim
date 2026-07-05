@@ -160,6 +160,12 @@ function initSchema(db: Database.Database) {
       updated_at TEXT DEFAULT (datetime('now')),
       PRIMARY KEY (agent_id, language)
     );
+    CREATE TABLE IF NOT EXISTS codex_data (
+      novel_id TEXT NOT NULL,
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (novel_id)
+    );
   `);
 
   // Migrate old tables that may be missing user_id.
@@ -457,4 +463,26 @@ export function resetAgentPrompt(agentId: string, language: string): void {
     `UPDATE agent_prompts SET system_prompt = NULL, user_prompt_template = NULL, is_modified = 0, updated_at = datetime('now')
      WHERE agent_id = ? AND language = ?`
   ).run(agentId, language);
+}
+
+// ---- Codex Data ----
+
+import type { WritersCodex } from "@/core/codex/types";
+
+export function saveCodex(novelId: string, codex: WritersCodex): void {
+  const d = getDb();
+  d.prepare(
+    `INSERT OR REPLACE INTO codex_data (novel_id, data, updated_at) VALUES (?, ?, datetime('now'))`
+  ).run(novelId, JSON.stringify(codex));
+}
+
+export function getCodex(novelId: string): WritersCodex | null {
+  const d = getDb();
+  const row = d.prepare("SELECT data FROM codex_data WHERE novel_id = ?").get(novelId) as any;
+  return row ? JSON.parse(row.data) : null;
+}
+
+export function deleteCodex(novelId: string): void {
+  const d = getDb();
+  d.prepare("DELETE FROM codex_data WHERE novel_id = ?").run(novelId);
 }

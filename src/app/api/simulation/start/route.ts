@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { CharacterProfile, SceneDefinition, SimulationRound, WritingStyle } from "@/types";
+import type { CharacterProfile, SceneDefinition, SimulationRound, WritingStyle, TimelineEvent, CharacterChapterState } from "@/types";
 import { SimulationEngine } from "@/core/simulation/engine";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
@@ -23,17 +23,22 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const body = await request.json();
     const {
       novelTitle,
       characters,
       scene,
       writingStyle,
+      timelineEvents,
+      lastChapterStates: rawLastChapterStates,
     }: {
       novelTitle: string;
       characters: CharacterProfile[];
       scene: SceneDefinition;
       writingStyle?: WritingStyle;
-    } = await request.json();
+      timelineEvents?: TimelineEvent[];
+      lastChapterStates?: CharacterChapterState[];
+    } = body;
 
     if (!characters?.length || !scene) {
       return NextResponse.json(
@@ -41,6 +46,26 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Format timeline context
+    const timelineContext = timelineEvents?.length
+      ? timelineEvents
+          .map(
+            (e) =>
+              `事件${e.sequence}: ${e.title} — ${e.description}`
+          )
+          .join("\n")
+      : "";
+
+    // Format last chapter states
+    const lastChapterStates = rawLastChapterStates?.length
+      ? rawLastChapterStates
+          .map(
+            (s) =>
+              `${s.name}: alive=${s.alive}, 位置=${s.location}, 状态=${s.delta}`
+          )
+          .join("\n")
+      : "";
 
     // Create engine with event handler that updates the stored state
     const simId = `sim_${Date.now()}`;
@@ -56,10 +81,8 @@ export async function POST(request: NextRequest) {
       scene,
       (event) => {
         switch (event.type) {
-          case "round_end":
-            const currentState = engine.getState();
-            storedState.rounds = currentState.rounds;
-            storedState.fullNovelOutput = currentState.fullNovelOutput;
+          case "prose":
+            storedState.fullNovelOutput = event.prose;
             break;
           case "scene_end":
             storedState.status = "completed";
@@ -70,7 +93,9 @@ export async function POST(request: NextRequest) {
             break;
         }
       },
-      writingStyle
+      writingStyle,
+      timelineContext,
+      lastChapterStates
     );
 
     simulationStore.set(simId, { engine, state: storedState });

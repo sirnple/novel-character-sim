@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { CharacterProfile } from "@/types";
-import { Users, Loader2, ChevronDown, ChevronUp, Edit3, Download, MessageCircle } from "lucide-react";
+import type { CharacterProfile, ChapterTimeline, CharacterChapterState } from "@/types";
+import { Users, Loader2, ChevronDown, ChevronUp, Edit3, Download, MessageCircle, Clock, ChevronRight } from "lucide-react";
 import { useRateLimitCooldown, useRateLimitTip } from "@/lib/rate-limit-ui";
 import CharacterEditor from "./character-editor";
 import CharacterChat from "./character-chat";
@@ -15,6 +15,8 @@ interface CharacterCardsProps {
   onCancelExtraction: () => void;
   onUpdate: (characters: CharacterProfile[]) => void;
   novelText: string;
+  timeline?: ChapterTimeline | null;
+  lastChapterStates?: CharacterChapterState[];
 }
 
 export default function CharacterCards({
@@ -25,10 +27,22 @@ export default function CharacterCards({
   onExtract,
   onUpdate,
   novelText,
+  timeline,
+  lastChapterStates,
 }: CharacterCardsProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [chattingId, setChattingId] = useState<string | null>(null);
+  const [expandedChapters, setExpandedChapters] = useState<Set<number>>(new Set());
+
+  const toggleChapter = (chNum: number) => {
+    setExpandedChapters((prev) => {
+      const next = new Set(prev);
+      if (next.has(chNum)) next.delete(chNum);
+      else next.add(chNum);
+      return next;
+    });
+  };
   const rateLimitHint = useRateLimitCooldown(error);
   const extractLimitTip = useRateLimitTip("extract");
 
@@ -38,6 +52,8 @@ export default function CharacterCards({
   >({});
 
   // Load persisted chat history from server when opening a chat
+
+
   const openChat = (charId: string) => {
     fetch(`/api/chat/history?characterId=${charId}`)
       .then((r) => r.json())
@@ -313,6 +329,7 @@ ${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.descri
                       {char.drive.bottomLine && <p>🚫 底线：{char.drive.bottomLine}</p>}
                       {char.drive.secret && <p>🔒 秘密：{char.drive.secret}</p>}
                     </div>
+
                   </div>
                 )}
 

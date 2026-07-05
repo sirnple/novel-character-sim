@@ -1,13 +1,16 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import type { CharacterProfile, SceneDefinition, StoryInfo } from "@/types";
+import type { CharacterProfile, SceneDefinition, StoryInfo, ChapterTimeline, CharacterChapterState } from "@/types";
 import NovelUpload from "@/components/novel-upload";
 import CharacterCards from "@/components/character-cards";
 import RelationshipGraph from "@/components/relationship-graph";
 import SceneSetup from "@/components/scene-setup";
 import SimulationRunner from "@/components/simulation-runner";
 import StoryInfoPanel from "@/components/story-info-panel";
+import AuthorContactFooter from "@/components/author-contact-footer";
+import GenerationsLog from "@/components/generations-log";
+import StoryTimeline from "@/components/story-timeline";
 import { novelFingerprint } from "@/lib/utils";
 import { useUserInfo } from "@/lib/rate-limit-ui";
 import { BookOpen, Users, Clapperboard, Play, RefreshCw } from "lucide-react";
@@ -30,6 +33,8 @@ export default function Home() {
   const [novelId, setNovelId] = useState("default");
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [storyInfo, setStoryInfo] = useState<StoryInfo | null>(null);
+  const [timeline, setTimeline] = useState<ChapterTimeline | null>(null);
+  const [lastChapterStates, setLastChapterStates] = useState<CharacterChapterState[]>([]);
   const [extractLoading, setExtractLoading] = useState(false);
   const [extractError, setExtractError] = useState("");
   const [scene, setScene] = useState<SceneDefinition>({
@@ -94,6 +99,8 @@ export default function Home() {
       setNovelText(data.text);
       setNovelPreview(data.text.substring(0, 500));
       if (data.storyInfo) setStoryInfo(data.storyInfo);
+      if (data.timeline) setTimeline(data.timeline);
+      if (data.lastChapterStates) setLastChapterStates(data.lastChapterStates);
       if (data.characters?.length) setCharacters(data.characters);
       if (data.characters?.length) setStep("characters");
       else setStep("characters");
@@ -108,6 +115,8 @@ export default function Home() {
     setNovelPreview(preview);
     setCharacters([]);
     setStoryInfo(null);
+    setTimeline(null);
+    setLastChapterStates([]);
     setExtractError("");
     setStep("characters");
 
@@ -116,6 +125,8 @@ export default function Home() {
       .then((r) => r.json())
       .then((data) => {
         if (data.storyInfo) setStoryInfo(data.storyInfo);
+        if (data.timeline) setTimeline(data.timeline);
+        if (data.lastChapterStates) setLastChapterStates(data.lastChapterStates);
         if (data.characters?.length) setCharacters(data.characters);
       })
       .catch(() => {});
@@ -141,6 +152,8 @@ export default function Home() {
 
       setCharacters(data.characters);
       if (data.storyInfo) setStoryInfo(data.storyInfo);
+      if (data.timeline) setTimeline(data.timeline);
+      if (data.lastChapterStates) setLastChapterStates(data.lastChapterStates);
       if (!data.fromCache) {
         // Refresh saved novels list
         fetch("/api/novels")
@@ -297,6 +310,12 @@ export default function Home() {
         </div>
       )}
 
+
+      {/* Story Timeline — visible in all steps when timeline exists */}
+      {timeline && timeline.chapters.length > 0 && (
+        <StoryTimeline timeline={timeline} lastChapterStates={lastChapterStates} />
+      )}
+
       {/* Main Content */}
       <div className="bg-card border rounded-xl shadow-sm p-6">
         {step === "upload" && (
@@ -344,6 +363,8 @@ export default function Home() {
               onCancelExtraction={handleCancelExtraction}
               onUpdate={setCharacters}
               novelText={novelText}
+              timeline={timeline}
+              lastChapterStates={lastChapterStates}
             />
 
             {storyInfo && <StoryInfoPanel storyInfo={storyInfo} />}
@@ -377,6 +398,8 @@ export default function Home() {
               disabled={characters.length === 0}
               cachedRecommendations={sceneRecommendations?.key === novelId ? sceneRecommendations.recommendations : null}
               onCacheRecommendations={(recs) => setSceneRecommendations({ key: novelId, recommendations: recs })}
+              timeline={timeline}
+              lastChapterStates={lastChapterStates}
             />
           </div>
         )}
@@ -392,9 +415,16 @@ export default function Home() {
             initialFullNovel={simState?.fullNovel}
             cachedOutline={cachedOutline?.key === outlineCacheKey ? cachedOutline.outline : null}
             onCacheOutline={(outline) => setCachedOutline({ key: outlineCacheKey, outline })}
+            timeline={timeline}
+            lastChapterStates={lastChapterStates}
           />
         )}
       </div>
+      <div className="mt-16 border-t pt-6">
+        <GenerationsLog />
+      </div>
+
+      <AuthorContactFooter />
     </div>
   );
 }

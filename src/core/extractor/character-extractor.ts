@@ -284,6 +284,93 @@ export class CharacterExtractor {
     return Array.from(characterMap.values());
   }
 
+  /**
+   * Extract the END-state snapshot of all characters from the last chapter(s).
+   * This gives writer the "now" picture, not the full-book average.
+   * Should be called AFTER extractAll() when character names are known.
+   */
+  async extractLastChapterStates(): Promise<import("@/types").CharacterChapterState[]> {
+    const llm = createLLMProvider();
+    // Only use the last ~30% of the novel text as the "recent" context
+    const textLen = this.fullText.length;
+    const recentStart = Math.max(0, textLen - Math.floor(textLen * 0.3));
+    // Find nearest chapter boundary
+    const recentText = this.fullText.slice(recentStart);
+
+    const knownNames = Array.from(new Set([
+      ...this.extractAllResults?.map(c => c.name) ?? []
+    ]));
+
+    if (knownNames.length === 0) {
+      console.warn("[CharacterExtractor] extractLastChapterStates: no characters known yet, skipping");
+      return [];
+    }
+
+    const schema = {
+      name: "chapter_end_states",
+      description: "All characters'' states at end of the latest content",
+      parameters: {
+        type: "object",
+        properties: {
+          characterStates: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                alive: { type: "boolean" },
+                location: { type: "string", description: "角色目前所在位置" },
+                delta: { type: "string", description: "从最近章节到当前时刻的状态变化摘要，1-2句" }
+              },
+              required: ["name", "alive", "location", "delta"]
+            }
+          }
+        },
+        required: ["characterStates"]
+      }
+    };
+
+    const prompt = this.zh
+      ? `分析小说末尾（最新内容）所有角色的当前状态。这是"此刻"的切片，不是全书总结。
+
+最近内容:
+${recentText.slice(0, 12000)}
+
+已知角色名: ${knownNames.join(", ")}
+注意: 只列出在被截断文本中出现的角色。如果不确定角色是否存活，从原文推断。
+
+对每个出现的角色: name, alive(true/false), location(当前位置), delta(从最近情节到当前时刻的状态变化，1句话)`
+      : `Analyze the END-state of all characters in the latest content. This is a "now" snapshot, not a full-book summary.
+
+Recent content:
+${recentText.slice(0, 12000)}
+
+Known character names: ${knownNames.join(", ")}
+Only list characters who appear in the given text. Infer alive/dead from context.
+
+For each: name, alive, location, delta (one-sentence state change from recent events)`;
+
+    const result = await llm.chatWithTool<{ characterStates: any[] }>(
+      [{ role: "user", content: prompt }],
+      schema,
+      { temperature: 0.3, maxTokens: 4096 }
+    );
+
+    const lastChapterNum = 999; // unknown exact number from this method
+
+    return (result.characterStates || []).map(s => ({
+      characterId: s.name || "",
+      name: s.name || "",
+      lastSeenChapter: lastChapterNum,
+      alive: s.alive !== false,
+      location: s.location || "未知",
+      delta: s.delta || ""
+    }));
+  }
+
+  // Cache for extractAll results so extractLastChapterStates can reference them
+  private extractAllResults: import("@/types").CharacterProfile[] = [];
+
   private async extractCharacterList(llm: ReturnType<typeof createLLMProvider>): Promise<RawCharacter[]> {
     console.log(`[Extractor] Pass 1: Identifying characters (contextLen=${this.novelContext.length})...`);
     const t0 = Date.now();

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",
+    "@playwright/test": "^1.61.1",
     "adm-zip": "^0.5.17",
     "better-sqlite3": "^12.10.0",
     "class-variance-authority": "^0.7.0",

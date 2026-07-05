@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLLMProvider } from "@/core/llm/factory";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
+import { saveGenerationLog } from "@/lib/db";
 import type { CharacterProfile, StoryInfo } from "@/types";
 import { isChinese } from "@/lib/utils";
 
@@ -99,6 +100,15 @@ Return a JSON array.`;
       { temperature: 0.8, maxTokens: 4096 }
     );
 
+    saveGenerationLog({
+      id: crypto.randomUUID(),
+      userId,
+      category: "scene_recommend",
+      label: "场景推荐",
+      inputSummary: characters.map(c => c.name).join(", "),
+      outputPreview: (response.scenes || []).map((s: any) => s.location).join(" | "),
+      fullOutput: JSON.stringify(response.scenes),
+    });
     return NextResponse.json({ recommendations: response.scenes || [] });
   } catch (error) {
     console.error("Scene recommendation error:", error);

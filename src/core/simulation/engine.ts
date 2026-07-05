@@ -1,49 +1,124 @@
-import type { CharacterProfile, SceneDefinition, SimulationRound, SimulationState, WritingStyle, ChannelMessage, SceneOutline } from "@/types";
-import { generateId } from "@/lib/utils";
-import { runDirector, runOutlineWriter, type DirectorDecision } from "./director";
-import { runCharacterAgent } from "./character-agent";
-import { runRecorder } from "./recorder";
-import { ChannelManager } from "./channel";
-
-const HARD_MAX_ROUNDS = 8;
+import type { CharacterProfile, SceneDefinition, SimulationState, WritingStyle, SceneOutline } from "@/types";
+import { generateId, isChinese } from "@/lib/utils";
+import { getAppConfig } from "@/lib/config";
+import { createLLMProvider } from "@/core/llm/factory";
+import { runOutlineWriter } from "./director";
+import { buildCodex } from "@/core/codex/builder";
+import { renderCodexAsPrompt } from "@/core/codex/renderer";
+import { runFullReview } from "@/core/codex/review-orchestrator";
+import { updateCodexAfterChapter } from "@/core/codex/updater";
+import type { WritersCodex } from "@/core/codex/types";
 
 export type SimulationEventCallback = (event: SimulationEvent) => void;
 
 export type SimulationEvent =
-  | { type: "round_start"; round: number }
   | { type: "outline"; outline: SceneOutline }
-  | { type: "director"; decision: DirectorDecision }
-  | { type: "character_responding"; characterName: string }
-  | { type: "character_response"; characterName: string; dialogue: string; actions: string; innerThoughts: string; channelId: string }
-  | { type: "recording" }
   | { type: "prose"; prose: string }
-  | { type: "round_end"; round: number }
+  | { type: "review"; review: import("@/core/codex/types").ReviewReport }
   | { type: "scene_end"; fullNovel: string }
   | { type: "error"; message: string };
+
+/**
+ * Legacy builder kept for backward compatibility.
+ * Use buildCodex() from @/core/codex/builder for the full Codex experience.
+ */
+export function buildWriterPrompt(opts: {
+  novelTitle: string;
+  characters: CharacterProfile[];
+  scene: SceneDefinition;
+  writingStyle?: WritingStyle;
+  timelineContext?: string;
+  lastChapterStates?: string;
+  existingProse?: string;
+  outline?: SceneOutline | null;
+}): { systemPrompt: string; userPrompt: string } {
+  const {
+    novelTitle,
+    characters,
+    scene,
+    writingStyle,
+    timelineContext,
+    lastChapterStates,
+    existingProse,
+    outline,
+  } = opts;
+
+  const presentChars = characters.filter(c => scene.characterIds.includes(c.id));
+  const zh = presentChars.length > 0 && isChinese(presentChars[0].personality.description);
+
+  const charProfiles = presentChars
+    .map(c => {
+      const traits = c.personality.traits.join("、");
+      const rels = c.relationships
+        .filter(r => presentChars.some(pc => pc.name === r.characterName))
+        .map(r => `${r.characterName}（${r.type}）：${r.description}`)
+        .join("；");
+      return zh
+        ? `### ${c.name}\n- 性格：${traits}。${c.personality.description}\n- 核心目标：${c.drive.goal}\n- 动机：${c.drive.motivation}\n- 恐惧：${c.drive.fear}\n- 弱点：${c.drive.weakness}\n- 底线：${c.drive.bottomLine}\n- 秘密：${c.drive.secret}\n- 说话风格：${c.speakingStyle.description}（口头禅：${c.speakingStyle.catchphrases.join("、") || "无"}）\n${rels ? `- 在场人际关系：${rels}` : ""}`
+        : `### ${c.name}\n- Personality: ${traits}. ${c.personality.description}\n- Goal: ${c.drive.goal}\n- Motivation: ${c.drive.motivation}\n- Fear: ${c.drive.fear}\n- Weakness: ${c.drive.weakness}\n- Bottom line: ${c.drive.bottomLine}\n- Secret: ${c.drive.secret}\n- Speaking style: ${c.speakingStyle.description}\n${rels ? `- Relationships present: ${rels}` : ""}`;
+    })
+    .join("\n\n");
+
+  const sceneDesc = buildSceneDescription(scene);
+
+  let styleGuidance = "";
+  if (writingStyle) {
+    const examples = writingStyle.examplePassages?.length
+      ? `\n- 文风范例：\n${writingStyle.examplePassages.map(p => `【${p.aspect}】${p.text}`).join("\n\n")}`
+      : "";
+    styleGuidance = zh
+      ? `- 类型：${writingStyle.genre}\n- 文风描述：${writingStyle.styleDescription}\n- 叙事手法：${writingStyle.narrativeTechniques?.join("、") || "无"}\n- 语言特点：${writingStyle.languageFeatures}\n- 节奏：${writingStyle.pacingDescription}\n- 基调：${writingStyle.tone}${examples}\n- 忠实还原原著文风`
+      : `- Genre: ${writingStyle.genre}\n- Style: ${writingStyle.styleDescription}\n- Techniques: ${writingStyle.narrativeTechniques?.join(", ") || "none"}\n- Language: ${writingStyle.languageFeatures}\n- Pacing: ${writingStyle.pacingDescription}\n- Tone: ${writingStyle.tone}${examples}`;
+  }
+
+  let outlineGuidance = "";
+  if (outline) {
+    outlineGuidance = zh
+      ? `\n## 场景大纲\n- 场景目标：${outline.sceneGoal}\n- 情感弧线：${outline.emotionalArc}\n- 场景结局：${outline.sceneEnding}\n- 情节节拍：\n${outline.beats.map(b => `  节拍${b.beatNumber}：${b.description} [出场：${b.activeCharacters.join("、")}] [氛围：${b.mood}]`).join("\n")}`
+      : `\n## Scene Outline\n- Goal: ${outline.sceneGoal}\n- Arc: ${outline.emotionalArc}\n- Ending: ${outline.sceneEnding}\n- Beats:\n${outline.beats.map(b => `  Beat ${b.beatNumber}: ${b.description} [${b.activeCharacters.join(", ")}] [${b.mood}]`).join("\n")}`;
+  }
+
+  const systemPrompt = zh
+    ? `你是《${novelTitle}》的续写作家。请根据以下信息直接撰写这个场景的小说正文。\n\n${timelineContext ? `## 时间线\n${timelineContext}\n` : ""}${lastChapterStates ? `## 角色当前状态\n${lastChapterStates}\n` : ""}## 参与场景的角色\n${charProfiles}\n\n## 场景设定\n${sceneDesc}\n${outlineGuidance}\n## 写作要求\n- 严格遵循时间线\n- 角色行为必须符合各自当前状态和性格\n- 模仿原著的文风和叙事节奏\n${styleGuidance ? `${styleGuidance}\n` : ""}- 写成流畅的小说叙事文\n- 直接输出小说正文，不要用JSON包裹\n- 保证场景完整：有开场、发展、高潮和收尾\n- 视角：${scene.narrativeStyle.pointOfView === "first-person" ? "第一人称" : scene.narrativeStyle.pointOfView === "third-person-close" ? "第三人称有限" : "第三人称全知"}\n- 基调：${scene.narrativeStyle.tone}${existingProse ? `\n\n## 已有前文（请从这之后续写）\n${existingProse.slice(-500)}` : ""}`
+    : `You are the continuation writer for "${novelTitle}".\n\n${timelineContext ? `## Timeline\n${timelineContext}\n` : ""}${lastChapterStates ? `## Character States\n${lastChapterStates}\n` : ""}## Characters\n${charProfiles}\n\n## Scene\n${sceneDesc}\n${outlineGuidance}\n## Writing Requirements\n- Strictly follow the timeline\n- Character behavior must match states and personalities\n- Mimic the original writing style\n${styleGuidance ? `${styleGuidance}\n` : ""}- Write flowing narrative prose\n- Output directly, no JSON wrapping\n- Complete scene: opening, development, climax, conclusion\n- POV: ${scene.narrativeStyle.pointOfView}\n- Tone: ${scene.narrativeStyle.tone}${existingProse ? `\n\n## Previous Prose\n${existingProse.slice(-500)}` : ""}`;
+
+  const userPrompt = zh
+    ? "请撰写这个场景的小说正文。直接输出叙事文字。"
+    : "Write the prose for this scene. Output narrative text directly.";
+
+  return { systemPrompt, userPrompt };
+}
+
+export function buildSceneDescription(scene: SceneDefinition): string {
+  return `地点：${scene.location}\n时间：${scene.timeOfDay}\n天气：${scene.weather}\n氛围：${scene.atmosphere}\n情境：${scene.initialSituation}`;
+}
 
 export class SimulationEngine {
   private state: SimulationState;
   private onEvent: SimulationEventCallback;
   private writingStyle?: WritingStyle;
-  private channels: ChannelManager;
-  // Temp storage for director scheduling info (used by recorder this round)
-  private _lastDirectorSummary = "";
-  private _lastDirectorPacing = "";
-  private _lastDirectorMood = "";
-  private _lastDirectorConflict = 0;
-  private _lastDirectorBeat = 0;
+  private timelineContext?: string;
+  private lastChapterStates?: string;
+  private codex: WritersCodex | null = null;
+  private runReview: boolean;
 
   constructor(
     novelTitle: string,
     characters: CharacterProfile[],
     scene: SceneDefinition,
     onEvent: SimulationEventCallback,
-    writingStyle?: WritingStyle
+    writingStyle?: WritingStyle,
+    timelineContext?: string,
+    lastChapterStates?: string,
+    codex?: WritersCodex | null,
+    runReview = true
   ) {
     this.writingStyle = writingStyle;
     this.onEvent = onEvent;
-    this.channels = new ChannelManager();
-    this.channels.initFromCharacters(characters);
+    this.timelineContext = timelineContext;
+    this.lastChapterStates = lastChapterStates;
+    this.codex = codex || null;
+    this.runReview = runReview;
     this.state = {
       id: generateId(),
       status: "idle",
@@ -56,18 +131,23 @@ export class SimulationEngine {
     };
   }
 
-  getState(): SimulationState { return { ...this.state }; }
+  getState(): SimulationState {
+    return { ...this.state };
+  }
+
+  getCodex(): WritersCodex | null {
+    return this.codex;
+  }
 
   async run(existingOutline?: SceneOutline | null): Promise<SimulationState> {
     this.state.status = "running";
     const isFreeMode = this.state.scene.mode === "free";
-    const presentChars = this.state.characters.filter((c) => this.state.scene.characterIds.includes(c.id));
-    const sceneDesc = this.buildSceneDescription();
-    const zh = presentChars.length > 0 && /[一-鿿]/.test(presentChars[0].personality.description);
-    let lastTimestamp = 0;
+    const presentChars = this.state.characters.filter(c =>
+      this.state.scene.characterIds.includes(c.id)
+    );
 
     try {
-      // --- Director Mode: Write scene outline first (or reuse cached) ---
+      // --- Director Mode: Write scene outline ---
       let outline: SceneOutline | null = null;
       if (!isFreeMode) {
         if (existingOutline) {
@@ -75,7 +155,6 @@ export class SimulationEngine {
           this.onEvent({ type: "outline", outline });
         } else {
           try {
-            this.onEvent({ type: "character_responding", characterName: "导演（编写大纲）" });
             outline = await runOutlineWriter(
               presentChars,
               this.state.scene,
@@ -83,191 +162,97 @@ export class SimulationEngine {
             );
             this.onEvent({ type: "outline", outline });
           } catch (e) {
-            // Outline failed — continue without it, director will improvise
             console.warn("[Engine] Outline writer failed, continuing without outline:", e);
           }
         }
       }
 
-      // Dynamic max rounds: follow outline estimate + 2 buffer, capped at 8
-      const maxRounds = outline?.estimatedRounds
-        ? Math.min(outline.estimatedRounds + 2, HARD_MAX_ROUNDS)
-        : HARD_MAX_ROUNDS;
+      // --- Build prompt ---
+      let systemPrompt: string;
+      let userPrompt: string;
 
-      for (let roundNum = 0; roundNum < maxRounds; roundNum++) {
-        this.onEvent({ type: "round_start", round: roundNum + 1 });
-        let roundMessages: ChannelMessage[] = [];
-
-        if (isFreeMode) {
-          // --- Free Mode ---
-          // Two passes: first each character speaks, then reactions
-          await this._runCharacterPass(presentChars, presentChars.map(c => c.name), sceneDesc, lastTimestamp, roundMessages, false);
-          await this._runCharacterPass(presentChars, presentChars.map(c => c.name), sceneDesc, lastTimestamp, roundMessages, true);
-        } else {
-          // --- Director Mode ---
-          const directorDecision = await runDirector(this.state.characters, this.state.scene, this.state.rounds, outline);
-          this.onEvent({ type: "director", decision: directorDecision });
-
-          // Build scheduling summary for channel + round record
-          let scheduleSummary = zh
-            ? `节拍${directorDecision.beatNumber} | 聚焦${directorDecision.focusCharacter} | ${directorDecision.moodTone} | 冲突${directorDecision.conflictIntensity}/10 | ${directorDecision.pacing === "fast" ? "快节奏" : directorDecision.pacing === "slow" ? "慢节奏" : "中速"}`
-            : `Beat ${directorDecision.beatNumber} | Focus ${directorDecision.focusCharacter} | ${directorDecision.moodTone} | Conflict ${directorDecision.conflictIntensity}/10 | ${directorDecision.pacing}`;
-
-          // Round 1: include opening situation so characters have a concrete trigger
-          if (roundNum === 0 && this.state.scene.initialSituation) {
-            scheduleSummary = (zh ? `开场：${this.state.scene.initialSituation}\n` : `Opening: ${this.state.scene.initialSituation}\n`) + scheduleSummary;
-          }
-
-          this.channels.send("director", "导演", "public", {
-            dialogue: `[调度] ${scheduleSummary}`,
-            actions: "",
-            innerThoughts: "",
-          });
-
-          // Store for recorder use
-          this._lastDirectorSummary = scheduleSummary;
-          this._lastDirectorPacing = directorDecision.pacing;
-          this._lastDirectorMood = directorDecision.moodTone;
-          this._lastDirectorConflict = directorDecision.conflictIntensity;
-          this._lastDirectorBeat = directorDecision.beatNumber;
-
-          const activeNames = directorDecision.activeCharacters;
-          // Pass 1: every active character speaks
-          await this._runCharacterPass(presentChars, activeNames, sceneDesc, lastTimestamp, roundMessages, false);
-
-          // Pass 2 (reactions): quick responses to what others said this round
-          await this._runCharacterPass(presentChars, activeNames, sceneDesc, lastTimestamp, roundMessages, true);
-
-          if (directorDecision.isSceneEnd) break;
-        }
-
-        // Writer sees all channels
-        this.onEvent({ type: "recording" });
-        const allNewMsgs = this.channels.getNewMessages(lastTimestamp);
-        lastTimestamp = Date.now();
-
-        const prose = await runRecorder(
-          this.state.scene, roundNum + 1,
-          allNewMsgs,
-          this.state.fullNovelOutput,
-          this.writingStyle,
-          isFreeMode ? undefined : {
-            summary: this._lastDirectorSummary,
-            pacing: this._lastDirectorPacing as "fast" | "medium" | "slow",
-            mood: this._lastDirectorMood,
-            conflict: this._lastDirectorConflict,
-            beat: this._lastDirectorBeat,
-          }
-        );
-        this.onEvent({ type: "prose", prose });
-
-        const round: SimulationRound = {
-          roundNumber: roundNum + 1,
-          directorAction: isFreeMode ? "" : this._lastDirectorSummary,
-          channelMessages: allNewMsgs,
-          characterResponses: allNewMsgs.map((m) => ({
-            characterId: m.fromCharacterId,
-            characterName: m.fromCharacterName,
-            dialogue: m.dialogue,
-            actions: m.actions,
-            innerThoughts: m.innerThoughts,
-          })),
-          proseOutput: prose,
-        };
-        this.state.rounds.push(round);
-        this.state.fullNovelOutput += (this.state.fullNovelOutput ? "\n\n" : "") + prose;
-        this.onEvent({ type: "round_end", round: roundNum + 1 });
+      if (this.codex) {
+        // Use the full Codex for rich context injection
+        const rendered = renderCodexAsPrompt(this.codex);
+        systemPrompt = rendered.systemPrompt;
+        userPrompt = rendered.userContext;
+      } else {
+        // Fall back to legacy prompt builder
+        const legacy = buildWriterPrompt({
+          novelTitle: this.state.novelTitle,
+          characters: this.state.characters,
+          scene: this.state.scene,
+          writingStyle: this.writingStyle,
+          timelineContext: this.timelineContext,
+          lastChapterStates: this.lastChapterStates,
+          existingProse: this.state.fullNovelOutput || undefined,
+          outline,
+        });
+        systemPrompt = legacy.systemPrompt;
+        userPrompt = legacy.userPrompt;
       }
 
+      // --- Generate prose ---
+      const llm = createLLMProvider();
+      const config = getAppConfig();
+      const maxTokens = Math.max(config.llm.maxTokens || 4096, 16384);
+
+      const prose = await llm.chat(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        { temperature: 0.7, maxTokens }
+      );
+
+      this.onEvent({ type: "prose", prose });
+
+      // --- Post-writing review ---
+      if (this.runReview && this.codex) {
+        try {
+          const chapterNumber = (this.state.rounds?.length || 0) + 1;
+          const review = await runFullReview({
+            generatedProse: prose,
+            codex: this.codex,
+            chapterNumber,
+          });
+          this.onEvent({ type: "review", review });
+
+          if (review.needsHumanReview.length > 0) {
+            console.warn(
+              `[Engine] ${review.needsHumanReview.length} issues need human review:`,
+              review.needsHumanReview.map(f => `[${f.severity}] ${f.description}`).join("; ")
+            );
+          }
+
+          // Update codex for next chapter
+          const outlineTitle = outline?.sceneTitle || "";
+          this.codex = updateCodexAfterChapter(this.codex, review, chapterNumber, outlineTitle);
+        } catch (e) {
+          console.warn("[Engine] Review failed, continuing:", e);
+        }
+      }
+
+      // --- Store result ---
+      this.state.rounds.push({
+        roundNumber: 1,
+        directorAction: outline?.sceneGoal || "",
+        channelMessages: [],
+        characterResponses: [],
+        proseOutput: prose,
+      });
+
+      this.state.fullNovelOutput = prose;
       this.state.status = "completed";
       this.onEvent({ type: "scene_end", fullNovel: this.state.fullNovelOutput });
     } catch (error) {
       this.state.status = "error";
-      this.onEvent({ type: "error", message: error instanceof Error ? error.message : "Unknown error" });
+      this.onEvent({
+        type: "error",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
     }
 
     return this.state;
-  }
-
-  /** Run one pass of character responses. Pass 2 = quick reaction. */
-  private async _runCharacterPass(
-    presentChars: CharacterProfile[],
-    activeNames: string[],
-    sceneDesc: string,
-    lastTimestamp: number,
-    roundMessages: ChannelMessage[],
-    isReactionPass: boolean
-  ): Promise<void> {
-    for (const char of presentChars) {
-      const isActive = activeNames.length === 0 || activeNames.includes(char.name);
-      if (!isActive) continue;
-
-      // On reaction pass, skip characters who haven't received new messages
-      if (isReactionPass) {
-        const newMsgs = this.channels.getForCharacter(char.id, lastTimestamp);
-        if (newMsgs.length === 0) continue;
-      }
-
-      this.onEvent({ type: "character_responding", characterName: char.name });
-
-      const visibleChannels = this.channels.getCharChannels(char.id);
-      const charMessages = this.channels.getForCharacter(char.id, lastTimestamp);
-      const charPrivateMsgs = charMessages.filter((m) => m.channelId !== "public");
-      const publicMsgs = charMessages.filter((m) => m.channelId === "public");
-
-      const channelInfo = visibleChannels
-        .map((ch) => {
-          if (ch.id === "public") return "公共频道（所有人可见）";
-          const other = ch.participants.find((p) => p !== char.id);
-          const otherChar = presentChars.find((c) => c.id === other);
-          return `私信频道 → ${otherChar?.name || other}（只有你俩可见）`;
-        })
-        .join("\n");
-
-      const fullContext = [
-        `公共频道：\n${publicMsgs.slice(-5).map((m) => `[${m.fromCharacterName}]：${m.dialogue}`).join("\n")}`,
-        charPrivateMsgs.length > 0 ? `你的私信：\n${charPrivateMsgs.map((m) => `[${m.fromCharacterName} → 你]：${m.dialogue}`).join("\n")}` : "",
-      ].filter(Boolean).join("\n\n");
-
-      const response = await runCharacterAgent(
-        char, sceneDesc,
-        `可用频道：\n${channelInfo}\n\n${fullContext}`,
-        charMessages,
-        roundMessages,
-        isReactionPass
-      );
-
-      if (response.dialogue) {
-        let chId = "public";
-        if (response.channelId !== "public") {
-          const target = presentChars.find((c) => c.name === response.channelId || c.name.includes(response.channelId));
-          if (target) {
-            const privCh = this.channels.getPrivateChannel(char.id, target.id);
-            chId = privCh ? privCh.id : "public";
-          }
-        }
-
-        const msg = this.channels.send(char.id, char.name, chId, {
-          dialogue: response.dialogue,
-          actions: response.actions,
-          innerThoughts: response.innerThoughts,
-        });
-        roundMessages.push(msg);
-
-        this.onEvent({
-          type: "character_response",
-          characterName: char.name,
-          dialogue: response.dialogue,
-          actions: response.actions,
-          innerThoughts: response.innerThoughts,
-          channelId: chId,
-        });
-      }
-    }
-  }
-
-  private buildSceneDescription(): string {
-    const s = this.state.scene;
-    return `地点：${s.location}\n时间：${s.timeOfDay}\n天气：${s.weather}\n氛围：${s.atmosphere}\n情境：${s.initialSituation}`;
   }
 }
