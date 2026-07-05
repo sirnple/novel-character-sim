@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { CharacterProfile, SceneDefinition, SimulationRound, WritingStyle, TimelineEvent, CharacterChapterState } from "@/types";
+import type { CharacterProfile, SceneDefinition, SimulationRound, WritingStyle, TimelineEvent, CharacterChapterState, ChapterTimeline } from "@/types";
 import { SimulationEngine } from "@/core/simulation/engine";
+import { buildCodex } from "@/core/codex/builder";
+import { saveCodex } from "@/lib/db";
+import type { WritersCodex } from "@/core/codex/types";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
+import { getStoryInfo, getCharacters } from "@/lib/db";
 
 // Store running simulations
 const simulationStore = new Map<
@@ -26,6 +30,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       novelTitle,
+      novelId,
       characters,
       scene,
       writingStyle,
@@ -33,6 +38,7 @@ export async function POST(request: NextRequest) {
       lastChapterStates: rawLastChapterStates,
     }: {
       novelTitle: string;
+      novelId?: string;
       characters: CharacterProfile[];
       scene: SceneDefinition;
       writingStyle?: WritingStyle;
@@ -50,22 +56,32 @@ export async function POST(request: NextRequest) {
     // Format timeline context
     const timelineContext = timelineEvents?.length
       ? timelineEvents
-          .map(
-            (e) =>
-              `事件${e.sequence}: ${e.title} — ${e.description}`
-          )
+          .map((e) => `事件${e.sequence}: ${e.title} — ${e.description}`)
           .join("\n")
       : "";
 
     // Format last chapter states
-    const lastChapterStates = rawLastChapterStates?.length
+    const lastChapterStatesStr = rawLastChapterStates?.length
       ? rawLastChapterStates
-          .map(
-            (s) =>
-              `${s.name}: alive=${s.alive}, 位置=${s.location}, 状态=${s.delta}`
-          )
+          .map((s) => `${s.name}: alive=${s.alive}, 位置=${s.location}, 状态=${s.delta}`)
           .join("\n")
       : "";
+
+    // Build codex for rich context injection
+    let codex: WritersCodex | null = null;
+    try {
+      codex = buildCodex({
+        scene,
+        characters,
+        storyInfo: null,
+        fullNovelText: "",
+        lastChapterStates: rawLastChapterStates || [],
+        timeline: null,
+      });
+      if (novelId) saveCodex(novelId, codex);
+    } catch (e) {
+      console.warn("Codex build failed, falling back to legacy prompt:", e);
+    }
 
     // Create engine with event handler that updates the stored state
     const simId = `sim_${Date.now()}`;
@@ -81,8 +97,13 @@ export async function POST(request: NextRequest) {
       scene,
       (event) => {
         switch (event.type) {
+          case "outline":
+            break;
           case "prose":
             storedState.fullNovelOutput = event.prose;
+            break;
+          case "review":
+            console.log(`[Engine] Review: ${event.review.needsHumanReview.length} issues need human review`);
             break;
           case "scene_end":
             storedState.status = "completed";
@@ -95,7 +116,8 @@ export async function POST(request: NextRequest) {
       },
       writingStyle,
       timelineContext,
-      lastChapterStates
+      lastChapterStatesStr,
+      codex
     );
 
     simulationStore.set(simId, { engine, state: storedState });
@@ -106,8 +128,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ simulationId: simId, status: "started" });
   } catch (error) {
     console.error("Simulation start error:", error);
-    const message =
-      error instanceof Error ? error.message : "Failed to start simulation";
+    const message = error instanceof Error ? error.message : "Failed to start simulation";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

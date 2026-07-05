@@ -1,7 +1,10 @@
 import { NextRequest } from "next/server";
 import type { CharacterProfile, SceneDefinition, WritingStyle, SceneOutline, TimelineEvent, CharacterChapterState } from "@/types";
 import { SimulationEngine, type SimulationEvent } from "@/core/simulation/engine";
-import { checkRateLimit, setRateLimitHeaders, getUserId, rateLimitMessage } from "@/lib/rate-limit";
+import { buildCodex } from "@/core/codex/builder";
+import { saveCodex } from "@/lib/db";
+import type { WritersCodex } from "@/core/codex/types";
+import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { saveGenerationLog } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +22,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const {
     novelTitle,
+    novelId,
     characters,
     scene,
     writingStyle,
@@ -27,6 +31,7 @@ export async function POST(request: NextRequest) {
     lastChapterStates: rawLastChapterStates,
   }: {
     novelTitle: string;
+    novelId?: string;
     characters: CharacterProfile[];
     scene: SceneDefinition;
     writingStyle?: WritingStyle;
@@ -45,22 +50,32 @@ export async function POST(request: NextRequest) {
   // Format timeline context
   const timelineContext = timelineEvents?.length
     ? timelineEvents
-        .map(
-          (e) =>
-            `事件${e.sequence}: ${e.title} — ${e.description}`
-        )
+        .map((e) => `事件${e.sequence}: ${e.title} — ${e.description}`)
         .join("\n")
     : "";
 
   // Format last chapter states
-  const lastChapterStates = rawLastChapterStates?.length
+  const lastChapterStatesStr = rawLastChapterStates?.length
     ? rawLastChapterStates
-        .map(
-          (s) =>
-            `${s.name}: alive=${s.alive}, 位置=${s.location}, 状态=${s.delta}`
-        )
+        .map((s) => `${s.name}: alive=${s.alive}, 位置=${s.location}, 状态=${s.delta}`)
         .join("\n")
     : "";
+
+  // Build codex for rich context injection
+  let codex: WritersCodex | null = null;
+  try {
+    codex = buildCodex({
+      scene,
+      characters,
+      storyInfo: null,
+      fullNovelText: "",
+      lastChapterStates: rawLastChapterStates || [],
+      timeline: null,
+    });
+    if (novelId) saveCodex(novelId, codex);
+  } catch (e) {
+    console.warn("Codex build failed, falling back to legacy prompt:", e);
+  }
 
   const encoder = new TextEncoder();
   let isClosed = false;
@@ -81,7 +96,8 @@ export async function POST(request: NextRequest) {
         sendEvent,
         writingStyle,
         timelineContext,
-        lastChapterStates
+        lastChapterStatesStr,
+        codex
       );
 
       try {
