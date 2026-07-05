@@ -301,7 +301,7 @@ export default function WritingWorkspace({
   const handleCopy = () => { navigator.clipboard.writeText(outputText); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   const handleCancelTask = () => setActiveTaskId(null);
 
-  const needsLocation = !(activeTask?.scene?.location || scene.location).trim();
+  const needsLocation = !((activeTask?.scene?.location || scene.location || "").trim());
   const hasContent = !!outputText;
 
   // ===== RENDER: No active task, not creating =====
