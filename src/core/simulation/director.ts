@@ -61,7 +61,7 @@ export async function runOutlineWriter(
   characters: CharacterProfile[],
   scene: SceneDefinition,
   previousProse?: string
-): Promise<SceneOutline> {
+): Promise<{ outline: SceneOutline; prompt: { system: string; user: string } }> {
   const llm = createLLMProvider();
   const zh = characters.length > 0 && isChinese(characters[0].personality.description);
 
@@ -140,7 +140,7 @@ ${charSummaries}
   );
 
   console.log(`[OutlineWriter] Done in ${Date.now() - t0}ms: "${result.sceneTitle}" (${result.beats?.length || 0} beats, ${result.estimatedRounds} rounds)`);
-  return result;
+  return { outline: result, prompt: { system: systemPrompt, user: userPrompt } };
 }
 
 // ============================================================

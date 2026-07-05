@@ -12,7 +12,7 @@ import type { WritersCodex } from "@/core/codex/types";
 export type SimulationEventCallback = (event: SimulationEvent) => void;
 
 export type SimulationEvent =
-  | { type: "outline"; outline: SceneOutline }
+  | { type: "outline"; outline: SceneOutline; prompt?: { system: string; user: string } }
   | { type: "prose"; prose: string }
   | { type: "prompt"; systemPrompt: string; userPrompt: string }
   | { type: "review"; review: import("@/core/codex/types").ReviewReport }
@@ -152,16 +152,21 @@ export class SimulationEngine {
       let outline: SceneOutline | null = null;
       if (!isFreeMode) {
         if (existingOutline) {
-          outline = existingOutline;
-          this.onEvent({ type: "outline", outline });
+          outline = null as SceneOutline | null;
+          this.onEvent({ type: "outline", outline: existingOutline });
         } else {
           try {
-            outline = await runOutlineWriter(
+            const result = await runOutlineWriter(
               presentChars,
               this.state.scene,
               this.state.fullNovelOutput || undefined
             );
-            this.onEvent({ type: "outline", outline });
+            outline = result.outline;
+            this.onEvent({
+              type: "outline",
+              outline: result.outline,
+              prompt: result.prompt,
+            });
           } catch (e) {
             console.warn("[Engine] Outline writer failed, continuing without outline:", e);
           }
