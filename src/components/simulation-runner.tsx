@@ -40,7 +40,9 @@ export default function SimulationRunner({
   const [revisedNovel, setRevisedNovel] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [outline, setOutline] = useState<SceneOutline | null>(null);
-  const [activeTab, setActiveTab] = useState<"live" | "novel" | "review">("live");
+  const [activeTab, setActiveTab] = useState<"live" | "novel" | "review" | "prompt">("live");
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [userPrompt, setUserPrompt] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -113,7 +115,11 @@ export default function SimulationRunner({
       case "prose":
         setFullNovel(event.prose);
         setCurrentEvent("✅ 场景正文已生成");
-        setActiveTab("novel");
+        break;
+      case "prompt":
+        setSystemPrompt(event.systemPrompt);
+        setUserPrompt(event.userPrompt);
+        break;
         break;
       case "scene_end":
         setStatus("completed");
@@ -214,10 +220,32 @@ export default function SimulationRunner({
           <Shield className="w-4 h-4 inline mr-1" />
           审查
         </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "prompt" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => { if (systemPrompt) setActiveTab("prompt"); }}
+          disabled={!systemPrompt}
+          title={!systemPrompt ? "生成后可见" : "查看最终渲染的提示词"}
+        >
+          <ScrollText className="w-4 h-4 inline mr-1" />
+          Prompt
+        </button>
       </div>
 
       {/* Content */}
-      {activeTab === "live" ? (
+      {activeTab === "prompt" && systemPrompt ? (
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-400 mb-2 font-mono uppercase tracking-wider">System Prompt</h3>
+            <pre className="bg-[#111110] border border-neutral-800 rounded-lg p-4 text-xs text-neutral-400 font-mono whitespace-pre-wrap max-h-[500px] overflow-y-auto custom-scrollbar">{systemPrompt}</pre>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-400 mb-2 font-mono uppercase tracking-wider">User Prompt</h3>
+            <pre className="bg-[#111110] border border-neutral-800 rounded-lg p-4 text-xs text-neutral-400 font-mono whitespace-pre-wrap max-h-[300px] overflow-y-auto custom-scrollbar">{userPrompt}</pre>
+          </div>
+        </div>
+      ) : activeTab === "live" ? (
         <div className="space-y-4">
           {/* Status */}
           <div className="bg-card border rounded-lg p-6 text-center">

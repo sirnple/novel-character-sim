@@ -14,6 +14,7 @@ export type SimulationEventCallback = (event: SimulationEvent) => void;
 export type SimulationEvent =
   | { type: "outline"; outline: SceneOutline }
   | { type: "prose"; prose: string }
+  | { type: "prompt"; systemPrompt: string; userPrompt: string }
   | { type: "review"; review: import("@/core/codex/types").ReviewReport }
   | { type: "scene_end"; fullNovel: string }
   | { type: "error"; message: string };
@@ -191,6 +192,9 @@ export class SimulationEngine {
         systemPrompt = legacy.systemPrompt;
         userPrompt = legacy.userPrompt;
       }
+
+      // emit prompt for debugging/admin visibility
+      this.onEvent({ type: "prompt", systemPrompt, userPrompt });
 
       // --- Generate prose ---
       const llm = createLLMProvider();
