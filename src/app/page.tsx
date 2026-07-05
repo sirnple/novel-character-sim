@@ -9,6 +9,7 @@ import RelationshipGraph from "@/components/relationship-graph";
 import StoryTimeline from "@/components/story-timeline";
 import StoryInfoPanel from "@/components/story-info-panel";
 import SimulationRunner from "@/components/simulation-runner";
+import WritingWorkspace from "@/components/writing-workspace";
 import { novelFingerprint } from "@/lib/utils";
 import { useUserInfo } from "@/lib/rate-limit-ui";
 import {
@@ -970,16 +971,16 @@ export default function Home() {
                         </div>
 
                         {/* Writer */}
-                        <SimulationRunner
+                        <WritingWorkspace
                           novelTitle={novelTitle}
-                          characters={characters.filter(c => activeTask?.scene.characterIds.includes(c.id))}
+                          characters={characters}
                           scene={activeTask?.scene || scene}
+                          onSceneChange={setScene}
                           writingStyle={storyInfo?.writingStyle}
+                          storyInfo={storyInfo}
                           onBack={() => setActiveTaskId(null)}
                           onComplete={handleSimulationComplete}
                           initialFullNovel={activeTask?.output}
-                          cachedOutline={cachedOutline?.key === outlineCacheKey ? cachedOutline.outline : null}
-                          onCacheOutline={(outline) => setCachedOutline({ key: outlineCacheKey, outline })}
                           timeline={timeline}
                           lastChapterStates={lastChapterStates}
                         />
