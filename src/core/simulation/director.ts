@@ -68,12 +68,13 @@ export async function runOutlineWriter(
   // Build character summaries
   const charSummaries = characters
     .map((c) => {
-      const traits = c.personality.traits.join("、");
-      const rels = c.relationships
+      const traits = Array.isArray(c.personality.traits) ? c.personality.traits.join("、") : String(c.personality.traits || "");
+      const values = Array.isArray(c.values) ? c.values.join("、") : String(c.values || "");
+      const rels = (Array.isArray(c.relationships) ? c.relationships : [])
         .filter((r) => characters.some((sc) => sc.name === r.characterName))
         .map((r) => `${r.characterName}（${r.type}）`)
         .join("、");
-      return `【${c.name}】性格：${traits}。${c.personality.description} 价值观：${c.values.join("、")}。${rels ? ` 与在场角色的关系：${rels}` : ""}`;
+      return `【${c.name}】性格：${traits}。${c.personality.description} 价值观：${values}。${rels ? ` 与在场角色的关系：${rels}` : ""}`;
     })
     .join("\n\n");
 
