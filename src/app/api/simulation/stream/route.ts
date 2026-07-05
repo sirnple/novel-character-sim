@@ -6,6 +6,7 @@ import { saveCodex, getNovel, getStoryInfo, getTimeline } from "@/lib/db";
 import type { WritersCodex } from "@/core/codex/types";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { saveGenerationLog } from "@/lib/db";
+import { createLLMProvider } from "@/core/llm/factory";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest) {
     scene,
     writingStyle,
     outline: cachedOutline,
+    outlineOnly,
     timelineEvents,
     lastChapterStates: rawLastChapterStates,
   }: {
@@ -36,6 +38,7 @@ export async function POST(request: NextRequest) {
     scene: SceneDefinition;
     writingStyle?: WritingStyle;
     outline?: SceneOutline | null;
+    outlineOnly?: boolean;
     timelineEvents?: TimelineEvent[];
     lastChapterStates?: CharacterChapterState[];
   } = body;
@@ -116,10 +119,33 @@ export async function POST(request: NextRequest) {
         writingStyle,
         timelineContext,
         lastChapterStatesStr,
-        codex
+        codex,
+        !outlineOnly  // runReview = false when outlineOnly
       );
 
       try {
+        if (outlineOnly) {
+          // Outline-only mode: run the outline writer, emit, then stop
+          const llm = createLLMProvider();
+          const { runOutlineWriter } = await import("@/core/simulation/director");
+          const presentChars = characters.filter(c => scene.characterIds.includes(c.id));
+          try {
+            const result = await runOutlineWriter(
+              presentChars,
+              scene,
+              ""
+            );
+            sendEvent({
+              type: "outline",
+              outline: result.outline,
+              prompt: result.prompt,
+            });
+          } catch (e) {
+            console.warn("[OutlineOnly] Outline writer failed:", e);
+          }
+          controller.close();
+          return;
+        }
         await engine.run(cachedOutline);
       } catch (error) {
         sendEvent({
