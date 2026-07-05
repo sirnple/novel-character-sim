@@ -302,7 +302,8 @@ export default function WritingWorkspace({
   const handleCopy = () => { navigator.clipboard.writeText(outputText); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   const handleCancelTask = () => setActiveTaskId(null);
 
-  const needsLocation = !((activeTask?.scene?.location || scene.location || "").trim());
+  // Writing is allowed as long as we have a scene location or script content
+  const canWrite = !!(activeTask?.scene?.location?.trim() || scriptText.trim());
   const hasContent = !!outputText;
 
   // ===== RENDER: No active task, not creating =====
@@ -420,7 +421,7 @@ export default function WritingWorkspace({
 
           <div className="px-4 py-3 border-t border-neutral-800/40 bg-[#0e0e0e] shrink-0">
             {status === "idle" || status === "completed" || status === "error" ? (
-              <button onClick={startWriting} disabled={needsLocation}
+              <button onClick={startWriting} disabled={!canWrite}
                 className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors flex items-center justify-center gap-2">
                 <Play className="w-4 h-4" /> {status === "completed" ? "重新生成" : "开始写作"}
               </button>
