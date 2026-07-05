@@ -121,11 +121,13 @@ export default function WritingWorkspace({
       if (selectedChars.length > 0) {
         lines.push("\n## 出场角色");
         for (const c of selectedChars) {
-          const traits = (c.personality?.traits || []).join("、");
+          const traits = Array.isArray(c.personality?.traits) ? c.personality.traits.join("、") : String(c.personality?.traits || "");
           const goal = c.drive?.goal || "";
           const speaking = c.speakingStyle?.description || "";
-          const catchphrases = (c.speakingStyle?.catchphrases || []).join("、");
-          const rels = (c.relationships || [])
+          const cp = c.speakingStyle?.catchphrases;
+          const catchphrases = Array.isArray(cp) ? cp.join("、") : "";
+          const relList = Array.isArray(c.relationships) ? c.relationships : [];
+          const rels = relList
             .filter(r => selectedChars.some(sc2 => sc2.name === r.characterName))
             .map(r => `${r.characterName}（${r.type}：${r.dynamics}）`)
             .join("；");
