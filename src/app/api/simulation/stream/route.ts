@@ -143,6 +143,9 @@ export async function POST(request: NextRequest) {
               continueFromChapter: 0,
               continueFromLabel: "当前内容",
               previousProse: "",
+              chapterSummaries: [],
+              activeForeshadowing: [],
+              authorNotes: "",
             });
             sendEvent({
               type: "outline",
