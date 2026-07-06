@@ -2,11 +2,10 @@ import { NextRequest } from "next/server";
 import type { CharacterProfile, SceneDefinition, WritingStyle, SceneOutline, TimelineEvent, CharacterChapterState } from "@/types";
 import { SimulationEngine, type SimulationEvent } from "@/core/simulation/engine";
 import { buildCodex } from "@/core/codex/builder";
-import { saveCodex, getNovel, getStoryInfo, getTimeline } from "@/lib/db";
 import type { WritersCodex } from "@/core/codex/types";
+import { saveCodex, getNovel, getStoryInfo, getTimeline } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { saveGenerationLog } from "@/lib/db";
-import { createLLMProvider } from "@/core/llm/factory";
 
 export const dynamic = "force-dynamic";
 
@@ -67,18 +66,17 @@ export async function POST(request: NextRequest) {
   // Build codex — DB enrichment requires userId+novelId
   // Without them, falls back to client-provided data alone
   let codex: WritersCodex | null = null;
+  let dbStoryInfo: any = null;
+  let dbTimeline: any = null;
+  let dbNovelText = "";
   try {
-    let storyInfo = null;
-    let fullNovelText = "";
-    let timeline = null;
-
     if (novelId) {
       try {
         const dbNovel = getNovel(userId, novelId);
         if (dbNovel) {
-          fullNovelText = dbNovel.text;
-          storyInfo = getStoryInfo(userId, novelId);
-          timeline = getTimeline(userId, novelId);
+          dbNovelText = dbNovel.text;
+          dbStoryInfo = getStoryInfo(userId, novelId);
+          dbTimeline = getTimeline(userId, novelId);
         }
       } catch {}
     }
@@ -86,10 +84,10 @@ export async function POST(request: NextRequest) {
     codex = buildCodex({
       scene,
       characters,
-      storyInfo,
-      fullNovelText,
+      storyInfo: dbStoryInfo,
+      fullNovelText: dbNovelText,
       lastChapterStates: rawLastChapterStates || [],
-      timeline,
+      timeline: dbTimeline,
     });
 
     if (novelId) {
@@ -126,26 +124,34 @@ export async function POST(request: NextRequest) {
       try {
         if (outlineOnly) {
           // Outline-only mode: run the outline writer, emit, then stop
-          const llm = createLLMProvider();
           const { runOutlineWriter } = await import("@/core/simulation/outline-agent");
           const presentChars = characters.filter(c => scene.characterIds.includes(c.id));
+          const allChars = presentChars.length > 0 ? presentChars : characters;
+
+          // Chapter summaries from DB timeline (if available)
+          const dbChapters = dbTimeline?.chapters || [];
+          const chapterSummaries = dbChapters.map((ch: any, i: number) => ({
+            chapterNumber: ch.chapterNumber || i + 1,
+            title: ch.title || `第${i + 1}章`,
+            summary: (ch.events || []).slice(0, 3).map((e: any) => e.title + "：" + e.description).join("；").slice(0, 300) || "",
+            keyEvents: (ch.events || []).slice(0, 5).map((e: any) => e.title || ""),
+            characterChanges: {},
+          }));
+
+          // Continue chapter number from request body or timeline length
+          const continueFromChapter = (body as any).continueFromChapter || Math.max(1, dbChapters.length);
+          const continueFromLabel = (body as any).continueFromLabel || `第${continueFromChapter}章末`;
+
           try {
-            // Build a default scene if none provided (outline-only mode from writing workspace)
-            const outlineScene: SceneDefinition = scene.location?.trim()
-              ? scene
-              : {
-                  ...scene,
-                  location: "续写场景",
-                  characterIds: characters.map(c => c.id),
-                };
             const result = await runOutlineWriter({
-              characters: presentChars.length > 0 ? presentChars : characters,
-              continueFromChapter: 0,
-              continueFromLabel: "当前内容",
+              characters: allChars,
+              continueFromChapter: continueFromChapter,
+              continueFromLabel: continueFromLabel,
               previousProse: "",
-              chapterSummaries: [],
-              activeForeshadowing: [],
-              authorNotes: "",
+              chapterSummaries,
+              activeForeshadowing: (codex?.foreshadowingLedger?.active as any) || [],
+              worldBible: dbStoryInfo?.worldSetting || undefined,
+              authorNotes: (body as any).authorNotes || "",
               selectCharacters: true,
             });
             sendEvent({

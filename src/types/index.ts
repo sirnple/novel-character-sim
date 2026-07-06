@@ -226,6 +226,13 @@ export interface SceneOutline {
   chapterTitle?: string;
   sceneGoal?: string;
   chapterGoal?: string;
+  timeSpan?: string;
+  seasonAndTime?: string;
+  locations?: string[];
+  focusCharacters?: {
+    name: string;
+    reason: string;
+  }[];
   beats?: SceneBeat[];
   plotPoints?: {
     sequence: number;

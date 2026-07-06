@@ -141,14 +141,74 @@ export default function WritingWorkspace({
       }
 
       if (ol) {
-        lines.push("## 剧本大纲");
-        lines.push(`标题：${ol.sceneTitle}`);
-        lines.push(`目标：${ol.sceneGoal}`);
-        lines.push(`情感弧线：${ol.emotionalArc} → 结局：${ol.sceneEnding}`);
-        (ol.beats || []).forEach(b => {
-          const chars2 = b.activeCharacters || [];
-          lines.push(`- 节拍${b.beatNumber}：${b.description}（出场：${chars2.join("、")}）（氛围：${b.mood}）`);
-        });
+        lines.push("\n## 剧本大纲");
+        const title = ol.chapterTitle || ol.sceneTitle;
+        const goal = ol.chapterGoal || ol.sceneGoal;
+        const ending = ol.chapterEnding || ol.sceneEnding;
+        if (title) lines.push(`### ${title}`);
+        if (goal) lines.push(`\n**章节目标**：${goal}`);
+
+        // Time & space
+        const timeSpan = ol.timeSpan || (ol as any).time_span;
+        const seasonAndTime = ol.seasonAndTime || (ol as any).season_and_time;
+        const locations = ol.locations || (ol as any).location;
+        if (timeSpan || seasonAndTime) {
+          lines.push("\n**时间与空间**");
+          if (timeSpan) lines.push(`- 时间跨度：${timeSpan}`);
+          if (seasonAndTime) lines.push(`- 季节与昼夜：${seasonAndTime}`);
+          if (Array.isArray(locations) && locations.length > 0) {
+            lines.push(`- 涉及地点：${locations.join("、")}`);
+          }
+        }
+
+        // Focus characters
+        const focusChars = ol.focusCharacters || (ol as any).focus_characters;
+        if (Array.isArray(focusChars) && focusChars.length > 0) {
+          lines.push("\n**焦点角色**");
+          for (const fc of focusChars) {
+            lines.push(`- ${fc.name}：${fc.reason || ""}`);
+          }
+        }
+
+        // Plot points
+        const plotPoints = ol.plotPoints || ol.beats;
+        if (Array.isArray(plotPoints) && plotPoints.length > 0) {
+          lines.push("\n**情节点**");
+          for (const p of plotPoints as any[]) {
+            const seq = p.sequence || p.beatNumber || 0;
+            const desc = p.description || "";
+            const involved = p.involvedCharacters || p.activeCharacters || [];
+            const mood = p.mood || "";
+            lines.push(`${seq}. ${desc}（涉及：${involved.join("、") || "无"}）（氛围：${mood}）`);
+          }
+        }
+
+        // Character threads
+        const threads = ol.characterThreads || (ol as any).character_threads;
+        if (Array.isArray(threads) && threads.length > 0) {
+          lines.push("\n**角色发展**");
+          for (const t of threads) {
+            lines.push(`- ${t.characterName}：${t.development || ""}`);
+          }
+        }
+
+        // Foreshadowing
+        const newFs = ol.newForeshadowing || [];
+        const revealFs = ol.foreshadowingToReveal || [];
+        if (newFs.length > 0 || revealFs.length > 0) {
+          lines.push("\n**伏笔**");
+          for (const f of newFs) {
+            lines.push(`- 新埋：[${f.type || "?"}] ${f.description}${f.suggestedRevealWindow ? ` (建议回收：${f.suggestedRevealWindow})` : ""}`);
+          }
+          for (const f of revealFs) {
+            lines.push(`- 回收/推进：${f}`);
+          }
+        }
+
+        // Arc + ending + pacing
+        if (ol.emotionalArc) lines.push(`\n**情感弧线**：${ol.emotionalArc}`);
+        if (ending) lines.push(`**章节收尾**：${ending}`);
+        if (ol.pacing) lines.push(`**节奏**：${ol.pacing}`);
       }
       return lines.join("\n");
     },
@@ -206,6 +266,9 @@ export default function WritingWorkspace({
           scene: sc, writingStyle, outlineOnly: true,
           timelineEvents: (timeline?.chapters || []).flatMap(ch => (ch?.events || [])),
           lastChapterStates,
+          continueFromChapter: activeTask ? activeTask.continueFromChapter : 0,
+          continueFromLabel: activeTask ? activeTask.continueFrom : "当前内容",
+          authorNotes: activeTask?.script || "",
         }),
         signal: new AbortController().signal,
       });

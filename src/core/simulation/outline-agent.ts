@@ -24,8 +24,8 @@ const OUTLINE_SCHEMA = {
       },
       focusCharacters: {
         type: "array",
-        minItems: 1,
-        maxItems: 4,
+        minItems: 2,
+        maxItems: 3,
         items: {
           type: "object",
           properties: {
@@ -34,7 +34,7 @@ const OUTLINE_SCHEMA = {
           },
           required: ["name", "reason"],
         },
-        description: "本章焦点角色（2-3个），不是所有角色都要出场",
+        description: "本章焦点角色（2-3个）——本章只让这些角色作为出场的核心，其他角色不应作为重点出场",
       },
       plotPoints: {
         type: "array",
@@ -93,7 +93,7 @@ const OUTLINE_SCHEMA = {
       chapterEnding: { type: "string", description: "本章如何收尾（1-2句话，要有余韵，不要总结）" },
       pacing: { type: "string", enum: ["fast", "medium", "slow"], description: "本章节奏" },
     },
-    required: ["chapterTitle", "chapterGoal", "focusCharacters", "plotPoints", "emotionalArc", "chapterEnding", "pacing"],
+    required: ["chapterTitle", "chapterGoal", "timeSpan", "seasonAndTime", "locations", "focusCharacters", "plotPoints", "characterThreads", "emotionalArc", "chapterEnding", "pacing"],
   },
 };
 
