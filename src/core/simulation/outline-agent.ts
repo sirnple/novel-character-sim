@@ -169,12 +169,26 @@ ${authorText}
 
 ## 创作指南
 
+### 最重要的原则：聚焦
+一堂出色的章节通常只聚焦 2-3 个角色。不是所有角色都需要在这一章中出现。
+从所有角色中，挑选本章最需要推进其线索的 2-3 个角色作为"本章焦点角色"。
+其他角色如果不需要出场，就让他们"在后台"——读者知道他们存在，但本章不写。
+
 ### 关于情节设计
 - 设计 3-5 个关键情节点，每个情节点是"一段情节"的粒度，而非"一个动作"或"一句对话"
 - 好的情节点描述：角色A发现了关于角色B的秘密，决定暗中调查。
 - 差的情节点描述：角色A打开了门，看到角色B正在打电话。
 - 让角色驱动情节——他们的欲望、恐惧、弱点、秘密是情节的引擎
 - 利用角色之间的关系制造戏剧张力——爱恨、利益、阶级、秘密
+
+### 大纲必须包含的元件
+一个完整的小说大纲，必须指明以下内容：
+1. **时间**：本章发生在什么时间段？延续前一章？跳跃了几天/几个月/几年？是春夏秋冬哪个季节？白天还是夜晚居多？
+2. **空间**：本章发生在哪里？是一个地点还是跨越多个地点？地点之间是如何转换的？本章的空间场景跟前一章相比有什么变化？
+3. **焦点角色**：本章以哪些角色为核心视角？为什么是这些角色——他们的哪条线索到了需要推进的时候？
+4. **情节线**：本章要发生什么？这条情节线怎么从前一章自然延伸出来？怎么推向下一章的入口？
+5. **角色发展**：本章焦点角色各自发生了什么变化？他们的关系、认知、处境有没有推进？
+6. **伏笔布局**：本章埋下什么新线索？本章回收了什么旧线索？
 
 ### 关于角色线索
 - 每个角色都需要在本章中有所发展，哪怕只是一小步
@@ -190,8 +204,10 @@ ${authorText}
 - 章节需要有完整的叙事弧线：开场 → 发展 → 冲突升级/转折 → 收尾
 - 收尾要有余韵——一个悬念、一句有分量的话、一个意象——而非机械的总结
 - 节奏要与内容匹配：战斗/追逐用快节奏，心理描写/情感纠葛用慢节奏`
-
     : `You are an experienced novel outliner. Design the outline for the next chapter.
+
+## Your Role
+You are a novel outliner, not a screenwriter or beat designer. You think in terms of "what should this chapter contain," not "how to shoot this scene."
 
 ## Context
 Written up to: ${continueFromLabel}
@@ -212,25 +228,51 @@ ${foreshadowingText}
 ## Author Notes
 ${authorText}
 
-## Guidelines
-- Design 3-5 plot points at chapter level, not scene level
-- Each character should have a meaningful development
-- Propose new foreshadowing and identify which existing ones should be revealed
-- Complete narrative arc: opening → development → escalation → resolution
-- Pacing must match content`;
+## Critical Rule: Focus
+A strong chapter typically focuses on 2-3 characters, not all of them. Pick the 2-3 characters whose story threads most need advancing this chapter. Others stay "off-screen."
+
+## Outline Must Include
+1. **Time**: When does this chapter take place? Immediate continuation, or a time skip of days/months/years? Season? Time of day?
+2. **Space**: Where does this chapter happen? Single location, or spanning multiple? How do characters move between spaces? How does the location change from the previous chapter?
+3. **Focus Characters**: Which 2-3 characters are the core of this chapter? Why these characters — what thread needs advancing?
+4. **Plot Line**: What happens? How does it naturally extend from the previous chapter and push toward the next?
+5. **Character Development**: What changes for each focus character? How do their relationships, knowledge, or circumstances evolve?
+6. **Foreshadowing**: What new threads to plant? Which existing ones to resolve?
+
+## Output Format
+Design 3-5 PLOT POINTS (not beats or actions). A plot point is "X discovers Y's secret and decides to investigate" — not "X opens a door and sees Y on the phone."
+Complete narrative arc: opening → development → escalation → resolution.
+Ending must leave resonance — suspense, a meaningful line, an image — not mechanical summary.
+Pacing must match content: fast for action/combat, slow for psychological/emotional.`;
 
   const userPrompt = zh
     ? `请为第 ${continueFromChapter + 1} 章设计大纲。包括：
-1. 章节标题
-2. 章节目标
-3. 3-5个关键情节点（每个：描述、涉及角色、氛围）
-4. 各角色的发展线索
-5. 建议新埋伏笔
-6. 建议回收的伏笔
-7. 情感弧线
-8. 章节收尾
-9. 节奏建议（fast/medium/slow）`
-    : `Design the outline for Chapter ${continueFromChapter + 1}: 1. title, 2. goal, 3. 3-5 plot points, 4. character threads, 5. new foreshadowing, 6. foreshadowing to reveal, 7. emotional arc, 8. ending, 9. pacing.`;
+
+**本章时间/空间**
+- 时间跨度和背景（是否跳跃？延续前一章？季节/昼夜特征？）
+- 空间场景（在哪发生？单地点还是多地点？与前一章的空间变化？）
+
+**本章焦点角色**
+- 从所有角色中选出 2-3 个本章最需要推进线索的焦点角色
+- 说明为什么选他们——哪条线索到了需要推进的时候
+
+**核心情节**
+- 章节标题（5-20字）
+- 章节目标（要达成什么）
+- 3-5个关键情节点（每个：描述、涉及角色、氛围）
+
+**角色发展**
+- 每个焦点角色的发展变化
+
+**伏笔**
+- 建议新埋的伏笔
+- 建议回收的已有伏笔
+
+**收尾与节奏**
+- 情感弧线
+- 章节收尾
+- 节奏（fast/medium/slow）`
+    : `Design the outline for Chapter ${continueFromChapter + 1}. Include: time/space context, 2-3 focus characters, 3-5 plot points, character development, foreshadowing, emotional arc, ending, pacing.`;
 
   console.log(`[OutlineAgent] Generating outline for chapter ${continueFromChapter + 1} (${characters.length} chars)...`);
   const t0 = Date.now();
