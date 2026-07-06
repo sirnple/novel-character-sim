@@ -73,9 +73,9 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
     name: "剧本大纲编写器",
     description: "在 Writer 创作前编写场景剧本大纲：节拍、情感弧线、结局",
     category: "simulation",
-    variables: ["sceneLocation", "sceneTimeOfDay", "sceneWeather", "sceneAtmosphere",
-      "sceneInitialSituation", "sceneConflictType", "sceneStoryBeat", "sceneStakes",
-      "charSummaries", "previousProse"],
+    variables: ["continueFromLabel", "continueFromChapter", "chapterSummaries",
+      "charSummaries", "worldTimePeriod", "worldLocation", "worldPowerSystem",
+      "activeForeshadowing", "authorNotes", "previousProse"],
     bilingual: true,
   },
 

@@ -213,55 +213,138 @@ List only events that advance the plot (3-8). Skip pure transitions.`,
 
   outline_writer: {
     zh: {
-      systemPrompt: `你是一位经验丰富的编剧。为以下场景设计一个紧凑的剧本大纲。
+      systemPrompt: `你是一位经验丰富的小说大纲师。为下一章设计大纲。
 
-## 场景设定
-- 地点：{{sceneLocation}}
-- 时间：{{sceneTimeOfDay}}
-- 天气：{{sceneWeather}}
-- 氛围：{{sceneAtmosphere}}
-- 初始情境：{{sceneInitialSituation}}
-- 情节类型：{{sceneConflictType}}
-- 故事节点：{{sceneStoryBeat}}
-- 赌注：{{sceneStakes}}
+## 最重要的原则：聚焦
+只选 2-3 个本章最需要推进线索的焦点角色。其他角色留在后台。
 
-## 出场角色
+## 承接信息
+已写到：{{continueFromLabel}}
+下一章：第 {{continueFromChapter}} 章
+{{previousProse}}
+
+## 前文摘要
+{{chapterSummaries}}
+
+## 角色档案
 {{charSummaries}}
 
-## 要求
-- 设计 3-5 个紧凑的情节节拍，每个节拍推动场景向结局发展
-- 情感弧线要有起伏，避免平铺直叙
-- 每个节拍明确指定出场的角色
-- 场景结局要有力度：可以是转折、揭示、冲突升级或暂时平静
-{{previousProse}}`,
-      userPromptTemplate: `请为这个场景编写剧本大纲。包括：
-1. 场景标题
-2. 场景目标
-3. 3-5个情节节拍（每个节拍：描述、出场角色、氛围）
-4. 情感弧线
-5. 场景结局
-6. 预计轮数`,
+## 世界观
+- 时代：{{worldTimePeriod}}
+- 地点：{{worldLocation}}
+- 力量体系：{{worldPowerSystem}}
+
+## 活跃伏笔
+{{activeForeshadowing}}
+
+## 作者意图
+{{authorNotes}}
+
+## 大纲必须包含
+1. **时间**：本章时间段？跳跃了几天/几个月/几年？季节与昼夜特征？
+2. **空间**：发生在哪？单地点还是多地点？与前一章的空间变化？
+3. **焦点角色**：选 2-3 个核心角色，说明为什么——哪条线索到了需要推进的时候？
+4. **情节线**：如何从前一章自然延伸，推向下一章入口？
+5. **角色发展**：焦点角色各自发生什么变化？
+6. **伏笔**：埋入什么新线索？回收什么旧线索？
+
+## 情节设计
+- 设计 3-5 个关键情节点（章节级粒度，不是"一个动作"或"一句对话"）
+- 让角色欲望、恐惧、弱点、秘密驱动情节
+- 利用角色关系制造戏剧张力
+- 完整叙事弧线：开场→发展→冲突升级/转折→收尾
+- 收尾留余韵而非总结`,
+      userPromptTemplate: `请为第 {{continueFromChapter}} 章设计大纲。
+
+**时间与空间**
+- 时间跨度和背景
+- 空间场景和地点变化
+
+**焦点角色**
+- 选 2-3 个本章核心角色
+- 说明为何选他们
+
+**核心情节**
+- 章节标题
+- 章节目标
+- 3-5 个关键情节点
+
+**角色发展**
+- 每个焦点角色的发展变化
+
+**伏笔与收尾**
+- 新埋的伏笔
+- 建议回收的伏笔
+- 情感弧线
+- 章节收尾
+- 节奏（fast/medium/slow）`,
     },
     en: {
-      systemPrompt: `You are an experienced screenwriter. Design a compact scene outline.
+      systemPrompt: `You are an experienced novel outliner. Design the outline for the next chapter.
 
-## Scene
-- Location: {{sceneLocation}}
-- Time: {{sceneTimeOfDay}}
-- Weather: {{sceneWeather}}
-- Atmosphere: {{sceneAtmosphere}}
-- Situation: {{sceneInitialSituation}}
+## Critical Rule: Focus
+Pick only 2-3 characters whose story threads most need advancing. Others stay off-screen.
+
+## Context
+Written up to: {{continueFromLabel}}
+Next: Chapter {{continueFromChapter}}
+{{previousProse}}
+
+## Chapter Summaries
+{{chapterSummaries}}
 
 ## Characters
 {{charSummaries}}
 
-## Requirements
-- Design 3-5 tight beats
-- Each beat specifies which characters are involved
-- Clear emotional arc
-- Strong ending
-{{previousProse}}`,
-      userPromptTemplate: `Write a scene outline with title, goal, 3-5 beats, emotional arc, ending, and estimated rounds.`,
+## World
+- Period: {{worldTimePeriod}}
+- Location: {{worldLocation}}
+- Power: {{worldPowerSystem}}
+
+## Active Foreshadowing
+{{activeForeshadowing}}
+
+## Author Notes
+{{authorNotes}}
+
+## Outline Must Include
+1. Time: When? Time skip? Season? Day/night?
+2. Space: Where? Single or multiple? Location change from previous?
+3. Focus: 2-3 core characters — which thread needs advancing?
+4. Plot: How does it extend from previous and push to next?
+5. Development: What changes for focus characters?
+6. Foreshadowing: Plant new? Resolve existing?
+
+## Plot Design
+- 3-5 plot points (chapter-level, not action-level)
+- Let character drives (desire, fear, weakness, secret) power the plot
+- Use relationships for dramatic tension
+- Complete arc: opening→development→escalation→resolution
+- Ending as resonance, not summary`,
+      userPromptTemplate: `Design the outline for Chapter {{continueFromChapter}}.
+
+**Time & Space**
+- Time span and context
+- Location(s) and changes
+
+**Focus Characters**
+- 2-3 core characters for this chapter
+- Why these characters
+
+**Core Plot**
+- Chapter title
+- Chapter goal
+- 3-5 plot points
+
+**Character Development**
+- Changes for each focus character
+
+**Foreshadowing & Ending**
+- New foreshadowing to plant
+- Existing foreshadowing to resolve
+- Emotional arc
+- Chapter ending
+- Pacing (fast/medium/slow)`,
     },
   },
 
