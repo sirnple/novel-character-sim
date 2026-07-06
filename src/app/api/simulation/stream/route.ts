@@ -146,6 +146,7 @@ export async function POST(request: NextRequest) {
               chapterSummaries: [],
               activeForeshadowing: [],
               authorNotes: "",
+              selectCharacters: true,
             });
             sendEvent({
               type: "outline",

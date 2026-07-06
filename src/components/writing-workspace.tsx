@@ -202,7 +202,7 @@ export default function WritingWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           novelTitle, novelId,
-          characters: characters.filter(c => sc.characterIds.includes(c.id)),
+          characters, // pass ALL characters so outline agent can select 2-3
           scene: sc, writingStyle, outlineOnly: true,
           timelineEvents: (timeline?.chapters || []).flatMap(ch => (ch?.events || [])),
           lastChapterStates,
