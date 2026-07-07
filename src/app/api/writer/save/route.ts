@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendNovelContent, saveTimeline } from "@/lib/db";
+import { appendNovelContent, getNovel } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import type { ChapterTimeline } from "@/types";
 
@@ -19,10 +19,10 @@ export async function POST(request: NextRequest) {
     // Append generated prose to the novel text
     appendNovelContent(userId, novelId, content);
 
-    // If timeline data is provided, update it
-    // (for now, save is the core action)
+    // Return the updated full text so the client can refresh its reader
+    const updated = getNovel(userId, novelId);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, fullText: updated?.text || "" });
   } catch (error) {
     console.error("Writer save error:", error);
     return NextResponse.json({ error: "Failed to save" }, { status: 500 });
