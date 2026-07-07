@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseNovel } from "@/core/parser/novel-parser";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
+import { saveNovel } from "@/lib/db";
+import { novelFingerprint } from "@/lib/utils";
 import iconv from "iconv-lite";
 import AdmZip from "adm-zip";
 
@@ -106,6 +108,10 @@ export async function POST(request: NextRequest) {
     }
 
     const parsed = parseNovel(novelText);
+
+    // Persist immediately so the novel survives page refresh
+    const novelId = novelFingerprint(novelText);
+    saveNovel(userId, novelId, title, novelText);
 
     return NextResponse.json({
       title,
