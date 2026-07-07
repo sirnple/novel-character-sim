@@ -127,6 +127,9 @@ export default function WritingWorkspace({
   useEffect(() => {
     setSaved(false);
     setSaveError(false);
+    if (outputText && activeTaskId) {
+      updateTask(activeTaskId, { savedToNovel: false });
+    }
   }, [outputText]);
 
   // --- Build script ---
@@ -258,6 +261,7 @@ export default function WritingWorkspace({
       continueFromChapter: newTaskChapter,
       scene: sc,
       status: "draft",
+      savedToNovel: false,
       createdAt: new Date().toISOString(),
     };
 
@@ -386,7 +390,7 @@ export default function WritingWorkspace({
               switch (event.type) {
                 case "outline": setOutline(event.outline); if (event.prompt) setOutlinePrompt(event.prompt); updateTask(activeTaskId!, { outline: event.outline, outlinePrompt: event.prompt }); break;
                 case "prompt": setWriterPrompt({ systemPrompt: event.systemPrompt, userPrompt: event.userPrompt }); updateTask(activeTaskId!, { writerPrompt: { systemPrompt: event.systemPrompt, userPrompt: event.userPrompt } }); break;
-                case "prose": setOutputText(event.prose); updateTask(activeTaskId!, { output: event.prose, status: "completed" }); break;
+                case "prose": setOutputText(event.prose); updateTask(activeTaskId!, { output: event.prose, status: "completed", savedToNovel: false }); break;
                 case "review": setReview(event.review); setShowReview(true); updateTask(activeTaskId!, { review: event.review }); break;
                 case "scene_end": setStatus("completed"); onComplete?.(event.fullNovel); break;
                 case "error": setStatus("error"); setError(event.message); break;
