@@ -190,6 +190,14 @@ export function getNovel(userId: string, id: string): { title: string; text: str
   return d.prepare("SELECT title, text FROM novels WHERE id = ? AND user_id = ?").get(id, userId) as any || null;
 }
 
+export function appendNovelContent(userId: string, id: string, newContent: string): void {
+  const d = getDb();
+  const novel = getNovel(userId, id);
+  if (!novel) return;
+  const combined = novel.text + "\n\n" + newContent;
+  saveNovel(userId, id, novel.title, combined);
+}
+
 export function listNovels(userId: string): { id: string; title: string; total_length: number; created_at: string }[] {
   const d = getDb();
   return d.prepare("SELECT id, title, total_length, created_at FROM novels WHERE user_id = ? ORDER BY updated_at DESC").all(userId) as any[];

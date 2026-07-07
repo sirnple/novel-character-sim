@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { CharacterProfile, SceneDefinition, WritingStyle, SceneOutline, ChapterTimeline, CharacterChapterState } from "@/types";
 import type { ReviewReport } from "@/core/codex/types";
-import { Loader2, Play, Sparkles, RefreshCw, Shield, ScrollText, Check, AlertCircle, Copy, Edit3, Bot } from "lucide-react";
+import { Loader2, Play, Sparkles, RefreshCw, Shield, ScrollText, Check, AlertCircle, Copy, Edit3, Bot, Save } from "lucide-react";
 
 interface WritingWorkspaceProps {
   novelId: string;
@@ -69,6 +69,8 @@ export default function WritingWorkspace({
   const [outlinePrompt, setOutlinePrompt] = useState<{ system: string; user: string } | null>(null);
   const [writerPrompt, setWriterPrompt] = useState<{ systemPrompt: string; userPrompt: string } | null>(null);
   const [review, setReview] = useState<ReviewReport | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [showReview, setShowReview] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
@@ -378,6 +380,23 @@ export default function WritingWorkspace({
 
   const stopWriting = () => { abortRef.current?.abort(); if (outputText) setStatus("completed"); };
   const handleCopy = () => { navigator.clipboard.writeText(outputText); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+
+  const handleSave = async () => {
+    if (!outputText || !novelId) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/writer/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ novelId, content: outputText }),
+      });
+      if (res.ok) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      }
+    } catch {}
+    setSaving(false);
+  };
   const handleCancelTask = () => setActiveTaskId(null);
 
   // Writing is allowed as long as we have a scene location or script content
@@ -523,6 +542,13 @@ export default function WritingWorkspace({
                 {status === "generating" && <span className="text-[9px] text-orange-500/70 font-mono flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" />写作中...</span>}
               </div>
               <div className="flex items-center gap-3">
+                {status === "completed" && (
+                  <button onClick={handleSave} disabled={saving}
+                    className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${saved ? "text-green-400" : "text-neutral-500 hover:text-green-400"}`}>
+                    {saved ? <Check className="w-3 h-3 text-green-500" /> : <Save className="w-3 h-3" />}
+                    {saved ? "已保存" : saving ? "保存中..." : "保存为最新章节"}
+                  </button>
+                )}
                 {outlinePrompt && <button onClick={() => setShowOutlinePrompt(!showOutlinePrompt)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showOutlinePrompt ? "text-neutral-300" : "text-neutral-500 hover:text-neutral-300"}`}>
                   <ScrollText className="w-3 h-3" />大纲Prompt</button>}
                 {review && <button onClick={() => setShowReview(!showReview)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showReview ? "text-green-400" : "text-neutral-500 hover:text-green-400"}`}>
