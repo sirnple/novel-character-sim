@@ -175,6 +175,10 @@ export default function Home() {
     }).catch(() => {});
   };
 
+  const handleNovelSaved = (fullText: string) => {
+    setNovelText(fullText);
+  };
+
   const handleExtractCharacters = async (text: string, forceRefresh = false) => {
     setExtractLoading(true);
     setExtractError("");
@@ -734,6 +738,8 @@ export default function Home() {
                     storyInfo={storyInfo}
                     onBack={() => {}}
                     onComplete={handleSimulationComplete}
+                    initialFullNovel={novelText}
+                    onNovelSaved={handleNovelSaved}
                     timeline={timeline}
                     lastChapterStates={lastChapterStates}
                   />
