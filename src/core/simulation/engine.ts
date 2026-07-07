@@ -5,9 +5,9 @@ import { createLLMProvider } from "@/core/llm/factory";
 import { runOutlineWriter } from "./outline-agent";
 import { buildCodex } from "@/core/codex/builder";
 import { renderCodexAsPrompt } from "@/core/codex/renderer";
-import { runFullReview } from "@/core/codex/review-orchestrator";
+import { runFullReview, rewriteProse, generateAnnotations } from "@/core/codex/review-orchestrator";
 import { updateCodexAfterChapter } from "@/core/codex/updater";
-import type { WritersCodex } from "@/core/codex/types";
+import type { WritersCodex, ProseAnnotation } from "@/core/codex/types";
 
 export type SimulationEventCallback = (event: SimulationEvent) => void;
 
@@ -220,6 +220,9 @@ export class SimulationEngine {
 
       this.onEvent({ type: "prose", prose });
 
+      let finalProse = prose;
+      let annotations: ProseAnnotation[] = [];
+
       // --- Post-writing review ---
       if (this.runReview && this.codex) {
         try {
@@ -238,6 +241,22 @@ export class SimulationEngine {
             );
           }
 
+          // --- Rewrite with findings ---
+          const autoFixable = review.findings.filter(f => f.autoFixable && f.snippet);
+          if (autoFixable.length > 0) {
+            this.onEvent({ type: "rewriting", status: "rewriting" });
+            try {
+              const corrected = await rewriteProse(prose, review.findings, this.codex);
+              annotations = generateAnnotations(review.findings);
+              finalProse = corrected;
+            } catch (e) {
+              console.warn("[Engine] Rewrite failed, using original prose:", e);
+              annotations = generateAnnotations(review.findings);
+            }
+          }
+
+          this.onEvent({ type: "final_prose", prose: finalProse, annotations });
+
           // Update codex for next chapter
           const outlineTitle = outline?.sceneTitle || "";
           this.codex = updateCodexAfterChapter(this.codex, review, chapterNumber, outlineTitle);
@@ -252,10 +271,10 @@ export class SimulationEngine {
         directorAction: outline?.sceneGoal || "",
         channelMessages: [],
         characterResponses: [],
-        proseOutput: prose,
+        proseOutput: finalProse,
       });
 
-      this.state.fullNovelOutput = prose;
+      this.state.fullNovelOutput = finalProse;
       this.state.status = "completed";
       this.onEvent({ type: "scene_end", fullNovel: this.state.fullNovelOutput });
     } catch (error) {
