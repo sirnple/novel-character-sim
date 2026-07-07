@@ -108,6 +108,7 @@ export default function WritingWorkspace({
     setReview(activeTask.review || null);
     setSaved(!!activeTask.savedToNovel);
     setSaveError(false);
+    setAnnotations([]);
     setStatus(activeTask.output ? "completed" : "idle");
   }, [activeTaskId]);
 
@@ -273,6 +274,7 @@ export default function WritingWorkspace({
     setOutputText("");
     setWriterPrompt(null);
     setReview(null);
+    setAnnotations([]);
     setStatus("idle");
     setCreatingTask(false);
   }, [timeline, newTaskChapter, newTaskLabel, scene, characters, buildScript, novelId, tasks, persistTasks]);
@@ -361,7 +363,7 @@ export default function WritingWorkspace({
     }
     updateTask(activeTaskId!, { status: "writing" });
     setStatus("generating");
-    setError(""); setOutputText(""); setReview(null); setShowReview(false); setShowPrompt(false);
+    setError(""); setOutputText(""); setReview(null); setAnnotations([]); setShowReview(false); setShowPrompt(false);
 
     const controller = new AbortController(); abortRef.current = controller;
     try {
