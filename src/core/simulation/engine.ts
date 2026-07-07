@@ -16,6 +16,8 @@ export type SimulationEvent =
   | { type: "prose"; prose: string }
   | { type: "prompt"; systemPrompt: string; userPrompt: string }
   | { type: "review"; review: import("@/core/codex/types").ReviewReport }
+  | { type: "rewriting"; status: string }
+  | { type: "final_prose"; prose: string; annotations: import("@/core/codex/types").ProseAnnotation[] }
   | { type: "scene_end"; fullNovel: string }
   | { type: "error"; message: string };
 

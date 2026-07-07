@@ -157,3 +157,10 @@ export interface ReviewReport {
   revealedForeshadowing: string[];
   newChapterSummary: ChapterSummary;
 }
+
+export interface ProseAnnotation {
+  id: string;
+  finding: ReviewFinding;
+  originalSnippet: string;
+  fixedSnippet: string;
+}
