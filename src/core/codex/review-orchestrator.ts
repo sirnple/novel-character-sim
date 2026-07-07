@@ -2,7 +2,7 @@
 // Review Orchestrator — Run 6 parallel review agents
 // ============================================================
 
-import type { WritersCodex, ReviewReport, ReviewFinding } from "./types";
+import type { WritersCodex, ReviewReport, ReviewFinding, ProseAnnotation } from "./types";
 import type { CharacterProfile } from "@/types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { isChinese } from "@/lib/utils";
@@ -451,4 +451,77 @@ ${input.generatedProse.slice(0, 8000)}
       fixedText: f.fixedText,
     })),
   };
+}
+
+/**
+ * Rewrite prose to fix all auto-fixable review findings.
+ * Returns corrected prose, or original if no auto-fixable findings exist.
+ */
+export async function rewriteProse(
+  originalProse: string,
+  findings: ReviewFinding[],
+  _codex: WritersCodex
+): Promise<string> {
+  const autoFixable = findings.filter(f => f.autoFixable && f.snippet && f.suggestion);
+
+  if (autoFixable.length === 0) {
+    return originalProse;
+  }
+
+  const llm = createLLMProvider();
+  const zh = isChinese(originalProse);
+
+  const findingsText = autoFixable.map((f, i) =>
+    `${i + 1}. [${f.dimension}] ${f.description}\n   问题片段: "${f.snippet}"\n   修改建议: ${f.suggestion}${f.fixedText ? `\n   建议修改为: "${f.fixedText}"` : ""}`
+  ).join("\n\n");
+
+  const prompt = zh
+    ? `你是小说续写的修订编辑。请根据以下审查发现的问题，重写整段文字，修复所有标记的问题。
+
+## 需要修复的问题
+${findingsText}
+
+## 原文
+${originalProse}
+
+## 修订要求
+- 修复以上所有问题
+- 保持叙事流畅、风格一致、角色声音不变
+- 不修改与问题无关的内容
+- 直接输出修订后的完整文字，不要用JSON包裹`
+    : `You are a prose revision editor. Rewrite the text below fixing all flagged issues.
+
+## Issues to Fix
+${findingsText}
+
+## Original Prose
+${originalProse}
+
+## Requirements
+- Fix all issues listed above
+- Maintain narrative flow and style consistency
+- Do not change content unrelated to flagged issues
+- Output the complete revised prose directly, no JSON wrapper`;
+
+  const corrected = await llm.chat(
+    [{ role: "user", content: prompt }],
+    { temperature: 0.4, maxTokens: 16384 }
+  );
+
+  return corrected || originalProse;
+}
+
+/**
+ * Generate annotation cards from review findings.
+ * Each annotation shows the original snippet vs corrected text.
+ */
+export function generateAnnotations(
+  findings: ReviewFinding[]
+): ProseAnnotation[] {
+  return findings.map(f => ({
+    id: Math.random().toString(36).slice(2, 10),
+    finding: f,
+    originalSnippet: f.snippet || "",
+    fixedSnippet: f.fixedText || "",
+  }));
 }
