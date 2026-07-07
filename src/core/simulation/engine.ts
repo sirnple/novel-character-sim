@@ -255,8 +255,6 @@ export class SimulationEngine {
             }
           }
 
-          this.onEvent({ type: "final_prose", prose: finalProse, annotations });
-
           // Update codex for next chapter
           const outlineTitle = outline?.sceneTitle || "";
           this.codex = updateCodexAfterChapter(this.codex, review, chapterNumber, outlineTitle);
@@ -264,6 +262,9 @@ export class SimulationEngine {
           console.warn("[Engine] Review failed, continuing:", e);
         }
       }
+
+      // Always emit final_prose — with or without review
+      this.onEvent({ type: "final_prose", prose: finalProse, annotations });
 
       // --- Store result ---
       this.state.rounds.push({
