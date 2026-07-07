@@ -242,7 +242,7 @@ export class SimulationEngine {
           }
 
           // --- Rewrite with findings ---
-          const autoFixable = review.findings.filter(f => f.autoFixable && f.snippet);
+          const autoFixable = review.findings.filter(f => f.autoFixable && f.snippet && f.suggestion);
           if (autoFixable.length > 0) {
             this.onEvent({ type: "rewriting", status: "rewriting" });
             try {
