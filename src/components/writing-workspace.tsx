@@ -15,6 +15,7 @@ interface WritingWorkspaceProps {
   onBack: () => void;
   onComplete?: (fullNovel: string) => void;
   initialFullNovel?: string;
+  onNovelSaved?: (fullText: string) => void;
   timeline?: ChapterTimeline | null;
   lastChapterStates?: CharacterChapterState[];
   storyInfo?: import("@/types").StoryInfo | null;
@@ -34,6 +35,7 @@ interface WritingTask {
   review?: ReviewReport | null;
   writerPrompt?: { systemPrompt: string; userPrompt: string } | null;
   status: "draft" | "writing" | "completed";
+  savedToNovel?: boolean;
   createdAt: string;
 }
 
@@ -46,6 +48,7 @@ const TASKS_KEY = "writing_tasks";
 export default function WritingWorkspace({
   novelId, novelTitle, characters, scene, writingStyle,
   onSceneChange, onBack, onComplete, initialFullNovel,
+  onNovelSaved,
   timeline, lastChapterStates, storyInfo,
 }: WritingWorkspaceProps) {
   // --- Persisted tasks ---
@@ -76,6 +79,8 @@ export default function WritingWorkspace({
   const [showPrompt, setShowPrompt] = useState(false);
   const [showOutlinePrompt, setShowOutlinePrompt] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const readerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const persistTasks = useCallback((updated: WritingTask[]) => {
@@ -100,6 +105,8 @@ export default function WritingWorkspace({
     setOutlinePrompt(activeTask.outlinePrompt || null);
     setWriterPrompt(activeTask.writerPrompt || null);
     setReview(activeTask.review || null);
+    setSaved(!!activeTask.savedToNovel);
+    setSaveError(false);
     setStatus(activeTask.output ? "completed" : "idle");
   }, [activeTaskId]);
 
@@ -108,6 +115,19 @@ export default function WritingWorkspace({
     if (!activeTaskId) return;
     updateTask(activeTaskId, { script: scriptText });
   }, [scriptText]);
+
+  // Auto-scroll reader to bottom when novel content or output changes
+  useEffect(() => {
+    if (readerRef.current) {
+      readerRef.current.scrollTop = readerRef.current.scrollHeight;
+    }
+  }, [initialFullNovel, outputText]);
+
+  // Reset save state when output changes (new content generated)
+  useEffect(() => {
+    setSaved(false);
+    setSaveError(false);
+  }, [outputText]);
 
   // --- Build script ---
   const buildScript = useCallback(
@@ -384,6 +404,7 @@ export default function WritingWorkspace({
   const handleSave = async () => {
     if (!outputText || !novelId) return;
     setSaving(true);
+    setSaveError(false);
     try {
       const res = await fetch("/api/writer/save", {
         method: "POST",
@@ -391,17 +412,25 @@ export default function WritingWorkspace({
         body: JSON.stringify({ novelId, content: outputText }),
       });
       if (res.ok) {
+        const data = await res.json();
         setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
+        setSaveError(false);
+        if (data.fullText && onNovelSaved) {
+          onNovelSaved(data.fullText);
+        }
+        updateTask(activeTaskId!, { savedToNovel: true, status: "completed" });
+      } else {
+        setSaveError(true);
       }
-    } catch {}
+    } catch {
+      setSaveError(true);
+    }
     setSaving(false);
   };
   const handleCancelTask = () => setActiveTaskId(null);
 
   // Writing is allowed as long as we have a scene location or script content
   const canWrite = !!(activeTask?.scene?.location?.trim() || scriptText.trim());
-  const hasContent = !!outputText;
 
   // ===== RENDER: No active task, not creating =====
   if (!activeTaskId && !creatingTask) {
@@ -533,54 +562,95 @@ export default function WritingWorkspace({
 
       {/* RIGHT */}
       <div className="flex-1 flex flex-col min-w-0">
-        {hasContent || status === "generating" ? (
-          <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg flex flex-col flex-1 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
-              <div className="flex items-center gap-3">
-                <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">生成正文</h3>
-                {status === "completed" && <span className="text-[9px] text-green-500/70 font-mono">已完成</span>}
-                {status === "generating" && <span className="text-[9px] text-orange-500/70 font-mono flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" />写作中...</span>}
-              </div>
-              <div className="flex items-center gap-3">
-                {status === "completed" && (
-                  <button onClick={handleSave} disabled={saving}
-                    className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${saved ? "text-green-400" : "text-neutral-500 hover:text-green-400"}`}>
-                    {saved ? <Check className="w-3 h-3 text-green-500" /> : <Save className="w-3 h-3" />}
-                    {saved ? "已保存" : saving ? "保存中..." : "保存为最新章节"}
-                  </button>
-                )}
-                {outlinePrompt && <button onClick={() => setShowOutlinePrompt(!showOutlinePrompt)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showOutlinePrompt ? "text-neutral-300" : "text-neutral-500 hover:text-neutral-300"}`}>
-                  <ScrollText className="w-3 h-3" />大纲Prompt</button>}
-                {review && <button onClick={() => setShowReview(!showReview)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showReview ? "text-green-400" : "text-neutral-500 hover:text-green-400"}`}>
-                  <Shield className="w-3 h-3" />审查 ({review.findings.length})</button>}
-                {writerPrompt && <button onClick={() => setShowPrompt(!showPrompt)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showPrompt ? "text-neutral-300" : "text-neutral-500 hover:text-neutral-300"}`}>
-                  <ScrollText className="w-3 h-3" />Writer Prompt</button>}
-                <button onClick={handleCopy} className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300 font-mono">{copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}</button>
-              </div>
+        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg flex flex-col flex-1 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
+            <div className="flex items-center gap-3">
+              <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">小说正文</h3>
+              {status === "completed" && !saved && <span className="text-[9px] text-orange-500/70 font-mono">有未保存内容</span>}
+              {status === "completed" && saved && <span className="text-[9px] text-green-500/70 font-mono">已保存</span>}
+              {status === "generating" && <span className="text-[9px] text-orange-500/70 font-mono flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" />写作中...</span>}
             </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
-              <div className="p-6">
-                {status === "generating" && !outputText ? (
-                  <div className="flex items-center justify-center py-20"><div className="flex flex-col items-center gap-3"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /><p className="text-sm text-neutral-500 font-mono">Writer 创作中...</p></div></div>
-                ) : (
-                  <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif max-w-[800px] mx-auto">{outputText}</div>
-                )}
-              </div>
-              {showReview && review && <ReviewSection review={review} />}
-              {showPrompt && writerPrompt && <PromptSection label="Writer Prompt" systemPrompt={writerPrompt.systemPrompt} userPrompt={writerPrompt.userPrompt} />}
-              {showOutlinePrompt && outlinePrompt && <PromptSection label="大纲 Agent Prompt" systemPrompt={outlinePrompt.system} userPrompt={outlinePrompt.user} />}
+            <div className="flex items-center gap-3">
+              {status === "completed" && !saved && (
+                <button onClick={handleSave} disabled={saving}
+                  className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${saveError ? "text-red-400 hover:text-red-300" : "text-neutral-500 hover:text-green-400"}`}>
+                  {saveError ? (
+                    <><AlertCircle className="w-3 h-3 text-red-400" /> 保存失败，点击重试</>
+                  ) : saving ? (
+                    <><Loader2 className="w-3 h-3 animate-spin" /> 保存中...</>
+                  ) : (
+                    <><Save className="w-3 h-3" /> 保存为最新章节</>
+                  )}
+                </button>
+              )}
+              {status === "completed" && saved && (
+                <span className="flex items-center gap-1 text-[10px] text-green-500 font-mono">
+                  <Check className="w-3 h-3" /> 已保存
+                </span>
+              )}
+              {outlinePrompt && <button onClick={() => setShowOutlinePrompt(!showOutlinePrompt)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showOutlinePrompt ? "text-neutral-300" : "text-neutral-500 hover:text-neutral-300"}`}>
+                <ScrollText className="w-3 h-3" />大纲Prompt</button>}
+              {review && <button onClick={() => setShowReview(!showReview)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showReview ? "text-green-400" : "text-neutral-500 hover:text-green-400"}`}>
+                <Shield className="w-3 h-3" />审查 ({review.findings.length})</button>}
+              {writerPrompt && <button onClick={() => setShowPrompt(!showPrompt)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showPrompt ? "text-neutral-300" : "text-neutral-500 hover:text-neutral-300"}`}>
+                <ScrollText className="w-3 h-3" />Writer Prompt</button>}
+              <button onClick={handleCopy} className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300 font-mono">{copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}</button>
             </div>
           </div>
-        ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <Bot className="w-12 h-12 mx-auto mb-4 text-neutral-700 opacity-50" />
-              <p className="text-base text-neutral-500 font-mono">剧本已就绪</p>
-              <p className="text-sm text-neutral-700 mt-2">编辑左侧剧本后点击"开始写作"</p>
-              <p className="text-xs text-neutral-700 mt-1">也可以点击"AI 生成剧本"让大纲 Agent 自动生成大纲</p>
+
+          {/* Reader body */}
+          <div ref={readerRef} className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="p-6">
+              {!initialFullNovel && !outputText && status !== "generating" ? (
+                <div className="flex items-center justify-center py-20">
+                  <div className="text-center">
+                    <Bot className="w-12 h-12 mx-auto mb-4 text-neutral-700 opacity-50" />
+                    <p className="text-base text-neutral-500 font-mono">剧本已就绪</p>
+                    <p className="text-sm text-neutral-700 mt-2">编辑左侧剧本后点击"开始写作"</p>
+                    <p className="text-xs text-neutral-700 mt-1">也可以点击"AI 生成剧本"让大纲 Agent 自动生成大纲</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Full novel text (read-only, scrollable) */}
+                  {initialFullNovel && (
+                    <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif max-w-[800px] mx-auto">
+                      {initialFullNovel}
+                    </div>
+                  )}
+
+                  {/* Unsaved generated prose */}
+                  {outputText && !saved && (
+                    <>
+                      <div className="max-w-[800px] mx-auto my-6 flex items-center gap-3">
+                        <div className="flex-1 h-px bg-orange-500/30" />
+                        <span className="text-xs text-orange-500 font-mono bg-orange-500/10 px-2 py-0.5 rounded shrink-0">待保存</span>
+                        <div className="flex-1 h-px bg-orange-500/30" />
+                      </div>
+                      <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif max-w-[800px] mx-auto bg-orange-500/[0.03] rounded-lg p-4 border border-orange-500/10">
+                        {outputText}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Loading spinner for generation in progress */}
+                  {status === "generating" && !outputText && (
+                    <div className="flex items-center justify-center py-20">
+                      <div className="flex flex-col items-center gap-3">
+                        <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+                        <p className="text-sm text-neutral-500 font-mono">Writer 创作中...</p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
+            {showReview && review && <ReviewSection review={review} />}
+            {showPrompt && writerPrompt && <PromptSection label="Writer Prompt" systemPrompt={writerPrompt.systemPrompt} userPrompt={writerPrompt.userPrompt} />}
+            {showOutlinePrompt && outlinePrompt && <PromptSection label="大纲 Agent Prompt" systemPrompt={outlinePrompt.system} userPrompt={outlinePrompt.user} />}
           </div>
-        )}
+        </div>
         {error && <ErrorBanner error={error} onRetry={startWriting} />}
       </div>
     </div>
