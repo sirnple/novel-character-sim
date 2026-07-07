@@ -72,6 +72,7 @@ export default function WritingWorkspace({
   const [outlinePrompt, setOutlinePrompt] = useState<{ system: string; user: string } | null>(null);
   const [writerPrompt, setWriterPrompt] = useState<{ systemPrompt: string; userPrompt: string } | null>(null);
   const [review, setReview] = useState<ReviewReport | null>(null);
+  const [annotations, setAnnotations] = useState<import("@/core/codex/types").ProseAnnotation[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -390,8 +391,15 @@ export default function WritingWorkspace({
               switch (event.type) {
                 case "outline": setOutline(event.outline); if (event.prompt) setOutlinePrompt(event.prompt); updateTask(activeTaskId!, { outline: event.outline, outlinePrompt: event.prompt }); break;
                 case "prompt": setWriterPrompt({ systemPrompt: event.systemPrompt, userPrompt: event.userPrompt }); updateTask(activeTaskId!, { writerPrompt: { systemPrompt: event.systemPrompt, userPrompt: event.userPrompt } }); break;
-                case "prose": setOutputText(event.prose); updateTask(activeTaskId!, { output: event.prose, status: "completed", savedToNovel: false }); break;
+                case "prose": setOutputText(event.prose); break;
                 case "review": setReview(event.review); setShowReview(true); updateTask(activeTaskId!, { review: event.review }); break;
+                case "rewriting": setStatus("generating"); break;
+                case "final_prose":
+                  setOutputText(event.prose);
+                  setAnnotations(event.annotations || []);
+                  setStatus("completed");
+                  updateTask(activeTaskId!, { output: event.prose, status: "completed", savedToNovel: false });
+                  break;
                 case "scene_end": setStatus("completed"); onComplete?.(event.fullNovel); break;
                 case "error": setStatus("error"); setError(event.message); break;
               }
@@ -573,7 +581,8 @@ export default function WritingWorkspace({
               <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">小说正文</h3>
               {status === "completed" && !saved && <span className="text-[9px] text-orange-500/70 font-mono">有未保存内容</span>}
               {status === "completed" && saved && <span className="text-[9px] text-green-500/70 font-mono">已保存</span>}
-              {status === "generating" && <span className="text-[9px] text-orange-500/70 font-mono flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" />写作中...</span>}
+              {status === "generating" && outputText && <span className="text-[9px] text-orange-500/70 font-mono flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" />修正中...</span>}
+              {status === "generating" && !outputText && <span className="text-[9px] text-orange-500/70 font-mono flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" />写作中...</span>}
             </div>
             <div className="flex items-center gap-3">
               {status === "completed" && !saved && (
@@ -596,7 +605,7 @@ export default function WritingWorkspace({
               {outlinePrompt && <button onClick={() => setShowOutlinePrompt(!showOutlinePrompt)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showOutlinePrompt ? "text-neutral-300" : "text-neutral-500 hover:text-neutral-300"}`}>
                 <ScrollText className="w-3 h-3" />大纲Prompt</button>}
               {review && <button onClick={() => setShowReview(!showReview)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showReview ? "text-green-400" : "text-neutral-500 hover:text-green-400"}`}>
-                <Shield className="w-3 h-3" />审查 ({review.findings.length})</button>}
+                <Shield className="w-3 h-3" />审查详情 ({review.findings.length})</button>}
               {writerPrompt && <button onClick={() => setShowPrompt(!showPrompt)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showPrompt ? "text-neutral-300" : "text-neutral-500 hover:text-neutral-300"}`}>
                 <ScrollText className="w-3 h-3" />Writer Prompt</button>}
               <button onClick={handleCopy} className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300 font-mono">{copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}</button>
@@ -636,6 +645,53 @@ export default function WritingWorkspace({
                         {outputText}
                       </div>
                     </>
+                  )}
+
+                  {/* Annotation cards — show before/after for each review finding */}
+                  {annotations.length > 0 && !saved && (
+                    <div className="max-w-[800px] mx-auto mt-8 space-y-3">
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="flex-1 h-px bg-neutral-700/50" />
+                        <span className="text-xs text-neutral-500 font-mono shrink-0">审查修正 ({annotations.length} 处)</span>
+                        <div className="flex-1 h-px bg-neutral-700/50" />
+                      </div>
+                      {annotations.map((a) => (
+                        <div key={a.id} className={`p-3 rounded border text-xs ${
+                          a.finding.severity === "critical" ? "border-red-500/30 bg-red-500/5" :
+                          a.finding.severity === "major" ? "border-yellow-500/30 bg-yellow-500/5" :
+                          "border-neutral-700 bg-neutral-800/20"
+                        }`}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono uppercase ${
+                              a.finding.severity === "critical" ? "bg-red-500/20 text-red-300" :
+                              a.finding.severity === "major" ? "bg-yellow-500/20 text-yellow-300" :
+                              "bg-neutral-600/30 text-neutral-400"
+                            }`}>{a.finding.severity}</span>
+                            <span className="text-neutral-500">{a.finding.dimension}</span>
+                            {a.finding.autoFixable && <span className="text-green-500/70 ml-auto text-[9px] font-mono">已修正</span>}
+                            {!a.finding.autoFixable && <span className="text-orange-500/70 ml-auto text-[9px] font-mono">待人工确认</span>}
+                          </div>
+                          <p className="text-neutral-300 leading-relaxed mb-2">{a.finding.description}</p>
+                          {a.originalSnippet && (
+                            <div className="space-y-1.5">
+                              <div className="flex items-start gap-2">
+                                <span className="text-[9px] text-red-400 font-mono shrink-0 mt-0.5">问题</span>
+                                <span className="text-neutral-500 italic text-xs leading-relaxed">{a.originalSnippet}</span>
+                              </div>
+                              {a.fixedSnippet && (
+                                <div className="flex items-start gap-2">
+                                  <span className="text-[9px] text-green-400 font-mono shrink-0 mt-0.5">修正</span>
+                                  <span className="text-neutral-300 text-xs leading-relaxed">{a.fixedSnippet}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {a.finding.suggestion && (
+                            <p className="text-neutral-600 mt-2 text-xs leading-relaxed border-t border-neutral-700/50 pt-2">{a.finding.suggestion}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
 
                   {/* Loading spinner for generation in progress */}
