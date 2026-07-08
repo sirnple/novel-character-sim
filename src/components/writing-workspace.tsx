@@ -28,8 +28,8 @@ interface WritingTask {
   novelId: string;
   label: string;
   script: string;
-  continueFrom: string;
-  continueFromChapter: number;
+  continueFromOffset: number;
+  continueFromLabel: string;
   scene: SceneDefinition;
   output?: string;
   outline?: SceneOutline | null;
@@ -38,6 +38,7 @@ interface WritingTask {
   writerPrompt?: { systemPrompt: string; userPrompt: string } | null;
   status: "draft" | "writing" | "completed";
   savedToNovel?: boolean;
+  branchId?: string;
   createdAt: string;
 }
 
@@ -64,8 +65,14 @@ export default function WritingWorkspace({
   const activeTask = activeTaskId ? tasks.find(t => t.id === activeTaskId) : null;
 
   // --- Task creation ---
-  const [newTaskChapter, setNewTaskChapter] = useState<number>(() => Math.max(1, timeline?.chapters?.length || 1));
   const [newTaskLabel, setNewTaskLabel] = useState("");
+
+  // --- Continue point (click-to-continue in reader) ---
+  const [continuePoint, setContinuePoint] = useState<{
+    offset: number;
+    label: string;
+    contextPreview: string;
+  } | null>(null);
 
   // --- Transient ---
   const [status, setStatus] = useState<"idle" | "generating" | "completed" | "error">("idle");
@@ -245,42 +252,79 @@ export default function WritingWorkspace({
     []
   );
 
-  // --- Create task (step 1: pick chapter, step 2: jump to workspace) ---
-  const handleCreateTaskBasic = useCallback(() => {
-    const chapterTitle = timeline?.chapters?.[newTaskChapter - 1]?.title || `第${newTaskChapter}章`;
+  // --- Reader click handler: compute offset from click position ---
+  const handleReaderClick = (e: React.MouseEvent) => {
+    if (!initialFullNovel || status === "generating") return;
+    const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+    if (!range) return;
+    const readerEl = readerRef.current;
+    if (!readerEl) return;
+
+    let offset = 0;
+    const walker = document.createTreeWalker(readerEl, NodeFilter.SHOW_TEXT);
+    let node: Text | null;
+    while ((node = walker.nextNode() as Text | null)) {
+      if (node === range.startContainer) {
+        offset += range.startOffset;
+        break;
+      }
+      offset += node.textContent?.length || 0;
+    }
+
+    const contextStart = Math.max(0, offset - 100);
+    const contextEnd = Math.min(initialFullNovel.length, offset + 100);
+    const contextPreview = initialFullNovel.slice(contextStart, contextEnd);
+
+    // Derive chapter info from timeline
+    let chapterNum = 1;
+    if (timeline?.chapters) {
+      let cumulative = 0;
+      for (const ch of timeline.chapters) {
+        cumulative += (ch.events?.length || 0) * 200;
+        if (cumulative >= offset) break;
+        chapterNum++;
+      }
+    }
+
+    setContinuePoint({
+      offset,
+      label: `第${chapterNum}章 · 偏移${offset}字`,
+      contextPreview,
+    });
+  };
+
+  // --- Create task from click point ---
+  const handleCreateTaskFromPoint = useCallback(() => {
+    if (!continuePoint) return;
     const sc: SceneDefinition = {
       ...scene,
       location: scene.location || "",
       characterIds: characters.map(c => c.id),
     };
-    const label = newTaskLabel || `${chapterTitle}续写`;
-    // Empty script — user clicks 'AI 生成剧本' to fill it
-    const script = `# 写作剧本\n\n## 场景\n承接：${chapterTitle}末\n\n> 请点击"AI 生成剧本"按钮生成场景大纲，或手动编辑此剧本`;
-
     const task: WritingTask = {
       id: `task_${Date.now()}`,
       novelId,
-      label,
-      script,
-      continueFrom: `${chapterTitle}末`,
-      continueFromChapter: newTaskChapter,
+      label: newTaskLabel || continuePoint.label + "续写",
+      script: `# 写作剧本\n\n## 场景\n承接：${continuePoint.label}\n\n> 请点击"AI 生成剧本"按钮生成场景大纲`,
+      continueFromOffset: continuePoint.offset,
+      continueFromLabel: continuePoint.label,
       scene: sc,
       status: "draft",
       savedToNovel: false,
       createdAt: new Date().toISOString(),
     };
-
     const updated = [task, ...tasks];
     persistTasks(updated);
     setActiveTaskId(task.id);
-    setScriptText(script);
+    setScriptText(task.script);
     setOutputText("");
     setWriterPrompt(null);
     setReview(null);
     setAnnotations([]);
     setStatus("idle");
     setCreatingTask(false);
-  }, [timeline, newTaskChapter, newTaskLabel, scene, characters, buildScript, novelId, tasks, persistTasks]);
+    setContinuePoint(null);
+  }, [continuePoint, newTaskLabel, scene, characters, novelId, tasks, persistTasks]);
 
   // --- AI generate outline for existing task ---
   const handleGenerateOutline = useCallback(async () => {
@@ -298,8 +342,8 @@ export default function WritingWorkspace({
           scene: sc, writingStyle, outlineOnly: true,
           timelineEvents: (timeline?.chapters || []).flatMap(ch => (ch?.events || [])),
           lastChapterStates,
-          continueFromChapter: activeTask ? activeTask.continueFromChapter : 0,
-          continueFromLabel: activeTask ? activeTask.continueFrom : "当前内容",
+          continueFromOffset: activeTask ? activeTask.continueFromOffset : 0,
+          continueFromLabel: activeTask ? activeTask.continueFromLabel : "当前内容",
           authorNotes: activeTask?.script || "",
         }),
         signal: new AbortController().signal,
@@ -379,6 +423,8 @@ export default function WritingWorkspace({
           scene: taskScene, writingStyle,
           timelineEvents: (timeline?.chapters || []).flatMap(ch => (ch.events || [])),
           lastChapterStates,
+          continueFromOffset: activeTask?.continueFromOffset ?? 0,
+          continueFromLabel: activeTask?.continueFromLabel ?? "",
         }),
         signal: controller.signal,
       });
@@ -471,14 +517,25 @@ export default function WritingWorkspace({
                         {t.status === "completed" ? "已完成" : "草稿"}
                       </span>
                     </div>
-                    <div className="text-xs text-neutral-600 mt-0.5">承接：{t.continueFrom}</div>
+                    <div className="text-xs text-neutral-600 mt-0.5">承接：{t.continueFromLabel}</div>
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          <button onClick={() => setCreatingTask(true)}
+          <button onClick={() => {
+            const endOffset = initialFullNovel?.length || 0;
+            const contextStart = Math.max(0, endOffset - 100);
+            const contextPreview = (initialFullNovel || "").slice(contextStart, endOffset);
+            let chapterNum = timeline?.chapters?.length || 1;
+            setContinuePoint({
+              offset: endOffset,
+              label: `第${chapterNum}章 · 末尾`,
+              contextPreview,
+            });
+            setCreatingTask(true);
+          }}
             className="px-6 py-3 bg-orange-600 hover:bg-orange-500 text-white text-sm font-mono rounded-lg transition-colors inline-flex items-center gap-2">
             <Bot className="w-4 h-4" /> 新建写作任务
           </button>
@@ -487,36 +544,35 @@ export default function WritingWorkspace({
     );
   }
 
-  // ===== RENDER: Creating task dialog =====
-  if (creatingTask) {
-    const numChapters = timeline?.chapters?.length || 1;
+  // ===== RENDER: Creating task dialog (from click-to-continue) =====
+  if (creatingTask && continuePoint) {
     return (
       <div className="h-full flex items-center justify-center" style={{ height: "calc(100vh - 130px)" }}>
         <div className="max-w-md w-full bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-6">
           <h3 className="text-sm font-semibold text-neutral-300 font-mono mb-5">新建写作任务</h3>
           <div className="space-y-4">
             <div>
-              <label className="block text-xs text-neutral-500 font-mono mb-1">承接章节</label>
-              <select value={newTaskChapter} onChange={e => setNewTaskChapter(Number(e.target.value))}
-                className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono">
-                {Array.from({ length: numChapters }, (_, i) => {
-                  const ch = timeline?.chapters?.[i];
-                  return <option key={i + 1} value={i + 1}>
-                    第{i + 1}章{ch?.title ? ` ${ch.title}` : ""} {i + 1 === numChapters ? "（最新）" : ""}
-                  </option>;
-                })}
-              </select>
+              <div className="text-xs text-neutral-500 font-mono mb-0.5">续写点</div>
+              <div className="text-sm text-neutral-300 font-mono">{continuePoint.label}</div>
+            </div>
+            <div>
+              <div className="text-xs text-neutral-500 font-mono mb-1">上下文</div>
+              <div className="bg-neutral-800/30 rounded p-3 text-xs text-neutral-500 font-mono max-h-24 overflow-y-auto whitespace-pre-wrap">
+                ...{continuePoint.contextPreview.slice(0, 100)}...
+                <span className="text-orange-500 font-bold mx-0.5">|</span>
+                {continuePoint.contextPreview.slice(100)}...
+              </div>
             </div>
             <div>
               <label className="block text-xs text-neutral-500 font-mono mb-1">任务名称 <span className="text-neutral-700">（可选）</span></label>
               <input type="text" value={newTaskLabel} onChange={e => setNewTaskLabel(e.target.value)}
-                placeholder={timeline?.chapters?.[newTaskChapter - 1]?.title ? `${timeline.chapters[newTaskChapter - 1].title}续写` : "新续写场景"}
+                placeholder={continuePoint.label + "续写"}
                 className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono outline-none focus:border-orange-600/50" />
             </div>
             <div className="flex gap-3 pt-2">
               <button onClick={() => setCreatingTask(false)}
                 className="flex-1 py-2.5 text-sm text-neutral-500 hover:text-neutral-300 font-mono border border-neutral-700 rounded-lg transition-colors">取消</button>
-              <button onClick={handleCreateTaskBasic}
+              <button onClick={handleCreateTaskFromPoint}
                 className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors flex items-center justify-center gap-2">
                 创建任务
               </button>
@@ -537,7 +593,7 @@ export default function WritingWorkspace({
           <div className="flex-1">
             <input type="text" value={activeTask?.label || ""} onChange={e => updateTask(activeTaskId!, { label: e.target.value })}
               className="w-full bg-transparent border-0 text-sm text-neutral-200 font-mono outline-none placeholder-neutral-600" />
-            <div className="text-[10px] text-neutral-600 font-mono mt-0.5">承接：{activeTask?.continueFrom}  ·  第{activeTask?.continueFromChapter}章</div>
+            <div className="text-[10px] text-neutral-600 font-mono mt-0.5">承接：{activeTask?.continueFromLabel}  ·  偏移{activeTask?.continueFromOffset}字</div>
           </div>
         </div>
 
@@ -618,7 +674,7 @@ export default function WritingWorkspace({
           </div>
 
           {/* Reader body */}
-          <div ref={readerRef} className="flex-1 overflow-y-auto custom-scrollbar">
+          <div ref={readerRef} onClick={handleReaderClick} className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="p-6">
               {!initialFullNovel && !outputText && status !== "generating" ? (
                 <div className="flex items-center justify-center py-20">
@@ -635,6 +691,20 @@ export default function WritingWorkspace({
                   {initialFullNovel && (
                     <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif max-w-[800px] mx-auto">
                       {initialFullNovel}
+                    </div>
+                  )}
+
+                  {/* Continue point marker (click-to-continue) */}
+                  {continuePoint && !outputText && status !== "generating" && (
+                    <div className="max-w-[800px] mx-auto my-3 flex items-center gap-3">
+                      <div className="flex-1 h-px bg-orange-500/50" />
+                      <span className="text-[10px] text-orange-500 font-mono shrink-0">{continuePoint.label}</span>
+                      <button
+                        onClick={() => setCreatingTask(true)}
+                        className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-2 py-0.5 rounded font-mono transition-colors shrink-0"
+                      >
+                        从此处续写
+                      </button>
                     </div>
                   )}
 
