@@ -740,27 +740,27 @@ export default function WritingWorkspace({
               {/* Left: full original novel with continue marker */}
               <div ref={readerRef} onScroll={handleLeftScroll}
                 className="w-1/2 overflow-y-auto custom-scrollbar border-r border-neutral-700/50">
-                <div className="p-4">
-                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">原文</div>
+                <div className="p-4 pr-5">
+                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3 h-4">原文</div>
                   <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
                     {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
-                    <span ref={continueMarkerRef} className="inline-block w-full my-2 border-t-2 border-orange-500/60" />
-                    <span className="text-[10px] text-orange-500 font-mono">续写点</span>
-                    <span className="inline-block w-full mb-2 border-b-2 border-orange-500/60" />
+                    <span ref={continueMarkerRef} className="inline-block w-full h-0.5 my-3 bg-orange-500/60" />
+                    <span className="text-[10px] text-orange-500 font-mono">— 续写点 —</span>
+                    {"\n"}
                     {initialFullNovel?.slice(activeTask.continueFromOffset)}
                   </div>
                 </div>
               </div>
-              {/* Right: generated prose */}
+              {/* Right: original up to point + generated prose */}
               <div ref={rightPanelRef} onScroll={handleRightScroll}
                 className="w-1/2 overflow-y-auto custom-scrollbar">
-                <div className="p-4">
-                  <div className="text-[10px] text-green-500/70 font-mono uppercase mb-3">续写版本</div>
+                <div className="p-4 pr-5">
+                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3 h-4">续写版本</div>
                   <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
                     {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
-                    <span className="inline-block w-full my-2 border-t-2 border-green-500/60" />
-                    <span className="text-[10px] text-green-500 font-mono">续写</span>
-                    <span className="inline-block w-full mb-2 border-b-2 border-green-500/60" />
+                    <span className="inline-block w-full h-0.5 my-3 bg-orange-500/60" />
+                    <span className="text-[10px] text-orange-500 font-mono">— 续写点 —</span>
+                    {"\n"}
                     {outputText}
                   </div>
                   {annotations.length > 0 && !saved && (
