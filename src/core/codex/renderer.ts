@@ -285,7 +285,7 @@ ${summaries || "（暂无章节摘要）"}
 ### 最近前文
 ${nc.recentProse ? nc.recentProse.slice(-6000) : "（无前文——这是故事的开端）"}
 
-### 当前章节大纲
+### 续写大纲
 ${nc.currentOutline}`;
 }
 

@@ -9,18 +9,20 @@ import { isChinese } from "@/lib/utils";
 
 const OUTLINE_SCHEMA = {
   name: "chapter_outline",
-  description: "小说章节大纲，包含时间空间设定、焦点角色、情节点、伏笔和节奏",
+  description: "续写大纲，包含时间空间设定、焦点角色、情节点、伏笔、字数估算和章数规划",
   parameters: {
     type: "object",
     properties: {
-      chapterTitle: { type: "string", description: "章节标题（5-20字）" },
-      chapterGoal: { type: "string", description: "章节目标：这一章要达成什么（1-2句话）" },
-      timeSpan: { type: "string", description: "本章时间跨度（例如：紧接前章、三日后、半月后、三年后）" },
+      chapterTitle: { type: "string", description: "续写标题（5-20字）" },
+      chapterGoal: { type: "string", description: "续写目标：这次续写要达成什么（1-2句话）" },
+      estimatedWordCount: { type: "number", description: "预计续写字数（建议 2000-8000 字）" },
+      estimatedChapters: { type: "number", description: "预计续写章数（建议 1-3 章）" },
+      timeSpan: { type: "string", description: "时间跨度（例如：紧接前文、三日后、半月后、三年后）" },
       seasonAndTime: { type: "string", description: "季节与昼夜特征（例如：深秋的黄昏、盛夏的正午、冬夜的凌晨）" },
       locations: {
         type: "array",
         items: { type: "string" },
-        description: "本章涉及的地点（例如：城东旧茶馆、荒野古战场、韩立洞府）",
+        description: "涉及的地点（例如：城东旧茶馆、荒野古战场、韩立洞府）",
       },
       focusCharacters: {
         type: "array",
@@ -205,7 +207,11 @@ ${authorText}
 
 一个完整的续写大纲，必须明确以下信息：
 
-### 1. 时间
+### 1. 篇幅规划
+- 预计续写字数（根据前文长度和情节需要，建议2000-8000字）
+- 预计分为几章（建议1-3章，如果情节跨度较大可适当增加）
+
+### 2. 时间
 本次续写发生在什么时间？紧接前文还是跳跃了几天/几个月/几年？什么季节？白天还是夜晚？
 时间影响角色行为、情绪和可用的场景元素。
 
@@ -276,7 +282,11 @@ ${authorText}
   const userPrompt = zh
     ? `请为续写设计场景大纲。续写起点：${continueFromLabel}
 
-**1) 时间与空间**
+**1) 篇幅规划**
+- 预计续写字数（建议2000-8000字）
+- 预计分为几章（建议1-3章）
+
+**2) 时间与空间**
 - 时间跨度（紧接前文 / 数日后 / 数月后 / 数年后？）
 - 季节与昼夜特征
 - 具体地点列表（至少 1-2 个）
