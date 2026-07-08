@@ -225,6 +225,7 @@ export class SimulationEngine {
       let annotations: ProseAnnotation[] = [];
 
       // --- Post-writing review ---
+      console.log(`[Engine] Review gate: runReview=${this.runReview}, codex=${this.codex ? "present" : "null"}`);
       if (this.runReview && this.codex) {
         try {
           const chapterNumber = (this.state.rounds?.length || 0) + 1;
@@ -282,6 +283,8 @@ export class SimulationEngine {
         } catch (e) {
           console.warn("[Engine] Review failed, continuing:", e);
         }
+      } else {
+        console.log("[Engine] Review SKIPPED — runReview=false or codex is null");
       }
 
       // Always emit final_prose — with or without review

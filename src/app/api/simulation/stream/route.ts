@@ -95,8 +95,9 @@ export async function POST(request: NextRequest) {
     if (novelId) {
       saveCodex(novelId, codex);
     }
+    console.log(`[StreamRoute] Codex built: characters=${codex.characterDossiers?.profiles?.length || 0}, chapters=${codex.narrativeContext?.chapterSummaries?.length || 0}, worldRules=${codex.worldBible?.rules?.length || 0}`);
   } catch (e) {
-    console.warn("Codex build failed, falling back to legacy prompt:", e);
+    console.warn("[StreamRoute] Codex build failed, falling back to legacy prompt:", e);
   }
 
   const encoder = new TextEncoder();
