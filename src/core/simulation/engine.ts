@@ -158,8 +158,19 @@ export class SimulationEngine {
       let outline: SceneOutline | null = null;
       if (!isFreeMode) {
         if (existingOutline) {
-          outline = null as SceneOutline | null;
+          outline = existingOutline;
           this.onEvent({ type: "outline", outline: existingOutline });
+          // Emit agent event for cached outline
+          this.onEvent({ type: "agent", agentId: "outline", name: "大纲", status: "running" });
+          this.onEvent({
+            type: "agent",
+            agentId: "outline",
+            name: "大纲",
+            status: "done",
+            messages: [
+              { role: "assistant" as const, content: JSON.stringify(existingOutline) },
+            ],
+          });
         } else {
           try {
             this.onEvent({ type: "agent", agentId: "outline", name: "大纲", status: "running" });
