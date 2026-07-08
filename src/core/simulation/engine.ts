@@ -215,6 +215,23 @@ export class SimulationEngine {
           ct.targetCharacters = outline.focusCharacters.map(fc => fc.name);
         }
         ct.stakes = outline.chapterEnding || outline.sceneEnding || ct.stakes;
+
+        // Build outline display text
+        const beats = outline.beats || outline.plotPoints || [];
+        const beatsText = beats.map((b: any) =>
+          `  节拍${b.beatNumber || b.sequence}：${b.description} [出场：${(b.activeCharacters || b.involvedCharacters || []).join("、")}] [氛围：${b.mood || ""}]`
+        ).join("\n");
+        const chars = (outline.focusCharacters || []).map((fc: any) => `- ${fc.name}：${fc.reason || ""}`).join("\n");
+        this.codex.narrativeContext.currentOutline = [
+          `续写目标：${ct.sceneGoal}`,
+          `情感弧线：${ct.storyBeat}`,
+          `节奏：${ct.pacing}`,
+          `收尾：${ct.stakes}`,
+          outline.estimatedWordCount ? `预计字数：${outline.estimatedWordCount} 字` : "",
+          outline.estimatedChapters ? `预计章数：${outline.estimatedChapters} 章` : "",
+          chars ? `\n焦点角色：\n${chars}` : "",
+          beatsText ? `\n情节点：\n${beatsText}` : "",
+        ].filter(Boolean).join("\n");
       }
 
       // --- Build prompt ---

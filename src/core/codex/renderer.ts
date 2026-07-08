@@ -158,7 +158,17 @@ ${segments.join("\n\n---\n\n")}
     ? `\n故事节点: ${storyBeat}${storyBeat === "高潮" ? "（这是场景张力最高的时刻，必须用最强的感官细节和最紧凑的节奏来写）" : storyBeat === "收尾" ? "（场景的尾声，留余韵而非总结，用画面或行动收束）" : storyBeat === "铺垫" ? "（为后续发展埋下线索，注意与伏笔账本对照）" : ""}`
     : "";
 
-  const userContext = `请撰写以下场景的小说正文。
+  const outlineText = codex.narrativeContext.currentOutline || "";
+  const userContext = outlineText && !outlineText.startsWith("场景:")
+    ? `请根据以下续写大纲撰写小说正文。
+
+${outlineText}
+
+${characters ? `出场角色: ${characters}` : ""}
+节奏要求: ${pacingGuidance}
+
+请直接输出小说叙事文字。不要输出JSON、不要用代码块包裹、不要添加任何解释或元评论。从场景的第一个词开始写。`
+    : `请撰写以下场景的小说正文。
 
 场景: ${codex.currentTask.sceneLocation}
 时间: ${codex.currentTask.sceneTimeOfDay}

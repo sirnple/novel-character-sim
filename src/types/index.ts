@@ -226,6 +226,8 @@ export interface SceneOutline {
   chapterTitle?: string;
   sceneGoal?: string;
   chapterGoal?: string;
+  estimatedWordCount?: number;
+  estimatedChapters?: number;
   timeSpan?: string;
   seasonAndTime?: string;
   locations?: string[];
