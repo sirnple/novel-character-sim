@@ -123,6 +123,17 @@ export default function WritingWorkspace({
     left.scrollTop = ratio * (left.scrollHeight - left.clientHeight);
   };
 
+  // Auto-scroll left panel to continuation point when comparison view opens
+  useEffect(() => {
+    if (status === "completed" && activeTask?.continueFromOffset != null && initialFullNovel && readerRef.current) {
+      const ratio = (activeTask.continueFromOffset) / initialFullNovel.length;
+      const left = readerRef.current;
+      requestAnimationFrame(() => {
+        left.scrollTop = ratio * (left.scrollHeight - left.clientHeight);
+      });
+    }
+  }, [status, activeTask?.continueFromOffset, initialFullNovel]);
+
   const persistTasks = useCallback((updated: WritingTask[]) => {
     setTasks(updated);
     localStorage.setItem(TASKS_KEY, JSON.stringify(updated));
@@ -731,21 +742,17 @@ export default function WritingWorkspace({
           {/* Reader body */}
           {status === "completed" && activeTask?.continueFromOffset != null ? (
             <div className="flex flex-1 overflow-hidden">
-              {/* Left: original context around continue point */}
+              {/* Left: full original novel with continue marker */}
               <div ref={readerRef} onScroll={handleLeftScroll}
                 className="w-1/2 overflow-y-auto custom-scrollbar border-r border-neutral-700/50">
                 <div className="p-4">
-                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">续写点上下文</div>
+                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">原文</div>
                   <div className="text-sm text-neutral-400 leading-relaxed whitespace-pre-wrap font-serif">
-                    {initialFullNovel?.slice(Math.max(0, (activeTask?.continueFromOffset || 0) - 500), activeTask?.continueFromOffset || 0)}
-                  </div>
-                  <div className="my-3 flex items-center gap-2">
-                    <div className="flex-1 h-px bg-orange-500/50" />
-                    <span className="text-[10px] text-orange-500 font-mono shrink-0">续写点</span>
-                    <div className="flex-1 h-px bg-orange-500/50" />
-                  </div>
-                  <div className="text-sm text-neutral-600 leading-relaxed whitespace-pre-wrap font-serif">
-                    {initialFullNovel?.slice(activeTask?.continueFromOffset || 0, (activeTask?.continueFromOffset || 0) + 500)}
+                    {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
+                    <span className="inline-block w-full my-2 border-t-2 border-orange-500/60" />
+                    <span className="text-[10px] text-orange-500 font-mono">续写点</span>
+                    <span className="inline-block w-full mb-2 border-b-2 border-orange-500/60" />
+                    {initialFullNovel?.slice(activeTask.continueFromOffset)}
                   </div>
                 </div>
               </div>
