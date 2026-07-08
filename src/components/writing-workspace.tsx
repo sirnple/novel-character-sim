@@ -42,6 +42,7 @@ interface WritingTask {
   status: "draft" | "writing" | "completed";
   savedToNovel?: boolean;
   branchId?: string;
+  allowAdult?: boolean;
   createdAt: string;
 }
 
@@ -388,6 +389,7 @@ export default function WritingWorkspace({
           lastChapterStates,
           continueFromOffset: activeTask ? activeTask.continueFromOffset : 0,
           continueFromLabel: activeTask ? activeTask.continueFromLabel : "当前内容",
+          allowAdult: activeTask?.allowAdult || false,
           authorNotes: activeTask?.script || "",
         }),
         signal: new AbortController().signal,
@@ -470,6 +472,7 @@ export default function WritingWorkspace({
           lastChapterStates,
           continueFromOffset: activeTask?.continueFromOffset ?? 0,
           continueFromLabel: activeTask?.continueFromLabel ?? "",
+          allowAdult: activeTask?.allowAdult || false,
         }),
         signal: controller.signal,
       });
@@ -663,7 +666,15 @@ export default function WritingWorkspace({
           <div className="flex-1">
             <input type="text" value={activeTask?.label || ""} onChange={e => updateTask(activeTaskId!, { label: e.target.value })}
               className="w-full bg-transparent border-0 text-sm text-neutral-200 font-mono outline-none placeholder-neutral-600" />
-            <div className="text-[10px] text-neutral-600 font-mono mt-0.5">承接：{activeTask?.continueFromLabel}  ·  偏移{activeTask?.continueFromOffset}字</div>
+            <div className="text-[10px] text-neutral-600 font-mono mt-0.5 flex items-center gap-3">
+              <span>承接：{activeTask?.continueFromLabel}  ·  偏移{activeTask?.continueFromOffset}字</span>
+              <label className="flex items-center gap-1 cursor-pointer" title="允许生成成人内容">
+                <input type="checkbox" checked={activeTask?.allowAdult || false}
+                  onChange={e => updateTask(activeTaskId!, { allowAdult: e.target.checked })}
+                  className="w-3 h-3 accent-red-500" />
+                <span className={activeTask?.allowAdult ? "text-red-400" : "text-neutral-600"}>成人</span>
+              </label>
+            </div>
           </div>
         </div>
 
