@@ -107,32 +107,27 @@ export default function WritingWorkspace({
 
   const handleLeftScroll = () => {
     if (!readerRef.current || !rightPanelRef.current) return;
-    const left = readerRef.current;
-    const right = rightPanelRef.current;
-    if (left.scrollHeight <= left.clientHeight) return;
-    const ratio = left.scrollTop / (left.scrollHeight - left.clientHeight);
-    right.scrollTop = ratio * (right.scrollHeight - right.clientHeight);
+    rightPanelRef.current.scrollTop = readerRef.current.scrollTop;
   };
 
   const handleRightScroll = () => {
     if (!readerRef.current || !rightPanelRef.current) return;
-    const left = readerRef.current;
-    const right = rightPanelRef.current;
-    if (right.scrollHeight <= right.clientHeight) return;
-    const ratio = right.scrollTop / (right.scrollHeight - right.clientHeight);
-    left.scrollTop = ratio * (left.scrollHeight - left.clientHeight);
+    readerRef.current.scrollTop = rightPanelRef.current.scrollTop;
   };
 
-  // Auto-scroll left panel to continuation point when comparison view opens
+  // Auto-scroll both panels so continue point is at top when comparison opens
+  const continueMarkerRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
-    if (status === "completed" && activeTask?.continueFromOffset != null && initialFullNovel && readerRef.current) {
-      const ratio = (activeTask.continueFromOffset) / initialFullNovel.length;
-      const left = readerRef.current;
+    if (status === "completed" && activeTask?.continueFromOffset != null && continueMarkerRef.current) {
       requestAnimationFrame(() => {
-        left.scrollTop = ratio * (left.scrollHeight - left.clientHeight);
+        continueMarkerRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+        // Mirror to right panel
+        if (readerRef.current && rightPanelRef.current) {
+          rightPanelRef.current.scrollTop = readerRef.current.scrollTop;
+        }
       });
     }
-  }, [status, activeTask?.continueFromOffset, initialFullNovel]);
+  }, [status, activeTask?.continueFromOffset]);
 
   const persistTasks = useCallback((updated: WritingTask[]) => {
     setTasks(updated);
@@ -749,7 +744,7 @@ export default function WritingWorkspace({
                   <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">原文</div>
                   <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
                     {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
-                    <span className="inline-block w-full my-2 border-t-2 border-orange-500/60" />
+                    <span ref={continueMarkerRef} className="inline-block w-full my-2 border-t-2 border-orange-500/60" />
                     <span className="text-[10px] text-orange-500 font-mono">续写点</span>
                     <span className="inline-block w-full mb-2 border-b-2 border-orange-500/60" />
                     {initialFullNovel?.slice(activeTask.continueFromOffset)}
