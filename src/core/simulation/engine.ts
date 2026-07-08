@@ -255,7 +255,7 @@ export class SimulationEngine {
             chapterNumber,
             sharedSystemPrompt,
           });
-          debugLog("Engine", `Review done: ${review.findings.length} findings, ${review.autoFixedCount} auto-fixed, ${review.needsHumanReview.length} need review`);
+          debugLog("Engine", `Review done: ${review.findings.length} findings, ${review.needsHumanReview.length} need human review`);
           this.onEvent({ type: "review", review });
 
           if (review.needsHumanReview.length > 0) {
@@ -266,9 +266,9 @@ export class SimulationEngine {
           }
 
           // --- Rewrite with findings ---
-          const autoFixable = review.findings.filter(f => f.autoFixable);
-          if (autoFixable.length > 0) {
-            debugLog("Engine", `Rewrite starting: ${autoFixable.length} auto-fixable findings`);
+          const hasFindings = review.findings.length > 0;
+          if (hasFindings) {
+            debugLog("Engine", `Rewrite starting: ${review.findings.length} findings`);
             this.onEvent({ type: "rewriting", status: "rewriting" });
             try {
               const corrected = await rewriteProse(prose, review.findings, this.codex);

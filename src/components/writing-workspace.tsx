@@ -761,7 +761,6 @@ export default function WritingWorkspace({
                           <div className="flex items-center gap-2 mb-1">
                             <span className="px-1 py-0.5 rounded text-[8px] font-mono uppercase bg-neutral-600/30 text-neutral-400">{a.finding.severity}</span>
                             <span className="text-neutral-500 text-[10px]">{a.finding.dimension}</span>
-                            {a.finding.autoFixable && <span className="text-green-500/70 ml-auto text-[9px] font-mono">已修正</span>}
                           </div>
                           <p className="text-neutral-400 text-[11px] leading-relaxed">{a.finding.description}</p>
                         </div>
@@ -855,8 +854,6 @@ export default function WritingWorkspace({
                               "bg-neutral-600/30 text-neutral-400"
                             }`}>{a.finding.severity}</span>
                             <span className="text-neutral-500">{a.finding.dimension}</span>
-                            {a.finding.autoFixable && <span className="text-green-500/70 ml-auto text-[9px] font-mono">已修正</span>}
-                            {!a.finding.autoFixable && <span className="text-orange-500/70 ml-auto text-[9px] font-mono">待人工确认</span>}
                           </div>
                           <p className="text-neutral-300 leading-relaxed mb-2">{a.finding.description}</p>
                           {a.originalSnippet && (
@@ -966,7 +963,7 @@ function ReviewSection({ review }: { review: ReviewReport }) {
       <div className="flex items-center gap-2 mb-4 max-w-[800px] mx-auto">
         <Shield className="w-4 h-4 text-green-500" />
         <h4 className="text-xs font-semibold text-neutral-400 font-mono uppercase tracking-widest">审查报告</h4>
-        <span className="text-[10px] text-green-500/80 font-mono">{review.autoFixedCount} 自动修正</span>
+        <span className="text-[10px] text-green-500/80 font-mono">{review.findings.length} 个发现</span>
         <span className="text-[10px] text-orange-500/80 font-mono">{review.needsHumanReview.length} 待确认</span>
       </div>
       <div className="space-y-2 max-w-[800px] mx-auto">
@@ -976,7 +973,6 @@ function ReviewSection({ review }: { review: ReviewReport }) {
               <div className="flex items-center gap-2 mb-1">
                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono uppercase ${f.severity === "critical" ? "bg-red-500/20 text-red-300" : f.severity === "major" ? "bg-yellow-500/20 text-yellow-300" : "bg-neutral-600/30 text-neutral-400"}`}>{f.severity}</span>
                 <span className="text-neutral-500">{f.dimension}</span>
-                {f.autoFixable && <span className="text-green-500/70 ml-auto text-[9px] font-mono">AUTO-FIXED</span>}
               </div>
               <p className="text-neutral-300 leading-relaxed">{f.description}</p>
               {f.suggestion && <p className="text-neutral-500 mt-1 leading-relaxed">{f.suggestion}</p>}

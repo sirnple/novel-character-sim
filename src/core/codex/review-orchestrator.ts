@@ -123,8 +123,6 @@ const REVIEW_SCHEMA = {
             description: { type: "string" as const },
             suggestion: { type: "string" as const },
             snippet: { type: "string" as const },
-            autoFixable: { type: "boolean" as const },
-            fixedText: { type: "string" as const },
           },
           required: ["severity", "description", "suggestion"],
         },
@@ -168,14 +166,10 @@ export async function runFullReview(input: ReviewInput): Promise<ReviewReport> {
     if (result.chapterSummary && !chapterSummary) chapterSummary = result.chapterSummary;
   }
 
-  const autoFixed = allFindings.filter(f => f.autoFixable);
-  const needsHuman = allFindings.filter(
-    f => !f.autoFixable && (f.severity === "critical" || f.severity === "major")
-  );
+  const needsHuman = allFindings.filter(f => f.severity === "critical");
 
   return {
     findings: allFindings,
-    autoFixedCount: autoFixed.length,
     needsHumanReview: needsHuman,
     updatedStates,
     newForeshadowing: newForeshadowingList,
@@ -315,8 +309,6 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: !!f.snippet && !!f.suggestion,
-      fixedText: f.fixedText,
     })),
   };
 }
@@ -352,8 +344,7 @@ async function reviewContinuity(
 
 ## 审查标准示例
 ### 正确 finding 示例
-{"findings":[{"severity":"critical","location":"第5段","description":"林震南在此场景中出现并与主角说话，但他在第12章已被确认死亡。","suggestion":"移除林震南，改用其他在世角色传达此信息，或将其改为回忆/闪回场景","snippet":"林震南从门外走进来，笑道：\"好久不见。\"","autoFixable":false}]}
-{"findings":[{"severity":"major","location":"开头","description":"生成文字以'# 第一章 灵界·风元大陆·青元宫'开头，但前文刚写到海大少舍身救南宫婉，此处突然跳到新的章节标题和完全不同的场景，与前文严重断裂。","suggestion":"删除章节标题，让文字从紧接前文结尾处自然延续，保持叙事连贯性","snippet":"# 第一章 灵界·风元大陆·青元宫","autoFixable":false}]}
+{"findings":[{"severity":"critical","location":"第5段","description":"林震南在此场景中出现并与主角说话，但他在第12章已被确认死亡。","suggestion":"移除林震南，改用其他在世角色传达此信息，或将其改为回忆/闪回场景","snippet":"林震南从门外走进来，笑道：\"好久不见。\"","snippet":"","suggestion":""}]}
 
 ### 错误 finding 示例（不要报）
 不报：客栈布局中院子在左侧但上一章说是右侧的细节不一致。
@@ -425,8 +416,6 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: !!f.snippet && !!f.suggestion,
-      fixedText: f.fixedText,
     })),
   };
 }
@@ -679,8 +668,6 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: !!f.snippet && !!f.suggestion,
-      fixedText: f.fixedText,
     })),
   };
 }
@@ -784,8 +771,6 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: !!f.snippet && !!f.suggestion,
-      fixedText: f.fixedText,
     })),
   };
 }
@@ -883,8 +868,6 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: !!f.snippet && !!f.suggestion,
-      fixedText: f.fixedText,
     })),
   };
 }
@@ -898,17 +881,15 @@ export async function rewriteProse(
   findings: ReviewFinding[],
   _codex: WritersCodex
 ): Promise<string> {
-  const autoFixable = findings.filter(f => f.autoFixable && f.snippet && f.suggestion);
-
-  if (autoFixable.length === 0) {
+  if (findings.length === 0) {
     return originalProse;
   }
 
   const llm = createLLMProvider();
   const zh = isChinese(originalProse);
 
-  const findingsText = autoFixable.map((f, i) =>
-    `${i + 1}. [${f.dimension}] ${f.description}\n   问题片段: "${f.snippet}"\n   修改建议: ${f.suggestion}${f.fixedText ? `\n   建议修改为: "${f.fixedText}"` : ""}`
+  const findingsText = findings.map((f, i) =>
+    `${i + 1}. [${f.dimension}][${f.severity}] ${f.description}\n   ${f.snippet ? `问题片段: "${f.snippet}"\n   ` : ""}修改建议: ${f.suggestion}`
   ).join("\n\n");
 
   const prompt = zh
@@ -958,6 +939,6 @@ export function generateAnnotations(
     id: Math.random().toString(36).slice(2, 10),
     finding: f,
     originalSnippet: f.snippet || "",
-    fixedSnippet: f.fixedText || "",
+    fixedSnippet: "",
   }));
 }

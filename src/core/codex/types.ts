@@ -144,13 +144,10 @@ export interface ReviewFinding {
   description: string;
   suggestion: string;
   snippet?: string;
-  autoFixable: boolean;
-  fixedText?: string;
 }
 
 export interface ReviewReport {
   findings: ReviewFinding[];
-  autoFixedCount: number;
   needsHumanReview: ReviewFinding[];
   updatedStates: Partial<CharacterStateSnapshot>[];
   newForeshadowing: ForeshadowingEntry[];

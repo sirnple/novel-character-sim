@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       category: "review",
       label: "六维审查",
       inputSummary: draft.slice(0, 200),
-      outputPreview: `autoFixed:${result.autoFixedCount}, needsHuman:${result.needsHumanReview.length}`,
+      outputPreview: `findings:${result.findings.length}, needsHuman:${result.needsHumanReview.length}`,
       fullOutput: JSON.stringify(result),
     });
     return NextResponse.json(result);
