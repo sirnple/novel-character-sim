@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendNovelContent, getNovel } from "@/lib/db";
+import { appendNovelContent, getNovel, appendBranchContent, getBranch, saveBranch } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
-import type { ChapterTimeline } from "@/types";
 
 export async function POST(request: NextRequest) {
   const userId = getUserId(request);
@@ -11,17 +10,29 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { novelId, content, chapterNumber, chapterTitle } = await request.json();
+    const { novelId, content, branchId, branchName, parentOffset } = await request.json();
     if (!novelId || !content) {
       return NextResponse.json({ error: "novelId and content are required" }, { status: 400 });
     }
 
-    // Append generated prose to the novel text
+    // Branch save
+    if (branchId || branchName) {
+      if (branchId) {
+        // Append to existing branch
+        appendBranchContent(userId, branchId, content);
+        const updated = getBranch(userId, branchId);
+        return NextResponse.json({ success: true, fullText: updated?.text || "", branch: updated });
+      }
+      // Create new branch
+      const id = `branch_${Date.now()}`;
+      saveBranch(userId, id, novelId, branchName, parentOffset || 0, content);
+      const created = getBranch(userId, id);
+      return NextResponse.json({ success: true, fullText: created?.text || "", branch: created });
+    }
+
+    // Main text save (existing behavior)
     appendNovelContent(userId, novelId, content);
-
-    // Return the updated full text so the client can refresh its reader
     const updated = getNovel(userId, novelId);
-
     return NextResponse.json({ success: true, fullText: updated?.text || "" });
   } catch (error) {
     console.error("Writer save error:", error);

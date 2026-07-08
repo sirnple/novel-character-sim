@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
     outlineOnly,
     timelineEvents,
     lastChapterStates: rawLastChapterStates,
+    continueFromOffset,
   }: {
     novelTitle: string;
     novelId?: string;
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
     outlineOnly?: boolean;
     timelineEvents?: TimelineEvent[];
     lastChapterStates?: CharacterChapterState[];
+    continueFromOffset?: number;
   } = body;
 
   if (!characters?.length || !scene) {
@@ -118,7 +120,8 @@ export async function POST(request: NextRequest) {
         timelineContext,
         lastChapterStatesStr,
         codex,
-        !outlineOnly  // runReview = false when outlineOnly
+        !outlineOnly,  // runReview = false when outlineOnly
+        continueFromOffset ? dbNovelText.slice(0, continueFromOffset) : undefined
       );
 
       try {
@@ -147,7 +150,7 @@ export async function POST(request: NextRequest) {
               characters: allChars,
               continueFromChapter: continueFromChapter,
               continueFromLabel: continueFromLabel,
-              previousProse: "",
+              previousProse: continueFromOffset ? dbNovelText.slice(0, continueFromOffset) : "",
               chapterSummaries,
               activeForeshadowing: (codex?.foreshadowingLedger?.active as any) || [],
               worldBible: dbStoryInfo?.worldSetting || undefined,

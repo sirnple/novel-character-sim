@@ -19,6 +19,8 @@ interface WritingWorkspaceProps {
   timeline?: ChapterTimeline | null;
   lastChapterStates?: CharacterChapterState[];
   storyInfo?: import("@/types").StoryInfo | null;
+  branches?: import("@/types").Branch[];
+  onBranchesChange?: (branches: import("@/types").Branch[]) => void;
 }
 
 interface WritingTask {
@@ -50,6 +52,7 @@ export default function WritingWorkspace({
   onSceneChange, onBack, onComplete, initialFullNovel,
   onNovelSaved,
   timeline, lastChapterStates, storyInfo,
+  branches, onBranchesChange,
 }: WritingWorkspaceProps) {
   // --- Persisted tasks ---
   const [tasks, setTasks] = useState<WritingTask[]>(() => {

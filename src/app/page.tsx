@@ -63,6 +63,7 @@ export default function Home() {
   const [timeline, setTimeline] = useState<ChapterTimeline | null>(null);
   const [lastChapterStates, setLastChapterStates] = useState<CharacterChapterState[]>([]);
   const [savedNovels, setSavedNovels] = useState<SavedNovel[]>([]);
+  const [branches, setBranches] = useState<import("@/types").Branch[]>([]);
 
   // UI state
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("overview");
@@ -148,6 +149,9 @@ export default function Home() {
       if (data.timeline) setTimeline(data.timeline);
       if (data.lastChapterStates) setLastChapterStates(data.lastChapterStates);
       if (data.characters?.length) setCharacters(data.characters);
+      fetch(`/api/branches?novelId=${id}`).then(r => r.json()).then(d => {
+        if (d.branches) setBranches(d.branches);
+      }).catch(() => {});
       setWorkspaceView("overview");
       setShowUpload(false);
     }
@@ -742,6 +746,8 @@ export default function Home() {
                     onNovelSaved={handleNovelSaved}
                     timeline={timeline}
                     lastChapterStates={lastChapterStates}
+                    branches={branches}
+                    onBranchesChange={setBranches}
                   />
                 </div>
               )}

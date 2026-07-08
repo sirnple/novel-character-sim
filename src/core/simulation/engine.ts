@@ -115,7 +115,8 @@ export class SimulationEngine {
     timelineContext?: string,
     lastChapterStates?: string,
     codex?: WritersCodex | null,
-    runReview = true
+    runReview = true,
+    initialProse?: string
   ) {
     this.writingStyle = writingStyle;
     this.onEvent = onEvent;
@@ -130,7 +131,7 @@ export class SimulationEngine {
       characters,
       scene,
       rounds: [],
-      fullNovelOutput: "",
+      fullNovelOutput: initialProse || "",
       createdAt: new Date().toISOString(),
     };
   }
