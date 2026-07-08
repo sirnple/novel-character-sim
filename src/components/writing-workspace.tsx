@@ -796,21 +796,34 @@ export default function WritingWorkspace({
                   {/* Full novel text (read-only, scrollable) */}
                   {initialFullNovel && (
                     <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif max-w-[800px] mx-auto">
-                      {initialFullNovel}
+                      {continuePoint && !outputText && status !== "generating" ? (
+                        <>
+                          {initialFullNovel.slice(0, continuePoint.offset)}
+                          <span className="inline-flex items-center gap-1 mx-1 align-middle">
+                            <span className="inline-block w-2 h-4 bg-orange-500 animate-pulse rounded-sm" />
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCreatingTask(true);
+                              }}
+                              className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-1.5 py-0.5 rounded font-mono transition-colors"
+                            >
+                              续写
+                            </button>
+                          </span>
+                          {initialFullNovel.slice(continuePoint.offset)}
+                        </>
+                      ) : (
+                        initialFullNovel
+                      )}
                     </div>
                   )}
 
-                  {/* Continue point marker (click-to-continue) */}
+                  {/* Continue point label + cancel */}
                   {continuePoint && !outputText && status !== "generating" && (
-                    <div className="max-w-[800px] mx-auto my-3 flex items-center gap-3">
-                      <div className="flex-1 h-px bg-orange-500/50" />
-                      <span className="text-[10px] text-orange-500 font-mono shrink-0">{continuePoint.label}</span>
-                      <button
-                        onClick={() => setCreatingTask(true)}
-                        className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-2 py-0.5 rounded font-mono transition-colors shrink-0"
-                      >
-                        从此处续写
-                      </button>
+                    <div className="max-w-[800px] mx-auto mt-2 flex items-center gap-2 text-[10px] text-orange-500 font-mono">
+                      <span>{continuePoint.label}</span>
+                      <button onClick={() => setContinuePoint(null)} className="text-neutral-600 hover:text-neutral-400">取消</button>
                     </div>
                   )}
 

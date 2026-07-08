@@ -777,20 +777,32 @@ export default function Home() {
                   <div className="max-w-[800px] mx-auto p-6">
                     <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider mb-4">阅读</h2>
                     <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
-                      {novelText}
+                      {readerContinueOffset != null ? (
+                        <>
+                          {novelText.slice(0, readerContinueOffset)}
+                          <span className="inline-flex items-center gap-1 mx-1 align-middle">
+                            <span className="inline-block w-2 h-4 bg-orange-500 animate-pulse rounded-sm" />
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setWorkspaceView("write");
+                              }}
+                              className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-1.5 py-0.5 rounded font-mono transition-colors"
+                            >
+                              续写
+                            </button>
+                          </span>
+                          {novelText.slice(readerContinueOffset)}
+                        </>
+                      ) : (
+                        novelText
+                      )}
                     </div>
                     {readerContinueOffset != null && (
-                      <div className="max-w-[800px] mx-auto my-3 flex items-center gap-3">
-                        <div className="flex-1 h-px bg-orange-500/50" />
-                        <span className="text-[10px] text-orange-500 font-mono shrink-0">{readerContinueLabel}</span>
-                        <button
-                          onClick={() => {
-                            setWorkspaceView("write");
-                          }}
-                          className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-2 py-0.5 rounded font-mono transition-colors shrink-0"
-                        >
-                          从此处续写
-                        </button>
+                      <div className="mt-3 flex items-center gap-2 text-[10px] text-orange-500 font-mono">
+                        <span>{readerContinueLabel}</span>
+                        <button onClick={() => { setReaderContinueOffset(null); setReaderContinueLabel(""); }}
+                          className="text-neutral-600 hover:text-neutral-400">取消</button>
                       </div>
                     )}
                   </div>
