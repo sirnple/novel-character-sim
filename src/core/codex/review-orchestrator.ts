@@ -168,7 +168,7 @@ export async function runFullReview(input: ReviewInput): Promise<ReviewReport> {
     if (result.chapterSummary && !chapterSummary) chapterSummary = result.chapterSummary;
   }
 
-  const autoFixed = allFindings.filter(f => f.autoFixable && f.fixedText && f.snippet);
+  const autoFixed = allFindings.filter(f => f.autoFixable);
   const needsHuman = allFindings.filter(
     f => !f.autoFixable && (f.severity === "critical" || f.severity === "major")
   );
@@ -315,7 +315,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: !!f.fixedText,
+      autoFixable: !!f.snippet && !!f.suggestion,
       fixedText: f.fixedText,
     })),
   };
@@ -348,10 +348,12 @@ async function reviewContinuity(
 4. 时间线是否矛盾（提到某事件"刚发生"但它其实在时间线更早）
 5. 同一角色在同一场景中是否说出了矛盾的信息
 6. 角色是否知道了他们不应该知道的信息（跨场景信息泄露）
+7. 开头是否与前文自然接续——不能以章节标题（如"# 第一章"、"第X章"）或完全无关的场景突兀起笔
 
 ## 审查标准示例
 ### 正确 finding 示例
 {"findings":[{"severity":"critical","location":"第5段","description":"林震南在此场景中出现并与主角说话，但他在第12章已被确认死亡。","suggestion":"移除林震南，改用其他在世角色传达此信息，或将其改为回忆/闪回场景","snippet":"林震南从门外走进来，笑道：\"好久不见。\"","autoFixable":false}]}
+{"findings":[{"severity":"major","location":"开头","description":"生成文字以'# 第一章 灵界·风元大陆·青元宫'开头，但前文刚写到海大少舍身救南宫婉，此处突然跳到新的章节标题和完全不同的场景，与前文严重断裂。","suggestion":"删除章节标题，让文字从紧接前文结尾处自然延续，保持叙事连贯性","snippet":"# 第一章 灵界·风元大陆·青元宫","autoFixable":false}]}
 
 ### 错误 finding 示例（不要报）
 不报：客栈布局中院子在左侧但上一章说是右侧的细节不一致。
@@ -423,7 +425,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: !!f.fixedText,
+      autoFixable: !!f.snippet && !!f.suggestion,
       fixedText: f.fixedText,
     })),
   };
@@ -560,7 +562,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: !!f.fixedText,
+      autoFixable: !!f.snippet && !!f.suggestion,
     })),
     newForeshadowing: result.newForeshadowing || [],
     revealedForeshadowing: result.revealedForeshadowing || [],
@@ -605,6 +607,7 @@ async function reviewStyle(
 4. 句式结构是否单调重复（连续多个句子以相同方式开头或相同结构）
 5. 与原著代表性片段的笔法是否一致
 6. 是否存在时代错位的语言（古风中出现现代词汇或反之）
+7. 开头是否以章节标题（如"# 第一章"、"第X章"）起笔——续写应自然接续，不应重新开始章节
 
 ## 审查标准示例
 ### 正确 finding 示例
@@ -676,7 +679,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: !!f.fixedText,
+      autoFixable: !!f.snippet && !!f.suggestion,
       fixedText: f.fixedText,
     })),
   };
@@ -781,7 +784,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: !!f.fixedText,
+      autoFixable: !!f.snippet && !!f.suggestion,
       fixedText: f.fixedText,
     })),
   };
@@ -880,7 +883,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: !!f.fixedText,
+      autoFixable: !!f.snippet && !!f.suggestion,
       fixedText: f.fixedText,
     })),
   };

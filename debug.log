@@ -13,3 +13,17 @@
 [2026-07-08T15:38:49.573Z] [Engine] Review done: 45 findings, 12 auto-fixed, 30 need review
 [2026-07-08T15:38:49.574Z] [Engine] Rewrite starting: 12 auto-fixable findings
 [2026-07-08T15:39:08.173Z] [Engine] Rewrite done: 3997 chars
+[2026-07-08T15:46:40.751Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-08T15:46:40.757Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-08T15:47:21.271Z] [Engine] Review gate: runReview=true, codex=present
+[2026-07-08T15:47:35.652Z] [Engine] Review done: 15 findings, 3 auto-fixed, 11 need review
+[2026-07-08T15:47:35.653Z] [Engine] Rewrite starting: 3 auto-fixable findings
+[2026-07-08T15:47:47.991Z] [Engine] Rewrite done: 2578 chars
+[2026-07-08T15:48:48.101Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-08T15:48:48.108Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-08T15:49:10.571Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-08T15:49:10.575Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-08T15:50:06.054Z] [Engine] Review gate: runReview=true, codex=present
+[2026-07-08T15:50:21.005Z] [Engine] Review done: 27 findings, 7 auto-fixed, 16 need review
+[2026-07-08T15:50:21.006Z] [Engine] Rewrite starting: 7 auto-fixable findings
+[2026-07-08T15:50:40.005Z] [Engine] Rewrite done: 4041 chars

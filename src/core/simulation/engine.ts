@@ -266,7 +266,7 @@ export class SimulationEngine {
           }
 
           // --- Rewrite with findings ---
-          const autoFixable = review.findings.filter(f => f.autoFixable && f.snippet && f.suggestion);
+          const autoFixable = review.findings.filter(f => f.autoFixable);
           if (autoFixable.length > 0) {
             debugLog("Engine", `Rewrite starting: ${autoFixable.length} auto-fixable findings`);
             this.onEvent({ type: "rewriting", status: "rewriting" });
