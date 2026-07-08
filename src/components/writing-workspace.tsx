@@ -747,7 +747,7 @@ export default function WritingWorkspace({
                 className="w-1/2 overflow-y-auto custom-scrollbar border-r border-neutral-700/50">
                 <div className="p-4">
                   <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">原文</div>
-                  <div className="text-sm text-neutral-400 leading-relaxed whitespace-pre-wrap font-serif">
+                  <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
                     {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
                     <span className="inline-block w-full my-2 border-t-2 border-orange-500/60" />
                     <span className="text-[10px] text-orange-500 font-mono">续写点</span>
