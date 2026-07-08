@@ -739,9 +739,9 @@ export default function WritingWorkspace({
             <div className="flex flex-1 overflow-hidden">
               {/* Left: full original novel with continue marker */}
               <div ref={readerRef} onScroll={handleLeftScroll}
-                className="w-1/2 overflow-y-auto custom-scrollbar border-r border-neutral-700/50">
-                <div className="p-4 pr-5">
-                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3 h-4">原文</div>
+                className="w-1/2 overflow-y-auto custom-scrollbar">
+                <div className="p-4 pr-3">
+                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">原文</div>
                   <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
                     {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
                     <span ref={continueMarkerRef} className="inline-block w-full h-0.5 my-3 bg-orange-500/60" />
@@ -751,15 +751,17 @@ export default function WritingWorkspace({
                   </div>
                 </div>
               </div>
+              {/* Divider */}
+              <div className="w-px bg-neutral-700/50 shrink-0" />
               {/* Right: original up to point + generated prose */}
               <div ref={rightPanelRef} onScroll={handleRightScroll}
                 className="w-1/2 overflow-y-auto custom-scrollbar">
-                <div className="p-4 pr-5">
-                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3 h-4">续写版本</div>
+                <div className="p-4 pl-3">
+                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">续写版本</div>
                   <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
                     {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
-                    <span className="inline-block w-full h-0.5 my-3 bg-orange-500/60" />
-                    <span className="text-[10px] text-orange-500 font-mono">— 续写点 —</span>
+                    <span className="inline-block w-full h-0.5 my-3 bg-green-500/60" />
+                    <span className="text-[10px] text-green-500 font-mono">— 续写 —</span>
                     {"\n"}
                     {outputText}
                   </div>
