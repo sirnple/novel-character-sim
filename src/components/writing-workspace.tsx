@@ -760,8 +760,12 @@ export default function WritingWorkspace({
               <div ref={rightPanelRef} onScroll={handleRightScroll}
                 className="w-1/2 overflow-y-auto custom-scrollbar">
                 <div className="p-4">
-                  <div className="text-[10px] text-green-500/70 font-mono uppercase mb-3">续写正文</div>
+                  <div className="text-[10px] text-green-500/70 font-mono uppercase mb-3">续写版本</div>
                   <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
+                    {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
+                    <span className="inline-block w-full my-2 border-t-2 border-green-500/60" />
+                    <span className="text-[10px] text-green-500 font-mono">续写</span>
+                    <span className="inline-block w-full mb-2 border-b-2 border-green-500/60" />
                     {outputText}
                   </div>
                   {annotations.length > 0 && !saved && (
