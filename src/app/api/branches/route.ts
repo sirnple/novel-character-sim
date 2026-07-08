@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (append && branchId) {
-    appendBranchContent(userId, branchId, content);
+    appendBranchContent(userId, branchId, content || "");
     const updated = getBranch(userId, branchId);
     return NextResponse.json({ success: true, branch: updated });
   }
