@@ -45,6 +45,13 @@ interface WritingTask {
   createdAt: string;
 }
 
+interface AgentState {
+  agentId: string;
+  name: string;
+  status: "running" | "done";
+  messages?: import("@/types").LLMMessage[];
+}
+
 const TASKS_KEY = "writing_tasks";
 
 // ============================================================
@@ -88,6 +95,7 @@ export default function WritingWorkspace({
   const [writerPrompt, setWriterPrompt] = useState<{ systemPrompt: string; userPrompt: string } | null>(null);
   const [review, setReview] = useState<ReviewReport | null>(null);
   const [annotations, setAnnotations] = useState<import("@/core/codex/types").ProseAnnotation[]>([]);
+  const [agents, setAgents] = useState<Map<string, AgentState>>(new Map());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -445,7 +453,7 @@ export default function WritingWorkspace({
     }
     updateTask(activeTaskId!, { status: "writing" });
     setStatus("generating");
-    setError(""); setOutputText(""); setReview(null); setAnnotations([]); setShowReview(false); setShowPrompt(false);
+    setError(""); setOutputText(""); setReview(null); setAnnotations([]); setAgents(new Map()); setShowReview(false); setShowPrompt(false);
 
     const controller = new AbortController(); abortRef.current = controller;
     try {
@@ -487,6 +495,18 @@ export default function WritingWorkspace({
                   updateTask(activeTaskId!, { output: event.prose, status: "completed", savedToNovel: false });
                   break;
                 case "scene_end": setStatus("completed"); onComplete?.(event.fullNovel); break;
+                case "agent":
+                  setAgents(prev => {
+                    const next = new Map(prev);
+                    next.set(event.agentId, {
+                      agentId: event.agentId,
+                      name: event.name,
+                      status: event.status,
+                      messages: event.messages || prev.get(event.agentId)?.messages,
+                    });
+                    return next;
+                  });
+                  break;
                 case "error": setStatus("error"); setError(event.message); break;
               }
             } catch {}
@@ -682,7 +702,7 @@ export default function WritingWorkspace({
       </div>
 
       {/* RIGHT */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative">
         <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg flex flex-col flex-1 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
@@ -950,6 +970,20 @@ export default function WritingWorkspace({
                 </button>
               </div>
             </div>
+          </div>
+        )}
+        {agents.size > 0 && (
+          <div className="absolute bottom-4 right-4 flex items-center gap-1.5 z-40">
+            {Array.from(agents.values()).map(a => (
+              <div key={a.agentId}
+                title={a.name + (a.status === "running" ? " (运行中)" : " (完成)")}
+                className={`rounded-full cursor-pointer transition-all hover:scale-125 ${
+                  a.status === "running"
+                    ? "w-4 h-4 bg-orange-500 animate-pulse"
+                    : "w-3 h-3 bg-green-500"
+                }`}
+              />
+            ))}
           </div>
         )}
       </div>
