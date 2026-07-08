@@ -1,5 +1,6 @@
 import type { CharacterProfile, SceneDefinition, SimulationState, WritingStyle, SceneOutline } from "@/types";
 import { generateId, isChinese } from "@/lib/utils";
+import { debugLog } from "@/lib/debug-log";
 import { getAppConfig } from "@/lib/config";
 import { createLLMProvider } from "@/core/llm/factory";
 import { runOutlineWriter } from "./outline-agent";
@@ -225,7 +226,7 @@ export class SimulationEngine {
       let annotations: ProseAnnotation[] = [];
 
       // --- Post-writing review ---
-      console.log(`[Engine] Review gate: runReview=${this.runReview}, codex=${this.codex ? "present" : "null"}`);
+      debugLog("Engine", `Review gate: runReview=${this.runReview}, codex=${this.codex ? "present" : "null"}`);
       if (this.runReview && this.codex) {
         try {
           const chapterNumber = (this.state.rounds?.length || 0) + 1;
@@ -284,7 +285,7 @@ export class SimulationEngine {
           console.warn("[Engine] Review failed, continuing:", e);
         }
       } else {
-        console.log("[Engine] Review SKIPPED — runReview=false or codex is null");
+        debugLog("Engine", "Review SKIPPED — runReview=false or codex is null");
       }
 
       // Always emit final_prose — with or without review

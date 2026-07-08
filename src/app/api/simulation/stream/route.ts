@@ -5,6 +5,7 @@ import { buildCodex } from "@/core/codex/builder";
 import type { WritersCodex } from "@/core/codex/types";
 import { saveCodex, getNovel, getStoryInfo, getTimeline } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
+import { debugLog } from "@/lib/debug-log";
 import { saveGenerationLog } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -79,6 +80,9 @@ export async function POST(request: NextRequest) {
           dbNovelText = dbNovel.text;
           dbStoryInfo = getStoryInfo(userId, novelId);
           dbTimeline = getTimeline(userId, novelId);
+          debugLog("StreamRoute", `Novel loaded: text=${dbNovelText.length}chars, storyInfo=${dbStoryInfo ? "yes" : "no"}, timeline=${dbTimeline ? `yes(${dbTimeline.chapters?.length || 0}ch)` : "no"}`);
+        } else {
+          debugLog("StreamRoute", `Novel NOT FOUND in DB for id=${novelId}`);
         }
       } catch {}
     }
@@ -95,8 +99,9 @@ export async function POST(request: NextRequest) {
     if (novelId) {
       saveCodex(novelId, codex);
     }
-    console.log(`[StreamRoute] Codex built: characters=${codex.characterDossiers?.profiles?.length || 0}, chapters=${codex.narrativeContext?.chapterSummaries?.length || 0}, worldRules=${codex.worldBible?.rules?.length || 0}`);
+    debugLog("StreamRoute", `Codex built: chars=${codex.characterDossiers?.profiles?.length || 0}, chapters=${codex.narrativeContext?.chapterSummaries?.length || 0}, worldRules=${codex.worldBible?.rules?.length || 0}`);
   } catch (e) {
+    debugLog("StreamRoute", `Codex build FAILED: ${(e as Error).message}`);
     console.warn("[StreamRoute] Codex build failed, falling back to legacy prompt:", e);
   }
 
