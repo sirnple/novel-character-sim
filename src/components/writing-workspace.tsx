@@ -91,8 +91,32 @@ export default function WritingWorkspace({
   const [showOutlinePrompt, setShowOutlinePrompt] = useState(false);
   const [copied, setCopied] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveTarget, setSaveTarget] = useState<"main" | "branch">("main");
+  const [saveBranchName, setSaveBranchName] = useState("");
+  const [saveBranchId, setSaveBranchId] = useState<string | null>(null);
+  const localBranches = branches || [];
   const readerRef = useRef<HTMLDivElement>(null);
+  const rightPanelRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const handleLeftScroll = () => {
+    if (!readerRef.current || !rightPanelRef.current) return;
+    const left = readerRef.current;
+    const right = rightPanelRef.current;
+    if (left.scrollHeight <= left.clientHeight) return;
+    const ratio = left.scrollTop / (left.scrollHeight - left.clientHeight);
+    right.scrollTop = ratio * (right.scrollHeight - right.clientHeight);
+  };
+
+  const handleRightScroll = () => {
+    if (!readerRef.current || !rightPanelRef.current) return;
+    const left = readerRef.current;
+    const right = rightPanelRef.current;
+    if (right.scrollHeight <= right.clientHeight) return;
+    const ratio = right.scrollTop / (right.scrollHeight - right.clientHeight);
+    left.scrollTop = ratio * (left.scrollHeight - left.clientHeight);
+  };
 
   const persistTasks = useCallback((updated: WritingTask[]) => {
     setTasks(updated);
@@ -464,24 +488,37 @@ export default function WritingWorkspace({
   const stopWriting = () => { abortRef.current?.abort(); if (outputText) setStatus("completed"); };
   const handleCopy = () => { navigator.clipboard.writeText(outputText); setCopied(true); setTimeout(() => setCopied(false), 2000); };
 
-  const handleSave = async () => {
+  const handleSaveFromDialog = async () => {
     if (!outputText || !novelId) return;
     setSaving(true);
     setSaveError(false);
     try {
+      const body: any = { novelId, content: outputText };
+      if (saveTarget === "branch") {
+        if (saveBranchId) {
+          body.branchId = saveBranchId;
+        } else if (saveBranchName) {
+          body.branchName = saveBranchName;
+          body.parentOffset = activeTask?.continueFromOffset || 0;
+        }
+      }
       const res = await fetch("/api/writer/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novelId, content: outputText }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         const data = await res.json();
         setSaved(true);
         setSaveError(false);
-        if (data.fullText && onNovelSaved) {
+        setShowSaveDialog(false);
+        if (data.fullText && onNovelSaved && saveTarget === "main") {
           onNovelSaved(data.fullText);
         }
-        updateTask(activeTaskId!, { savedToNovel: true, status: "completed" });
+        if (data.branch && onBranchesChange) {
+          onBranchesChange([data.branch, ...localBranches.filter(b => b.id !== data.branch?.id)]);
+        }
+        updateTask(activeTaskId!, { savedToNovel: true, status: "completed", branchId: data.branch?.id || undefined });
       } else {
         setSaveError(true);
       }
@@ -647,14 +684,12 @@ export default function WritingWorkspace({
             </div>
             <div className="flex items-center gap-3">
               {status === "completed" && !saved && (
-                <button onClick={handleSave} disabled={saving}
+                <button onClick={() => setShowSaveDialog(true)} disabled={saving}
                   className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${saveError ? "text-red-400 hover:text-red-300" : "text-neutral-500 hover:text-green-400"}`}>
                   {saveError ? (
                     <><AlertCircle className="w-3 h-3 text-red-400" /> 保存失败，点击重试</>
-                  ) : saving ? (
-                    <><Loader2 className="w-3 h-3 animate-spin" /> 保存中...</>
                   ) : (
-                    <><Save className="w-3 h-3" /> 保存为最新章节</>
+                    <><Save className="w-3 h-3" /> 保存...</>
                   )}
                 </button>
               )}
@@ -674,6 +709,57 @@ export default function WritingWorkspace({
           </div>
 
           {/* Reader body */}
+          {status === "completed" && activeTask?.continueFromOffset != null ? (
+            <div className="flex flex-1 overflow-hidden">
+              {/* Left: original context around continue point */}
+              <div ref={readerRef} onScroll={handleLeftScroll}
+                className="w-1/2 overflow-y-auto custom-scrollbar border-r border-neutral-700/50">
+                <div className="p-4">
+                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">续写点上下文</div>
+                  <div className="text-sm text-neutral-400 leading-relaxed whitespace-pre-wrap font-serif">
+                    {initialFullNovel?.slice(Math.max(0, (activeTask?.continueFromOffset || 0) - 500), activeTask?.continueFromOffset || 0)}
+                  </div>
+                  <div className="my-3 flex items-center gap-2">
+                    <div className="flex-1 h-px bg-orange-500/50" />
+                    <span className="text-[10px] text-orange-500 font-mono shrink-0">续写点</span>
+                    <div className="flex-1 h-px bg-orange-500/50" />
+                  </div>
+                  <div className="text-sm text-neutral-600 leading-relaxed whitespace-pre-wrap font-serif">
+                    {initialFullNovel?.slice(activeTask?.continueFromOffset || 0, (activeTask?.continueFromOffset || 0) + 500)}
+                  </div>
+                </div>
+              </div>
+              {/* Right: generated prose */}
+              <div ref={rightPanelRef} onScroll={handleRightScroll}
+                className="w-1/2 overflow-y-auto custom-scrollbar">
+                <div className="p-4">
+                  <div className="text-[10px] text-green-500/70 font-mono uppercase mb-3">续写正文</div>
+                  <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
+                    {outputText}
+                  </div>
+                  {annotations.length > 0 && !saved && (
+                    <div className="mt-6 space-y-2">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="flex-1 h-px bg-neutral-700/50" />
+                        <span className="text-xs text-neutral-500 font-mono shrink-0">审查修正 ({annotations.length} 处)</span>
+                        <div className="flex-1 h-px bg-neutral-700/50" />
+                      </div>
+                      {annotations.map((a) => (
+                        <div key={a.id} className="p-2 rounded border text-xs border-neutral-700 bg-neutral-800/20">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="px-1 py-0.5 rounded text-[8px] font-mono uppercase bg-neutral-600/30 text-neutral-400">{a.finding.severity}</span>
+                            <span className="text-neutral-500 text-[10px]">{a.finding.dimension}</span>
+                            {a.finding.autoFixable && <span className="text-green-500/70 ml-auto text-[9px] font-mono">已修正</span>}
+                          </div>
+                          <p className="text-neutral-400 text-[11px] leading-relaxed">{a.finding.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
           <div ref={readerRef} onClick={handleReaderClick} className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="p-6">
               {!initialFullNovel && !outputText && status !== "generating" ? (
@@ -785,8 +871,64 @@ export default function WritingWorkspace({
             {showPrompt && writerPrompt && <PromptSection label="Writer Prompt" systemPrompt={writerPrompt.systemPrompt} userPrompt={writerPrompt.userPrompt} />}
             {showOutlinePrompt && outlinePrompt && <PromptSection label="大纲 Agent Prompt" systemPrompt={outlinePrompt.system} userPrompt={outlinePrompt.user} />}
           </div>
+          )}
         </div>
         {error && <ErrorBanner error={error} onRetry={startWriting} />}
+        {showSaveDialog && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+            <div className="w-full max-w-sm bg-[#0e0e0e] border border-neutral-800 rounded-lg p-6 shadow-2xl">
+              <h3 className="text-sm font-semibold text-neutral-300 font-mono mb-5">保存到</h3>
+
+              <div className="space-y-3 mb-5">
+                <label className="flex items-center gap-3 p-3 rounded border border-neutral-700 hover:border-neutral-600 cursor-pointer">
+                  <input type="radio" name="saveTarget" checked={saveTarget === "main"}
+                    onChange={() => setSaveTarget("main")} />
+                  <span className="text-sm text-neutral-300">正文（原文末尾）</span>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded border border-neutral-700 hover:border-neutral-600 cursor-pointer">
+                  <input type="radio" name="saveTarget" checked={saveTarget === "branch"}
+                    onChange={() => setSaveTarget("branch")} />
+                  <span className="text-sm text-neutral-300">分支</span>
+                </label>
+
+                {saveTarget === "branch" && (
+                  <div className="ml-8 space-y-2">
+                    <input type="text" value={saveBranchName}
+                      onChange={e => setSaveBranchName(e.target.value)}
+                      placeholder="分支名称（可选：选择已有分支则无需输入）"
+                      className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono outline-none focus:border-orange-600/50" />
+
+                    {localBranches.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-[10px] text-neutral-600 font-mono uppercase mb-1 mt-3">已有分支</div>
+                        {localBranches.map(b => (
+                          <label key={b.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-neutral-800/30 cursor-pointer">
+                            <input type="radio" name="existingBranch"
+                              checked={saveBranchId === b.id}
+                              onChange={() => { setSaveBranchId(b.id); setSaveBranchName(b.name); }} />
+                            <span className="text-xs text-neutral-400">{b.name}</span>
+                            <span className="text-[10px] text-neutral-600">({(b.text?.length || 0).toLocaleString()}字)</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button onClick={() => setShowSaveDialog(false)}
+                  className="flex-1 py-2 text-sm text-neutral-500 hover:text-neutral-300 font-mono border border-neutral-700 rounded-lg transition-colors">取消</button>
+                <button onClick={handleSaveFromDialog}
+                  disabled={saving || (saveTarget === "branch" && !saveBranchName && !saveBranchId)}
+                  className="flex-1 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors">
+                  {saving ? "保存中..." : "保存"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
