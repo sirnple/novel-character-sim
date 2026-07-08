@@ -1,0 +1,5 @@
+[2026-07-08T15:29:49.875Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-08T15:29:49.882Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-08T15:30:02.504Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-08T15:30:02.507Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-08T15:30:31.185Z] [Engine] Review gate: runReview=true, codex=present

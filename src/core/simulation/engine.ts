@@ -255,6 +255,7 @@ export class SimulationEngine {
             chapterNumber,
             sharedSystemPrompt,
           });
+          debugLog("Engine", `Review done: ${review.findings.length} findings, ${review.autoFixedCount} auto-fixed, ${review.needsHumanReview.length} need review`);
           this.onEvent({ type: "review", review });
 
           if (review.needsHumanReview.length > 0) {
@@ -267,21 +268,27 @@ export class SimulationEngine {
           // --- Rewrite with findings ---
           const autoFixable = review.findings.filter(f => f.autoFixable && f.snippet && f.suggestion);
           if (autoFixable.length > 0) {
+            debugLog("Engine", `Rewrite starting: ${autoFixable.length} auto-fixable findings`);
             this.onEvent({ type: "rewriting", status: "rewriting" });
             try {
               const corrected = await rewriteProse(prose, review.findings, this.codex);
               annotations = generateAnnotations(review.findings);
               finalProse = corrected;
+              debugLog("Engine", `Rewrite done: ${corrected.length} chars`);
             } catch (e) {
+              debugLog("Engine", `Rewrite FAILED: ${(e as Error).message}`);
               console.warn("[Engine] Rewrite failed, using original prose:", e);
               annotations = generateAnnotations(review.findings);
             }
+          } else {
+            debugLog("Engine", `Rewrite skipped: 0 auto-fixable findings`);
           }
 
           // Update codex for next chapter
           const outlineTitle = outline?.sceneTitle || "";
           this.codex = updateCodexAfterChapter(this.codex, review, chapterNumber, outlineTitle);
         } catch (e) {
+          debugLog("Engine", `Review FAILED: ${(e as Error).message}`);
           console.warn("[Engine] Review failed, continuing:", e);
         }
       } else {
