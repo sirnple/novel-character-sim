@@ -102,29 +102,14 @@ export default function WritingWorkspace({
   const [saveBranchId, setSaveBranchId] = useState<string | null>(null);
   const localBranches = branches || [];
   const readerRef = useRef<HTMLDivElement>(null);
-  const rightPanelRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const handleLeftScroll = () => {
-    if (!readerRef.current || !rightPanelRef.current) return;
-    rightPanelRef.current.scrollTop = readerRef.current.scrollTop;
-  };
-
-  const handleRightScroll = () => {
-    if (!readerRef.current || !rightPanelRef.current) return;
-    readerRef.current.scrollTop = rightPanelRef.current.scrollTop;
-  };
-
-  // Auto-scroll both panels so continue point is at top when comparison opens
+  // Auto-scroll to continue point when comparison opens
   const continueMarkerRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (status === "completed" && activeTask?.continueFromOffset != null && continueMarkerRef.current) {
       requestAnimationFrame(() => {
         continueMarkerRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
-        // Mirror to right panel
-        if (readerRef.current && rightPanelRef.current) {
-          rightPanelRef.current.scrollTop = readerRef.current.scrollTop;
-        }
       });
     }
   }, [status, activeTask?.continueFromOffset]);
@@ -736,35 +721,34 @@ export default function WritingWorkspace({
 
           {/* Reader body */}
           {status === "completed" && activeTask?.continueFromOffset != null ? (
-            <div className="flex flex-1 overflow-hidden">
-              {/* Left: full original novel with continue marker */}
-              <div ref={readerRef} onScroll={handleLeftScroll}
-                className="w-1/2 overflow-y-auto custom-scrollbar">
-                <div className="p-4 pr-3">
-                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">原文</div>
-                  <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
-                    {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
-                    <span ref={continueMarkerRef} className="inline-block w-full h-0.5 my-3 bg-orange-500/60" />
-                    <span className="text-[10px] text-orange-500 font-mono">— 续写点 —</span>
-                    {"\n"}
-                    {initialFullNovel?.slice(activeTask.continueFromOffset)}
+            <div ref={readerRef} className="flex-1 overflow-y-auto custom-scrollbar">
+              <div className="flex" style={{ minHeight: "100%" }}>
+                {/* Left: full original novel with continue marker */}
+                <div className="w-1/2">
+                  <div className="p-4 pr-3">
+                    <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">原文</div>
+                    <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
+                      {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
+                      <span ref={continueMarkerRef} className="inline-block w-full h-0.5 my-3 bg-orange-500/60" />
+                      <span className="text-[10px] text-orange-500 font-mono">— 续写点 —</span>
+                      {"\n"}
+                      {initialFullNovel?.slice(activeTask.continueFromOffset)}
+                    </div>
                   </div>
                 </div>
-              </div>
-              {/* Divider */}
-              <div className="w-px bg-neutral-700/50 shrink-0" />
-              {/* Right: original up to point + generated prose */}
-              <div ref={rightPanelRef} onScroll={handleRightScroll}
-                className="w-1/2 overflow-y-auto custom-scrollbar">
-                <div className="p-4 pl-3">
-                  <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">续写版本</div>
-                  <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
-                    {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
-                    <span className="inline-block w-full h-0.5 my-3 bg-green-500/60" />
-                    <span className="text-[10px] text-green-500 font-mono">— 续写 —</span>
-                    {"\n"}
-                    {outputText}
-                  </div>
+                {/* Divider */}
+                <div className="w-px bg-neutral-700/50" />
+                {/* Right: original up to point + generated prose */}
+                <div className="w-1/2">
+                  <div className="p-4 pl-3">
+                    <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">续写版本</div>
+                    <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
+                      {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
+                      <span className="inline-block w-full h-0.5 my-3 bg-green-500/60" />
+                      <span className="text-[10px] text-green-500 font-mono">— 续写 —</span>
+                      {"\n"}
+                      {outputText}
+                    </div>
                   {annotations.length > 0 && !saved && (
                     <div className="mt-6 space-y-2">
                       <div className="flex items-center gap-2 mb-3">
@@ -787,6 +771,7 @@ export default function WritingWorkspace({
                 </div>
               </div>
             </div>
+          </div>
           ) : (
           <div ref={readerRef} onClick={handleReaderClick} className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="p-6">
