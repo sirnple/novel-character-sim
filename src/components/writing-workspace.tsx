@@ -465,6 +465,7 @@ export default function WritingWorkspace({
           novelTitle, novelId,
           characters: characters.filter(c => taskScene.characterIds.includes(c.id)),
           scene: taskScene, writingStyle,
+          outline: activeTask?.outline || undefined,
           timelineEvents: (timeline?.chapters || []).flatMap(ch => (ch.events || [])),
           lastChapterStates,
           continueFromOffset: activeTask?.continueFromOffset ?? 0,

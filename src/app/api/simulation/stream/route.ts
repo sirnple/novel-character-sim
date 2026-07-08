@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
       characters,
       storyInfo: dbStoryInfo,
       fullNovelText: dbNovelText,
+      recentProse: continueFromOffset ? dbNovelText.slice(0, continueFromOffset) : dbNovelText.slice(-6000),
       lastChapterStates: rawLastChapterStates || [],
       timeline: dbTimeline,
     });
