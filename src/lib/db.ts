@@ -166,6 +166,19 @@ function initSchema(db: Database.Database) {
       updated_at TEXT DEFAULT (datetime('now')),
       PRIMARY KEY (novel_id)
     );
+
+    CREATE TABLE IF NOT EXISTS branches (
+      id TEXT NOT NULL,
+      novel_id TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT 'guest',
+      name TEXT NOT NULL DEFAULT '',
+      parent_offset INTEGER NOT NULL DEFAULT 0,
+      text TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_branches_novel ON branches(novel_id);
   `);
 
   // Migrate old tables that may be missing user_id.
@@ -493,4 +506,67 @@ export function getCodex(novelId: string): WritersCodex | null {
 export function deleteCodex(novelId: string): void {
   const d = getDb();
   d.prepare("DELETE FROM codex_data WHERE novel_id = ?").run(novelId);
+}
+
+// ---- Branches ----
+
+export interface BranchRow {
+  id: string;
+  novel_id: string;
+  name: string;
+  parent_offset: number;
+  text: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function saveBranch(
+  userId: string,
+  branchId: string,
+  novelId: string,
+  name: string,
+  parentOffset: number,
+  text: string
+): void {
+  const d = getDb();
+  d.prepare(
+    `INSERT OR REPLACE INTO branches (id, novel_id, user_id, name, parent_offset, text, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+  ).run(branchId, novelId, userId, name, parentOffset, text);
+}
+
+export function appendBranchContent(
+  userId: string,
+  branchId: string,
+  newContent: string
+): void {
+  const d = getDb();
+  const branch = d.prepare(
+    "SELECT text FROM branches WHERE id = ? AND user_id = ?"
+  ).get(branchId, userId) as { text: string } | undefined;
+  if (!branch) return;
+  const combined = branch.text + "\n\n" + newContent;
+  d.prepare(
+    "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?"
+  ).run(combined, branchId, userId);
+}
+
+export function getBranch(
+  userId: string,
+  branchId: string
+): BranchRow | null {
+  const d = getDb();
+  return d.prepare(
+    "SELECT id, novel_id, name, parent_offset, text, created_at, updated_at FROM branches WHERE id = ? AND user_id = ?"
+  ).get(branchId, userId) as BranchRow | null;
+}
+
+export function listBranches(
+  userId: string,
+  novelId: string
+): BranchRow[] {
+  const d = getDb();
+  return d.prepare(
+    "SELECT id, novel_id, name, parent_offset, text, created_at, updated_at FROM branches WHERE novel_id = ? AND user_id = ? ORDER BY updated_at DESC"
+  ).all(novelId, userId) as BranchRow[];
 }

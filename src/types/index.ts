@@ -396,3 +396,13 @@ export interface AppConfig {
     temperature: number;
   };
 }
+
+export interface Branch {
+  id: string;
+  novelId: string;
+  name: string;
+  parentOffset: number;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+}
