@@ -64,6 +64,41 @@ export default function Home() {
   const [lastChapterStates, setLastChapterStates] = useState<CharacterChapterState[]>([]);
   const [savedNovels, setSavedNovels] = useState<SavedNovel[]>([]);
   const [branches, setBranches] = useState<import("@/types").Branch[]>([]);
+  const [readerContinueOffset, setReaderContinueOffset] = useState<number | null>(null);
+  const [readerContinueLabel, setReaderContinueLabel] = useState("");
+  const readerRef = useRef<HTMLDivElement>(null);
+
+  const handleReaderClick = (e: React.MouseEvent) => {
+    if (!novelText) return;
+    const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+    if (!range) return;
+    const el = readerRef.current;
+    if (!el) return;
+
+    let offset = 0;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let node: Text | null;
+    while ((node = walker.nextNode() as Text | null)) {
+      if (node === range.startContainer) {
+        offset += range.startOffset;
+        break;
+      }
+      offset += node.textContent?.length || 0;
+    }
+
+    let chapterNum = 1;
+    if (timeline?.chapters) {
+      let cum = 0;
+      for (const ch of timeline.chapters) {
+        cum += (ch.events?.length || 0) * 200;
+        if (cum >= offset) break;
+        chapterNum++;
+      }
+    }
+
+    setReaderContinueOffset(offset);
+    setReaderContinueLabel(`第${chapterNum}章 · 偏移${offset}字`);
+  };
 
   // UI state
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("overview");
@@ -622,6 +657,12 @@ export default function Home() {
                       description="查看力量体系、社会结构和势力分布"
                       onClick={() => setWorkspaceView("world")}
                     />
+                    <ActionCard
+                      icon={<BookOpen className="w-5 h-5" />}
+                      title="阅读小说"
+                      description="浏览全文，点击任意位置续写"
+                      onClick={() => setWorkspaceView("read")}
+                    />
                   </div>
 
                   {/* Recent Tasks */}
@@ -732,12 +773,26 @@ export default function Home() {
                   READ
                   ============================================================ */}
               {workspaceView === "read" && (
-                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                <div ref={readerRef} onClick={handleReaderClick} className="flex-1 overflow-y-auto custom-scrollbar">
                   <div className="max-w-[800px] mx-auto p-6">
                     <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider mb-4">阅读</h2>
                     <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
                       {novelText}
                     </div>
+                    {readerContinueOffset != null && (
+                      <div className="max-w-[800px] mx-auto my-3 flex items-center gap-3">
+                        <div className="flex-1 h-px bg-orange-500/50" />
+                        <span className="text-[10px] text-orange-500 font-mono shrink-0">{readerContinueLabel}</span>
+                        <button
+                          onClick={() => {
+                            setWorkspaceView("write");
+                          }}
+                          className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-2 py-0.5 rounded font-mono transition-colors shrink-0"
+                        >
+                          从此处续写
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -763,6 +818,12 @@ export default function Home() {
                     lastChapterStates={lastChapterStates}
                     branches={branches}
                     onBranchesChange={setBranches}
+                    presetContinueOffset={readerContinueOffset ?? undefined}
+                    presetContinueLabel={readerContinueLabel}
+                    onReaderContinueUsed={() => {
+                      setReaderContinueOffset(null);
+                      setReaderContinueLabel("");
+                    }}
                   />
                 </div>
               )}

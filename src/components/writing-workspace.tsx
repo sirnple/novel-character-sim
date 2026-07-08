@@ -21,6 +21,9 @@ interface WritingWorkspaceProps {
   storyInfo?: import("@/types").StoryInfo | null;
   branches?: import("@/types").Branch[];
   onBranchesChange?: (branches: import("@/types").Branch[]) => void;
+  presetContinueOffset?: number;
+  presetContinueLabel?: string;
+  onReaderContinueUsed?: () => void;
 }
 
 interface WritingTask {
@@ -54,6 +57,8 @@ export default function WritingWorkspace({
   onNovelSaved,
   timeline, lastChapterStates, storyInfo,
   branches, onBranchesChange,
+  presetContinueOffset, presetContinueLabel,
+  onReaderContinueUsed,
 }: WritingWorkspaceProps) {
   // --- Persisted tasks ---
   const [tasks, setTasks] = useState<WritingTask[]>(() => {
@@ -167,6 +172,21 @@ export default function WritingWorkspace({
       updateTask(activeTaskId, { savedToNovel: false });
     }
   }, [outputText]);
+
+  // Auto-set continue point from reader tab preset
+  useEffect(() => {
+    if (presetContinueOffset != null && initialFullNovel && !activeTaskId && !creatingTask) {
+      const contextStart = Math.max(0, presetContinueOffset - 100);
+      const contextEnd = Math.min(initialFullNovel.length, presetContinueOffset + 100);
+      setContinuePoint({
+        offset: presetContinueOffset,
+        label: presetContinueLabel || `偏移${presetContinueOffset}字`,
+        contextPreview: initialFullNovel.slice(contextStart, contextEnd),
+      });
+      setCreatingTask(true);
+      onReaderContinueUsed?.();
+    }
+  }, [presetContinueOffset, presetContinueLabel, initialFullNovel, activeTaskId, creatingTask]);
 
   // --- Build script ---
   const buildScript = useCallback(
