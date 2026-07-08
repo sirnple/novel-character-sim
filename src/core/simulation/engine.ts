@@ -194,6 +194,18 @@ export class SimulationEngine {
         }
       }
 
+      // --- Enrich codex currentTask with outline data ---
+      if (this.codex && outline) {
+        const ct = this.codex.currentTask;
+        ct.sceneGoal = outline.sceneGoal || outline.chapterGoal || ct.sceneGoal;
+        ct.storyBeat = outline.emotionalArc || ct.storyBeat;
+        ct.pacing = (outline.pacing || ct.pacing) as "fast" | "medium" | "slow";
+        if (outline.focusCharacters?.length) {
+          ct.targetCharacters = outline.focusCharacters.map(fc => fc.name);
+        }
+        ct.stakes = outline.chapterEnding || outline.sceneEnding || ct.stakes;
+      }
+
       // --- Build prompt ---
       let systemPrompt: string;
       let userPrompt: string;

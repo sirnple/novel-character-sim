@@ -47,3 +47,13 @@
 [2026-07-08T16:47:13.583Z] [Engine] Review done: 20 findings, 6 need human review
 [2026-07-08T16:47:13.584Z] [Engine] Rewrite starting: 20 findings
 [2026-07-08T16:47:30.264Z] [Engine] Rewrite done: 2172 chars
+[2026-07-08T17:04:16.946Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-08T17:04:16.951Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-08T17:04:36.348Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-08T17:04:36.352Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-08T17:04:54.358Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-08T17:04:54.361Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-08T17:05:20.313Z] [Engine] Review gate: runReview=true, codex=present
+[2026-07-08T17:05:31.544Z] [Engine] Review done: 11 findings, 1 need human review
+[2026-07-08T17:05:31.544Z] [Engine] Rewrite starting: 11 findings
+[2026-07-08T17:05:47.524Z] [Engine] Rewrite done: 2662 chars
