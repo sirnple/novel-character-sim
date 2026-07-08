@@ -215,9 +215,9 @@ async function reviewCharacterConsistency(
         .map(q => `[${q.emotion}]"${q.text}"`)
         .join(" | ");
       return `【${p.name}】`
-        + `\n  性格: ${p.personality.traits.join("、")}`
+        + `\n  性格: ${p.personality.traits?.join?.("、") || p.personality.traits || ""}`
         + `\n  说话风格: ${p.speakingStyle.description}`
-        + `\n  口头禅: ${p.speakingStyle.catchphrases.join("、") || "无"}`
+        + `\n  口头禅: ${p.speakingStyle.catchphrases?.join?.("、") || p.speakingStyle.catchphrases || "无"}`
         + `\n  当前状态: ${state ? `${state.currentLocation}, ${state.currentEmotion}, 目标:${state.currentGoal}` : "未知"}`
         + (quoteText ? `\n  语录: ${quoteText}` : "");
     })

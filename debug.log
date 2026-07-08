@@ -3,3 +3,7 @@
 [2026-07-08T15:30:02.504Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
 [2026-07-08T15:30:02.507Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
 [2026-07-08T15:30:31.185Z] [Engine] Review gate: runReview=true, codex=present
+[2026-07-08T15:33:49.004Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-08T15:33:49.010Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-08T15:34:32.999Z] [Engine] Review gate: runReview=true, codex=present
+[2026-07-08T15:34:33.005Z] [Engine] Review FAILED: p.speakingStyle.catchphrases.join is not a function
