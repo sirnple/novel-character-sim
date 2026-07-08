@@ -42,7 +42,7 @@ interface WritingTask {
   script?: string;
 }
 
-type WorkspaceView = "overview" | "characters" | "timeline" | "world" | "write" | "review";
+type WorkspaceView = "overview" | "characters" | "timeline" | "world" | "read" | "write" | "review";
 
 type SidebarSection = "library" | "tasks" | "codex" | "review";
 
@@ -332,6 +332,7 @@ export default function Home() {
                 { key: "characters" as WorkspaceView, label: "角色", icon: Users },
                 { key: "timeline" as WorkspaceView, label: "时间线", icon: Clock },
                 { key: "world" as WorkspaceView, label: "世界观", icon: ScrollText },
+                { key: "read" as WorkspaceView, label: "阅读", icon: BookOpen },
                 { key: "write" as WorkspaceView, label: "写作", icon: Play },
               ].map(v => (
                 <button
@@ -724,6 +725,20 @@ export default function Home() {
                       <p className="text-sm font-mono">暂无世界观数据。请先提取角色和世界观。</p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* ============================================================
+                  READ
+                  ============================================================ */}
+              {workspaceView === "read" && (
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                  <div className="max-w-[800px] mx-auto p-6">
+                    <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider mb-4">阅读</h2>
+                    <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
+                      {novelText}
+                    </div>
+                  </div>
                 </div>
               )}
 
