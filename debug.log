@@ -7,3 +7,9 @@
 [2026-07-08T15:33:49.010Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
 [2026-07-08T15:34:32.999Z] [Engine] Review gate: runReview=true, codex=present
 [2026-07-08T15:34:33.005Z] [Engine] Review FAILED: p.speakingStyle.catchphrases.join is not a function
+[2026-07-08T15:37:26.679Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-08T15:37:26.689Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-08T15:38:19.589Z] [Engine] Review gate: runReview=true, codex=present
+[2026-07-08T15:38:49.573Z] [Engine] Review done: 45 findings, 12 auto-fixed, 30 need review
+[2026-07-08T15:38:49.574Z] [Engine] Rewrite starting: 12 auto-fixable findings
+[2026-07-08T15:39:08.173Z] [Engine] Rewrite done: 3997 chars

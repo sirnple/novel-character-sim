@@ -315,7 +315,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: f.severity === "minor" && !!f.fixedText,
+      autoFixable: !!f.fixedText,
       fixedText: f.fixedText,
     })),
   };
@@ -423,7 +423,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: f.severity === "minor" && !!f.fixedText,
+      autoFixable: !!f.fixedText,
       fixedText: f.fixedText,
     })),
   };
@@ -560,7 +560,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: f.severity !== "critical" && !!f.fixedText,
+      autoFixable: !!f.fixedText,
     })),
     newForeshadowing: result.newForeshadowing || [],
     revealedForeshadowing: result.revealedForeshadowing || [],
@@ -676,7 +676,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: f.severity === "minor" && !!f.fixedText,
+      autoFixable: !!f.fixedText,
       fixedText: f.fixedText,
     })),
   };
@@ -781,7 +781,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: f.severity === "minor" && !!f.fixedText,
+      autoFixable: !!f.fixedText,
       fixedText: f.fixedText,
     })),
   };
@@ -880,7 +880,7 @@ Output your review findings. Return an empty array if no issues found.`
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: f.severity === "minor" && !!f.fixedText,
+      autoFixable: !!f.fixedText,
       fixedText: f.fixedText,
     })),
   };
