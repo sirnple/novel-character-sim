@@ -5,7 +5,7 @@ import { createLLMProvider } from "@/core/llm/factory";
 import { runOutlineWriter } from "./outline-agent";
 import { buildCodex } from "@/core/codex/builder";
 import { renderCodexAsPrompt } from "@/core/codex/renderer";
-import { runFullReview, rewriteProse, generateAnnotations } from "@/core/codex/review-orchestrator";
+import { runFullReview, rewriteProse, generateAnnotations, buildSharedReviewSystemPrompt } from "@/core/codex/review-orchestrator";
 import { updateCodexAfterChapter } from "@/core/codex/updater";
 import type { WritersCodex, ProseAnnotation } from "@/core/codex/types";
 
@@ -227,10 +227,30 @@ export class SimulationEngine {
       if (this.runReview && this.codex) {
         try {
           const chapterNumber = (this.state.rounds?.length || 0) + 1;
+          const charStates = (this.codex.characterDossiers?.currentStates || []).map((s: any) => ({
+            name: s.name || "",
+            currentLocation: s.currentLocation || "未知",
+            currentEmotion: s.currentEmotion || "未知",
+            currentGoal: s.currentGoal || "未知",
+          }));
+          const sharedSystemPrompt = buildSharedReviewSystemPrompt({
+            novelTitle: this.state.novelTitle,
+            chapterNumber,
+            outline,
+            scene: this.state.scene,
+            previousProse: this.state.fullNovelOutput || "",
+            characterStates: charStates,
+            narrativeStyle: {
+              pointOfView: this.state.scene.narrativeStyle.pointOfView,
+              tone: this.state.scene.narrativeStyle.tone,
+              targetLength: this.state.scene.narrativeStyle.targetLength,
+            },
+          });
           const review = await runFullReview({
             generatedProse: prose,
             codex: this.codex,
             chapterNumber,
+            sharedSystemPrompt,
           });
           this.onEvent({ type: "review", review });
 

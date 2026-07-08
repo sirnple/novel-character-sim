@@ -7,10 +7,104 @@ import type { CharacterProfile } from "@/types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { isChinese } from "@/lib/utils";
 
+export interface SharedReviewContext {
+  novelTitle: string;
+  chapterNumber: number;
+  outline: import("@/types").SceneOutline | null;
+  scene: import("@/types").SceneDefinition;
+  previousProse: string;
+  characterStates: { name: string; currentLocation: string; currentEmotion: string; currentGoal: string }[];
+  narrativeStyle: { pointOfView: string; tone: string; targetLength: string };
+}
+
+export function buildSharedReviewSystemPrompt(ctx: SharedReviewContext): string {
+  const zh = isChinese(ctx.previousProse || ctx.scene.initialSituation || "");
+
+  const beats = ctx.outline?.beats || ctx.outline?.plotPoints || [];
+  const beatsText = beats.length > 0
+    ? beats.map((b: any) => {
+        const seq = b.beatNumber || b.sequence || "?";
+        const desc = b.description || "";
+        const chars = (b.activeCharacters || b.involvedCharacters || []).join("、");
+        const mood = b.mood || "";
+        return `  节拍${seq}：${desc} [出场：${chars}] [氛围：${mood}]`;
+      }).join("\n")
+    : "（无预设节拍）";
+
+  const charStates = ctx.characterStates.length > 0
+    ? ctx.characterStates.map(cs =>
+        `- ${cs.name}：位置=${cs.currentLocation}, 情绪=${cs.currentEmotion}, 当前目标=${cs.currentGoal}`
+      ).join("\n")
+    : "（无角色状态数据）";
+
+  const prevText = ctx.previousProse
+    ? ctx.previousProse.slice(-2000)
+    : "这是第一章，无前文";
+
+  if (zh) {
+    return `你是小说《${ctx.novelTitle}》的审查编辑。你正在审查第${ctx.chapterNumber}章的生成文字。
+
+## 本章写作目标
+- 场景目标/章节目标：${ctx.outline?.sceneGoal || ctx.outline?.chapterGoal || "（未指定）"}
+- 情感弧线：${ctx.outline?.emotionalArc || "（未指定）"}
+- 预期结尾：${ctx.outline?.sceneEnding || ctx.outline?.chapterEnding || "（未指定）"}
+- 情节节拍：
+${beatsText}
+- 节奏要求：${ctx.outline?.pacing || "（未指定）"}
+
+## 作者设定的场景
+- 地点：${ctx.scene.location || "（未指定）"}
+- 时间：${ctx.scene.timeOfDay}
+- 天气：${ctx.scene.weather}
+- 氛围：${ctx.scene.atmosphere}
+- 初始情境：${ctx.scene.initialSituation || "（无）"}
+
+## 前文上下文（承接点前的原文）
+${prevText}
+
+## 出场角色当前状态
+${charStates}
+
+## 叙事要求
+- 视角：${ctx.narrativeStyle.pointOfView}
+- 基调：${ctx.narrativeStyle.tone}
+- 目标篇幅：${ctx.narrativeStyle.targetLength}`;
+  }
+
+  return `You are a review editor for "${ctx.novelTitle}". You are reviewing Chapter ${ctx.chapterNumber}.
+
+## Chapter Writing Goals
+- Goal: ${ctx.outline?.sceneGoal || ctx.outline?.chapterGoal || "(unspecified)"}
+- Emotional Arc: ${ctx.outline?.emotionalArc || "(unspecified)"}
+- Expected Ending: ${ctx.outline?.sceneEnding || ctx.outline?.chapterEnding || "(unspecified)"}
+- Plot Beats:
+${beatsText}
+- Pacing: ${ctx.outline?.pacing || "(unspecified)"}
+
+## Author's Scene Setting
+- Location: ${ctx.scene.location || "(unspecified)"}
+- Time: ${ctx.scene.timeOfDay}
+- Weather: ${ctx.scene.weather}
+- Atmosphere: ${ctx.scene.atmosphere}
+- Initial Situation: ${ctx.scene.initialSituation || "(none)"}
+
+## Previous Prose Context (before the continuation point)
+${prevText}
+
+## Character Current States
+${charStates}
+
+## Narrative Requirements
+- Point of View: ${ctx.narrativeStyle.pointOfView}
+- Tone: ${ctx.narrativeStyle.tone}
+- Target Length: ${ctx.narrativeStyle.targetLength}`;
+}
+
 interface ReviewInput {
   generatedProse: string;
   codex: WritersCodex;
   chapterNumber: number;
+  sharedSystemPrompt?: string;
 }
 
 const REVIEW_SCHEMA = {
@@ -147,7 +241,12 @@ ${input.generatedProse.slice(0, 8000)}
     : `You are a character consistency reviewer. Check the generated prose against character profiles for behavior/speech drift.\n\n## Characters\n${charContext}\n\n## Prose\n${input.generatedProse.slice(0, 8000)}`;
 
   const result = await llm.chatWithTool<any>(
-    [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt
+      ? [
+          { role: "system", content: input.sharedSystemPrompt },
+          { role: "user", content: prompt }
+        ]
+      : [{ role: "user", content: prompt }],
     { ...REVIEW_SCHEMA, name: "character_review" },
     { temperature: 0.2, maxTokens: 4096 }
   );
@@ -202,7 +301,12 @@ ${input.generatedProse.slice(0, 8000)}
     : `You are a continuity reviewer. Check for logical contradictions in the generated prose vs established facts.\n\n## Chapter Summaries\n${summaries}\n\n## Character States\n${states}\n\n## Prose\n${input.generatedProse.slice(0, 8000)}`;
 
   const result = await llm.chatWithTool<any>(
-    [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt
+      ? [
+          { role: "system", content: input.sharedSystemPrompt },
+          { role: "user", content: prompt }
+        ]
+      : [{ role: "user", content: prompt }],
     { ...REVIEW_SCHEMA, name: "continuity_review" },
     { temperature: 0.1, maxTokens: 4096 }
   );
@@ -281,7 +385,12 @@ ${input.generatedProse.slice(0, 8000)}
   };
 
   const result = await llm.chatWithTool<any>(
-    [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt
+      ? [
+          { role: "system", content: input.sharedSystemPrompt },
+          { role: "user", content: prompt }
+        ]
+      : [{ role: "user", content: prompt }],
     schemaWithExtras,
     { temperature: 0.2, maxTokens: 4096 }
   );
@@ -294,7 +403,7 @@ ${input.generatedProse.slice(0, 8000)}
       description: f.description,
       suggestion: f.suggestion,
       snippet: f.snippet,
-      autoFixable: false,
+      autoFixable: f.severity !== "critical" && !!f.fixedText,
     })),
     newForeshadowing: result.newForeshadowing || [],
     revealedForeshadowing: result.revealedForeshadowing || [],
@@ -341,7 +450,12 @@ minor = 可微调的措辞问题`
     : `You are a style consistency reviewer. Check if the generated prose matches the original style fingerprint.\n\n## Fingerprint\n${styleGuide}\n\n## Prose\n${input.generatedProse.slice(0, 8000)}`;
 
   const result = await llm.chatWithTool<any>(
-    [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt
+      ? [
+          { role: "system", content: input.sharedSystemPrompt },
+          { role: "user", content: prompt }
+        ]
+      : [{ role: "user", content: prompt }],
     { ...REVIEW_SCHEMA, name: "style_review" },
     { temperature: 0.2, maxTokens: 4096 }
   );
@@ -390,7 +504,12 @@ ${input.generatedProse.slice(0, 8000)}
     : `You are a world-building consistency reviewer. Check if the generated prose violates world rules.\n\n## World\n${JSON.stringify(w)}\n\n## Prose\n${input.generatedProse.slice(0, 8000)}`;
 
   const result = await llm.chatWithTool<any>(
-    [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt
+      ? [
+          { role: "system", content: input.sharedSystemPrompt },
+          { role: "user", content: prompt }
+        ]
+      : [{ role: "user", content: prompt }],
     { ...REVIEW_SCHEMA, name: "world_review" },
     { temperature: 0.1, maxTokens: 4096 }
   );
@@ -434,7 +553,12 @@ ${input.generatedProse.slice(0, 8000)}
     : `You are a pacing reviewer. Check if the generated prose pacing matches requirements.\n\n## Requirements\n- Pacing: ${input.codex.currentTask.pacing}\n- Conflict: ${input.codex.currentTask.conflictType}\n- Beat: ${input.codex.currentTask.storyBeat}\n\n## Prose\n${input.generatedProse.slice(0, 8000)}`;
 
   const result = await llm.chatWithTool<any>(
-    [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt
+      ? [
+          { role: "system", content: input.sharedSystemPrompt },
+          { role: "user", content: prompt }
+        ]
+      : [{ role: "user", content: prompt }],
     { ...REVIEW_SCHEMA, name: "pacing_review" },
     { temperature: 0.2, maxTokens: 4096 }
   );
