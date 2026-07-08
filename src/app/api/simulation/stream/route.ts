@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
               worldBible: dbStoryInfo?.worldSetting || undefined,
               authorNotes: (body as any).authorNotes || "",
               selectCharacters: true,
-            });
+            }, sendEvent);
             sendEvent({
               type: "outline",
               outline: result.outline,

@@ -137,19 +137,36 @@ const REVIEW_SCHEMA = {
  * Run all 6 review dimensions in parallel against the generated prose.
  * Returns a merged report with auto-fixes applied.
  */
-export async function runFullReview(input: ReviewInput): Promise<ReviewReport> {
+export async function runFullReview(input: ReviewInput, onEvent?: (event: any) => void): Promise<ReviewReport> {
   const llm = createLLMProvider();
   const zh = isChinese(input.generatedProse);
 
+  function emitReviewAgent(agentId: string, name: string, status: "running" | "done", messages?: any[]) {
+    if (onEvent) onEvent({ type: "agent", agentId, name, status, messages });
+  }
+
   // Run all 6 reviewers in parallel
-  const results = await Promise.all([
-    reviewCharacterConsistency(input, llm, zh),
-    reviewContinuity(input, llm, zh),
-    reviewForeshadowing(input, llm, zh),
-    reviewStyle(input, llm, zh),
-    reviewWorldBuilding(input, llm, zh),
-    reviewPacing(input, llm, zh),
-  ]);
+  const agentDefs = [
+    { id: "review_char", name: "角色一致性", fn: reviewCharacterConsistency },
+    { id: "review_cont", name: "连贯性", fn: reviewContinuity },
+    { id: "review_fore", name: "伏笔追踪", fn: reviewForeshadowing },
+    { id: "review_style", name: "风格", fn: reviewStyle },
+    { id: "review_world", name: "世界观", fn: reviewWorldBuilding },
+    { id: "review_pace", name: "节奏", fn: reviewPacing },
+  ];
+
+  const results = await Promise.all(
+    agentDefs.map(async (def) => {
+      emitReviewAgent(def.id, def.name, "running");
+      const r = await def.fn(input, llm, zh);
+      emitReviewAgent(def.id, def.name, "done", [
+        { role: "system", content: input.sharedSystemPrompt || "" },
+        { role: "user", content: def.name + "审查" },
+        { role: "assistant", content: JSON.stringify(r.findings) },
+      ]);
+      return r;
+    })
+  );
 
   // Merge all findings
   const allFindings: ReviewFinding[] = [];
@@ -879,11 +896,14 @@ Output your review findings. Return an empty array if no issues found.`
 export async function rewriteProse(
   originalProse: string,
   findings: ReviewFinding[],
-  _codex: WritersCodex
+  _codex: WritersCodex,
+  onEvent?: (event: any) => void
 ): Promise<string> {
   if (findings.length === 0) {
     return originalProse;
   }
+
+  if (onEvent) onEvent({ type: "agent", agentId: "rewrite", name: "修正", status: "running" });
 
   const llm = createLLMProvider();
   const zh = isChinese(originalProse);
@@ -924,6 +944,19 @@ ${originalProse}
     [{ role: "user", content: prompt }],
     { temperature: 0.4, maxTokens: 16384 }
   );
+
+  if (onEvent) {
+    onEvent({
+      type: "agent",
+      agentId: "rewrite",
+      name: "修正",
+      status: "done",
+      messages: [
+        { role: "user", content: prompt },
+        { role: "assistant", content: corrected },
+      ],
+    });
+  }
 
   return corrected || originalProse;
 }

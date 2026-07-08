@@ -117,7 +117,7 @@ export async function generateOutline(input: {
   previousProse?: string;
   /** If true, only select 2-3 characters instead of all */
   selectCharacters?: boolean;
-}): Promise<OutlineResult> {
+}, onEvent?: (event: any) => void): Promise<OutlineResult> {
   const { characters, continueFromChapter, continueFromLabel, chapterSummaries,
     activeForeshadowing, worldBible, authorNotes, previousProse, selectCharacters } = input;
 
@@ -305,6 +305,8 @@ ${authorText}
   console.log(`[OutlineAgent] Generating outline for chapter ${continueFromChapter + 1} (${characters.length} chars)...`);
   const t0 = Date.now();
 
+  if (onEvent) onEvent({ type: "agent", agentId: "outline", name: "大纲", status: "running" });
+
   const result = await llm.chatWithTool<SceneOutline>(
     [
       { role: "system", content: systemPrompt },
@@ -315,6 +317,21 @@ ${authorText}
   );
 
   console.log(`[OutlineAgent] Done in ${Date.now() - t0}ms: "${result.chapterTitle || result.sceneTitle}"`);
+
+  if (onEvent) {
+    onEvent({
+      type: "agent",
+      agentId: "outline",
+      name: "大纲",
+      status: "done",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+        { role: "assistant", content: JSON.stringify(result) },
+      ],
+    });
+  }
+
   return { outline: result, prompt: { system: systemPrompt, user: userPrompt } };
 }
 

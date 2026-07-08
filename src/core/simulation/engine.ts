@@ -20,6 +20,7 @@ export type SimulationEvent =
   | { type: "rewriting"; status: string }
   | { type: "final_prose"; prose: string; annotations: import("@/core/codex/types").ProseAnnotation[] }
   | { type: "scene_end"; fullNovel: string }
+  | { type: "agent"; agentId: string; name: string; status: "running" | "done"; messages?: import("@/types").LLMMessage[] }
   | { type: "error"; message: string };
 
 /**
@@ -161,6 +162,7 @@ export class SimulationEngine {
           this.onEvent({ type: "outline", outline: existingOutline });
         } else {
           try {
+            this.onEvent({ type: "agent", agentId: "outline", name: "大纲", status: "running" });
             const result = await runOutlineWriter({
               characters: presentChars,
               continueFromChapter: (this.state.rounds?.length || 0),
@@ -172,6 +174,19 @@ export class SimulationEngine {
               type: "outline",
               outline: result.outline,
               prompt: result.prompt,
+            });
+            this.onEvent({
+              type: "agent",
+              agentId: "outline",
+              name: "大纲",
+              status: "done",
+              messages: result.prompt
+                ? [
+                    { role: "system" as const, content: result.prompt.system },
+                    { role: "user" as const, content: result.prompt.user },
+                    { role: "assistant" as const, content: JSON.stringify(result.outline) },
+                  ]
+                : undefined,
             });
           } catch (e) {
             console.warn("[Engine] Outline writer failed, continuing without outline:", e);
@@ -212,6 +227,9 @@ export class SimulationEngine {
       const config = getAppConfig();
       const maxTokens = Math.max(config.llm.maxTokens || 4096, 16384);
 
+      const writerAgentId = "writer";
+      this.onEvent({ type: "agent", agentId: writerAgentId, name: "Writer", status: "running" });
+
       const prose = await llm.chat(
         [
           { role: "system", content: systemPrompt },
@@ -221,6 +239,18 @@ export class SimulationEngine {
       );
 
       this.onEvent({ type: "prose", prose });
+
+      this.onEvent({
+        type: "agent",
+        agentId: writerAgentId,
+        name: "Writer",
+        status: "done",
+        messages: [
+          { role: "system" as const, content: systemPrompt },
+          { role: "user" as const, content: userPrompt },
+          { role: "assistant" as const, content: prose },
+        ],
+      });
 
       let finalProse = prose;
       let annotations: ProseAnnotation[] = [];
@@ -254,7 +284,7 @@ export class SimulationEngine {
             codex: this.codex,
             chapterNumber,
             sharedSystemPrompt,
-          });
+          }, this.onEvent);
           debugLog("Engine", `Review done: ${review.findings.length} findings, ${review.needsHumanReview.length} need human review`);
           this.onEvent({ type: "review", review });
 
@@ -271,7 +301,7 @@ export class SimulationEngine {
             debugLog("Engine", `Rewrite starting: ${review.findings.length} findings`);
             this.onEvent({ type: "rewriting", status: "rewriting" });
             try {
-              const corrected = await rewriteProse(prose, review.findings, this.codex);
+              const corrected = await rewriteProse(prose, review.findings, this.codex, this.onEvent);
               annotations = generateAnnotations(review.findings);
               finalProse = corrected;
               debugLog("Engine", `Rewrite done: ${corrected.length} chars`);
