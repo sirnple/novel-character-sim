@@ -62,6 +62,7 @@ export class OpenAIProvider implements LLMProvider {
     toolSchema: ToolSchema,
     options?: { model?: string; maxTokens?: number; temperature?: number }
   ): Promise<T> {
+    // ... same implementation
     const model = options?.model || this.defaultModel;
     const inputLen = messages.reduce((sum, m) => sum + m.content.length, 0);
 
@@ -100,13 +101,50 @@ export class OpenAIProvider implements LLMProvider {
       return extractJSON<T>(rawText);
     } catch (jsonError) {
       const msg = jsonError instanceof Error ? jsonError.message : String(jsonError);
-      // If JSON is unbalanced (truncated response), treat as network error and retry
       if (msg.includes("Unbalanced JSON") || msg.includes("Failed to parse JSON")) {
         console.warn(`[LLM:chatWithTool] JSON parse failed, will retry: ${msg.substring(0, 100)}`);
         throw new Error(`JSON parse error (retryable): ${msg}`);
       }
       throw jsonError;
     }
+  }
+
+  async chatStream(
+    messages: LLMMessage[],
+    onChunk: (text: string) => void,
+    options?: { model?: string; maxTokens?: number; temperature?: number }
+  ): Promise<string> {
+    const model = options?.model || this.defaultModel;
+    const inputLen = messages.reduce((sum, m) => sum + m.content.length, 0);
+    console.log(`[LLM:chatStream] model=${model} inputLen=${inputLen} starting...`);
+    const t0 = Date.now();
+
+    const response = await this.client.chat.completions.create({
+      model,
+      max_tokens: options?.maxTokens || 4096,
+      temperature: options?.temperature ?? 0.7,
+      stream: true,
+      messages: messages.map((m) => ({
+        role: m.role as "system" | "user" | "assistant",
+        content: m.content,
+      })),
+    });
+
+    let fullText = "";
+    for await (const chunk of response) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        fullText += delta;
+        onChunk(fullText);
+      }
+    }
+
+    const elapsed = Date.now() - t0;
+    console.log(
+      `[LLM:chatStream] model=${model} elapsed=${elapsed}ms outputLen=${fullText.length}`
+    );
+
+    return fullText;
   }
 }
 

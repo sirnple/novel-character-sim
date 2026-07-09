@@ -43,6 +43,7 @@ export class ClaudeProvider implements LLMProvider {
     toolSchema: ToolSchema,
     options?: { model?: string; maxTokens?: number; temperature?: number }
   ): Promise<T> {
+    // ... same implementation
     const systemMsg = messages.find((m) => m.role === "system");
     const chatMessages = messages
       .filter((m) => m.role !== "system")
@@ -51,7 +52,6 @@ export class ClaudeProvider implements LLMProvider {
         content: m.content,
       }));
 
-    // Use a special system prompt to request structured JSON output
     const toolSystemPrompt = [
       systemMsg?.content || "",
       "",
@@ -67,7 +67,7 @@ export class ClaudeProvider implements LLMProvider {
     const response = await this.client.messages.create({
       model: options?.model || this.defaultModel,
       max_tokens: options?.maxTokens || 4096,
-      temperature: options?.temperature ?? 0.3, // Lower temp for structured output
+      temperature: options?.temperature ?? 0.3,
       system: toolSystemPrompt,
       messages: chatMessages,
     });
@@ -79,5 +79,38 @@ export class ClaudeProvider implements LLMProvider {
 
     const rawText = textBlock.text;
     return extractJSON<T>(rawText);
+  }
+
+  async chatStream(
+    messages: LLMMessage[],
+    onChunk: (text: string) => void,
+    options?: { model?: string; maxTokens?: number; temperature?: number }
+  ): Promise<string> {
+    const systemMsg = messages.find((m) => m.role === "system");
+    const chatMessages = messages
+      .filter((m) => m.role !== "system")
+      .map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+
+    const stream = await this.client.messages.create({
+      model: options?.model || this.defaultModel,
+      max_tokens: options?.maxTokens || 4096,
+      temperature: options?.temperature ?? 0.7,
+      system: systemMsg?.content,
+      messages: chatMessages,
+      stream: true,
+    });
+
+    let fullText = "";
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        fullText += event.delta.text;
+        onChunk(fullText);
+      }
+    }
+
+    return fullText;
   }
 }

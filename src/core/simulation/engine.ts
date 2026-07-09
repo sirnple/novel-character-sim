@@ -295,7 +295,7 @@ response_language = "Chinese only"
       // emit prompt for debugging/admin visibility
       this.onEvent({ type: "prompt", systemPrompt, userPrompt });
 
-      // --- Generate prose ---
+      // --- Generate prose (streaming) ---
       const llm = createLLMProvider();
       const config = getAppConfig();
       const maxTokens = Math.max(config.llm.maxTokens || 4096, 16384);
@@ -303,14 +303,18 @@ response_language = "Chinese only"
       const writerAgentId = "writer";
       this.onEvent({ type: "agent", agentId: writerAgentId, name: "Writer", status: "running" });
 
-      const prose = await llm.chat(
+      const prose = await llm.chatStream(
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
+        (accumulated) => {
+          this.onEvent({ type: "prose", prose: accumulated });
+        },
         { temperature: 0.7, maxTokens }
       );
 
+      // Ensure final prose is emitted
       this.onEvent({ type: "prose", prose });
 
       this.onEvent({

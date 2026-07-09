@@ -368,6 +368,12 @@ export interface LLMProvider {
     toolSchema: ToolSchema,
     options?: { model?: string; maxTokens?: number; temperature?: number }
   ): Promise<T>;
+
+  chatStream(
+    messages: LLMMessage[],
+    onChunk: (text: string) => void,
+    options?: { model?: string; maxTokens?: number; temperature?: number }
+  ): Promise<string>;
 }
 
 export interface ToolSchema {
