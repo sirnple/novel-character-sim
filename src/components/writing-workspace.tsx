@@ -43,6 +43,7 @@ interface WritingTask {
   savedToNovel?: boolean;
   branchId?: string;
   allowAdult?: boolean;
+  cleanMode?: boolean;
   createdAt: string;
 }
 
@@ -390,6 +391,7 @@ export default function WritingWorkspace({
           continueFromOffset: activeTask ? activeTask.continueFromOffset : 0,
           continueFromLabel: activeTask ? activeTask.continueFromLabel : "当前内容",
           allowAdult: activeTask?.allowAdult || false,
+          cleanMode: activeTask?.cleanMode || false,
           authorNotes: activeTask?.script || "",
         }),
         signal: new AbortController().signal,
@@ -473,6 +475,7 @@ export default function WritingWorkspace({
           continueFromOffset: activeTask?.continueFromOffset ?? 0,
           continueFromLabel: activeTask?.continueFromLabel ?? "",
           allowAdult: activeTask?.allowAdult || false,
+          cleanMode: activeTask?.cleanMode || false,
         }),
         signal: controller.signal,
       });
@@ -680,6 +683,12 @@ export default function WritingWorkspace({
                   onChange={e => updateTask(activeTaskId!, { allowAdult: e.target.checked })}
                   className="w-3 h-3 accent-red-500" />
                 <span className={activeTask?.allowAdult ? "text-red-400" : "text-neutral-600"}>成人</span>
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer" title="干净模式：全文上下文+循环审查直到收敛">
+                <input type="checkbox" checked={activeTask?.cleanMode || false}
+                  onChange={e => updateTask(activeTaskId!, { cleanMode: e.target.checked })}
+                  className="w-3 h-3 accent-blue-500" />
+                <span className={activeTask?.cleanMode ? "text-blue-400" : "text-neutral-600"}>干净</span>
               </label>
             </div>
           </div>
