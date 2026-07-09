@@ -211,6 +211,11 @@ interface ReviewResult {
   chapterSummary?: any;
 }
 
+interface CleanReviewResult {
+  findings: ReviewFinding[];
+  converged: boolean;
+}
+
 async function reviewCharacterConsistency(
   input: ReviewInput,
   llm: ReturnType<typeof createLLMProvider>,
@@ -330,6 +335,99 @@ Output your review findings. Return an empty array if no issues found.`
   };
 }
 
+async function reviewCharacterConsistencyClean(
+  fullNovelText: string,
+  generatedProse: string,
+  llm: ReturnType<typeof createLLMProvider>,
+  zh: boolean
+): Promise<CleanReviewResult> {
+  const prompt = zh
+    ? `## 审查指南
+你是角色一致性审查员。对照原文中角色的性格和说话方式，检查生成文字中是否有角色行为/语言偏离设定。只基于原文判断，不要凭空假设。
+
+### 严重级别
+- **critical** = 角色行为与其在原文中展现的核心人格彻底矛盾，且生成文字中无任何铺垫
+- **major** = 说话风格明显偏离原文中该角色的习惯（如口头禅消失、句式突变）
+- **minor** = 措辞微调问题，不影响整体角色一致性
+
+### 收敛判断
+如果生成文字中的角色表现与原文高度一致，设置 converged: true。
+即使有 minor 级别的问题，如果它们不影响整体角色一致性，也可以设置 converged: true。
+只有当存在 critical 或 major 级别的问题时，才设置 converged: false。
+
+## 原文（角色在原文中的全部表现）
+${fullNovelText.slice(0, 60000)}
+
+## 生成文字
+${generatedProse.slice(0, 8000)}
+
+请输出你的审查发现和收敛判断。没有发现则返回空数组并设置 converged: true。`
+
+    : `## Review Guidelines
+You are a character consistency reviewer. Check the generated prose against how characters behave and speak in the original text. Judge only from the original text, don't assume.
+
+### Severity
+- **critical** = Character acts completely contrary to core personality shown in original, with no setup
+- **major** = Speaking style noticeably deviates from patterns in original
+- **minor** = Minor diction refinement, doesn't affect overall consistency
+
+### Convergence
+Set converged: true if character portrayal is highly consistent with original. Minor issues don't prevent convergence.
+Only set converged: false for critical or major issues.
+
+## Original Text
+${fullNovelText.slice(0, 60000)}
+
+## Generated Prose
+${generatedProse.slice(0, 8000)}
+
+Output your findings and convergence judgment. Return empty findings and converged: true if nothing to report.`;
+
+  const schema = {
+    name: "character_review_clean",
+    description: "Review findings for character consistency in clean mode",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        findings: {
+          type: "array" as const,
+          items: {
+            type: "object" as const,
+            properties: {
+              severity: { type: "string" as const, enum: ["critical", "major", "minor"] },
+              location: { type: "string" as const },
+              description: { type: "string" as const },
+              suggestion: { type: "string" as const },
+              snippet: { type: "string" as const },
+            },
+            required: ["severity", "description", "suggestion"],
+          },
+        },
+        converged: { type: "boolean" as const },
+      },
+      required: ["findings", "converged"],
+    },
+  };
+
+  const result = await llm.chatWithTool<any>(
+    [{ role: "user", content: prompt }],
+    schema,
+    { temperature: 0.2, maxTokens: 4096 }
+  );
+
+  return {
+    findings: (result.findings || []).map((f: any) => ({
+      dimension: "character" as const,
+      severity: f.severity,
+      location: f.location || "",
+      description: f.description,
+      suggestion: f.suggestion,
+      snippet: f.snippet,
+    })),
+    converged: result.converged ?? (result.findings || []).length === 0,
+  };
+}
+
 async function reviewContinuity(
   input: ReviewInput,
   llm: ReturnType<typeof createLLMProvider>,
@@ -434,6 +532,70 @@ Output your review findings. Return an empty array if no issues found.`
       suggestion: f.suggestion,
       snippet: f.snippet,
     })),
+  };
+}
+
+async function reviewContinuityClean(
+  fullNovelText: string,
+  generatedProse: string,
+  llm: ReturnType<typeof createLLMProvider>,
+  zh: boolean
+): Promise<CleanReviewResult> {
+  const prompt = zh
+    ? `## 审查指南
+你是连贯性审查员。检查生成文字是否与原文中已建立的事实存在逻辑矛盾。
+
+### 严重级别
+- **critical** = 关键事实与原文矛盾（已死角色出现、事件链断裂）
+- **major** = 信息凭空出现、角色知道不该知道的信息
+- **minor** = 细节不一致但不影响情节逻辑
+
+### 收敛判断
+如果生成文字与原文在所有事实上一致，设置 converged: true。
+
+## 原文
+${fullNovelText.slice(0, 60000)}
+
+## 生成文字
+${generatedProse.slice(0, 8000)}
+
+请输出审查发现和收敛判断。`
+
+    : `## Review Guidelines
+You are a continuity reviewer. Check the generated prose against established facts in the original text.
+
+### Severity
+- **critical** = Key facts contradict original
+- **major** = Info appears from nowhere
+- **minor** = Minor inconsistencies
+
+### Convergence
+Set converged: true if the prose is factually consistent with the original.
+
+## Original
+${fullNovelText.slice(0, 60000)}
+
+## Generated Prose
+${generatedProse.slice(0, 8000)}
+
+Output your findings and convergence judgment.`;
+
+  const result = await llm.chatWithTool<any>(
+    [{ role: "user", content: prompt }],
+    { name: "continuity_review_clean", description: "Review findings for continuity in clean mode", parameters: { type: "object" as const, properties: { findings: { type: "array" as const, items: { type: "object" as const, properties: { severity: { type: "string" as const, enum: ["critical", "major", "minor"] }, location: { type: "string" as const }, description: { type: "string" as const }, suggestion: { type: "string" as const }, snippet: { type: "string" as const } }, required: ["severity", "description", "suggestion"] } }, converged: { type: "boolean" as const } }, required: ["findings", "converged"] } },
+    { temperature: 0.1, maxTokens: 4096 }
+  );
+
+  return {
+    findings: (result.findings || []).map((f: any) => ({
+      dimension: "continuity" as const,
+      severity: f.severity,
+      location: f.location || "",
+      description: f.description,
+      suggestion: f.suggestion,
+      snippet: f.snippet,
+    })),
+    converged: result.converged ?? (result.findings || []).length === 0,
   };
 }
 
@@ -575,6 +737,72 @@ Output your review findings. Return an empty array if no issues found.`
   };
 }
 
+async function reviewForeshadowingClean(
+  fullNovelText: string,
+  generatedProse: string,
+  llm: ReturnType<typeof createLLMProvider>,
+  zh: boolean
+): Promise<CleanReviewResult> {
+  const prompt = zh
+    ? `## 审查指南
+你是伏笔追踪员。检查生成文字是否推进或回收了原文中可见的情节线索。
+
+### 严重级别
+- **critical** = 原文中重要的情节线索在生成文字中被完全忽略，或产生了与原文方向明显矛盾的发展
+- **major** = 原文中的伏笔在生成文字中有提及但处理方式与原文暗示的方向不一致
+- **minor** = 伏笔有轻微推进但不够清晰，读者可能注意不到
+
+### 收敛判断
+如果生成文字合理地推进或回收了原文中所有可见的情节线索，设置 converged: true。
+如果原文中没有明显的伏笔/线索需要在此处处理，也设置 converged: true。
+
+## 原文
+${fullNovelText.slice(0, 60000)}
+
+## 生成文字
+${generatedProse.slice(0, 8000)}
+
+请输出审查发现和收敛判断。`
+
+    : `## Review Guidelines
+You are a foreshadowing tracker. Check if the generated prose advances or resolves plot threads visible in the original text.
+
+### Severity
+- **critical** = Important plot threads from original are completely ignored, or development contradicts original direction
+- **major** = Foreshadowing is mentioned but handled inconsistently with what original implied
+- **minor** = Foreshadowing advanced but too subtly, readers may miss it
+
+### Convergence
+Set converged: true if generated prose reasonably advances all visible plot threads from original.
+Also set converged: true if there are no obvious threads requiring handling here.
+
+## Original
+${fullNovelText.slice(0, 60000)}
+
+## Generated Prose
+${generatedProse.slice(0, 8000)}
+
+Output your findings and convergence judgment.`;
+
+  const result = await llm.chatWithTool<any>(
+    [{ role: "user", content: prompt }],
+    { name: "foreshadowing_review_clean", description: "Review findings for foreshadowing in clean mode", parameters: { type: "object" as const, properties: { findings: { type: "array" as const, items: { type: "object" as const, properties: { severity: { type: "string" as const, enum: ["critical", "major", "minor"] }, location: { type: "string" as const }, description: { type: "string" as const }, suggestion: { type: "string" as const }, snippet: { type: "string" as const } }, required: ["severity", "description", "suggestion"] } }, converged: { type: "boolean" as const } }, required: ["findings", "converged"] } },
+    { temperature: 0.2, maxTokens: 4096 }
+  );
+
+  return {
+    findings: (result.findings || []).map((f: any) => ({
+      dimension: "foreshadowing" as const,
+      severity: f.severity,
+      location: f.location || "",
+      description: f.description,
+      suggestion: f.suggestion,
+      snippet: f.snippet,
+    })),
+    converged: result.converged ?? (result.findings || []).length === 0,
+  };
+}
+
 async function reviewStyle(
   input: ReviewInput,
   llm: ReturnType<typeof createLLMProvider>,
@@ -689,6 +917,70 @@ Output your review findings. Return an empty array if no issues found.`
   };
 }
 
+async function reviewStyleClean(
+  fullNovelText: string,
+  generatedProse: string,
+  llm: ReturnType<typeof createLLMProvider>,
+  zh: boolean
+): Promise<CleanReviewResult> {
+  const prompt = zh
+    ? `## 审查指南
+你是风格一致性审查员。检查生成文字的写作风格是否与原文一致。
+
+### 严重级别
+- **critical** = 严重风格断裂（如古风小说出现现代网络用语、历史背景出现当代概念）
+- **major** = 明显风格不一致（句长急剧变化、AI味套话如"不知为何""仿佛""似乎"过度使用、句式单调重复）
+- **minor** = 可微调的措辞问题（个别用词可以更贴合风格）
+
+### 收敛判断
+如果生成文字的写作风格与原文高度一致，设置 converged: true。
+
+## 原文风格参考
+${fullNovelText.slice(0, 60000)}
+
+## 生成文字
+${generatedProse.slice(0, 8000)}
+
+请输出审查发现和收敛判断。`
+
+    : `## Review Guidelines
+You are a style consistency reviewer. Check if the generated prose matches the writing style of the original.
+
+### Severity
+- **critical** = Severe style rupture (modern slang in historical, contemporary concepts in period setting)
+- **major** = Notable inconsistency (sentence length shift, AI cliches like "for some reason" / "as if" overused, monotonous sentence structure)
+- **minor** = Minor wording that could better match the style
+
+### Convergence
+Set converged: true if the writing style of the generated prose is highly consistent with the original.
+
+## Original Style Reference
+${fullNovelText.slice(0, 60000)}
+
+## Generated Prose
+${generatedProse.slice(0, 8000)}
+
+Output your findings and convergence judgment.`;
+
+  const result = await llm.chatWithTool<any>(
+    [{ role: "user", content: prompt }],
+    { name: "style_review_clean", description: "Review findings for style consistency in clean mode", parameters: { type: "object" as const, properties: { findings: { type: "array" as const, items: { type: "object" as const, properties: { severity: { type: "string" as const, enum: ["critical", "major", "minor"] }, location: { type: "string" as const }, description: { type: "string" as const }, suggestion: { type: "string" as const }, snippet: { type: "string" as const } }, required: ["severity", "description", "suggestion"] } }, converged: { type: "boolean" as const } }, required: ["findings", "converged"] } },
+    { temperature: 0.2, maxTokens: 4096 }
+  );
+
+  return {
+    findings: (result.findings || []).map((f: any) => ({
+      dimension: "style" as const,
+      severity: f.severity,
+      location: f.location || "",
+      description: f.description,
+      suggestion: f.suggestion,
+      snippet: f.snippet,
+    })),
+    converged: result.converged ?? (result.findings || []).length === 0,
+  };
+}
+
 async function reviewWorldBuilding(
   input: ReviewInput,
   llm: ReturnType<typeof createLLMProvider>,
@@ -792,6 +1084,70 @@ Output your review findings. Return an empty array if no issues found.`
   };
 }
 
+async function reviewWorldBuildingClean(
+  fullNovelText: string,
+  generatedProse: string,
+  llm: ReturnType<typeof createLLMProvider>,
+  zh: boolean
+): Promise<CleanReviewResult> {
+  const prompt = zh
+    ? `## 审查指南
+你是世界观一致性审查员。检查生成文字是否遵守了原文中展示的世界规则和设定。
+
+### 严重级别
+- **critical** = 力量体系核心规则被打破（如修仙世界出现手枪）；不可逆的世界规则被违反
+- **major** = 社会结构或势力关系错误描述；地点描述与原文设定明显矛盾
+- **minor** = 细节措辞不够准确但方向正确
+
+### 收敛判断
+如果生成文字完全遵守原文中展示的世界规则，设置 converged: true。
+
+## 原文（世界规则参考）
+${fullNovelText.slice(0, 60000)}
+
+## 生成文字
+${generatedProse.slice(0, 8000)}
+
+请输出审查发现和收敛判断。`
+
+    : `## Review Guidelines
+You are a world-building consistency reviewer. Check if the generated prose respects the rules and mechanics of the world shown in the original text.
+
+### Severity
+- **critical** = Core power system rules broken; irreversible world rules violated
+- **major** = Social structure or faction relationships incorrectly described; location contradicts setting
+- **minor** = Minor wording imprecision, directionally correct
+
+### Convergence
+Set converged: true if the generated prose fully respects the world rules shown in the original.
+
+## Original (World Rules Reference)
+${fullNovelText.slice(0, 60000)}
+
+## Generated Prose
+${generatedProse.slice(0, 8000)}
+
+Output your findings and convergence judgment.`;
+
+  const result = await llm.chatWithTool<any>(
+    [{ role: "user", content: prompt }],
+    { name: "world_review_clean", description: "Review findings for world-building in clean mode", parameters: { type: "object" as const, properties: { findings: { type: "array" as const, items: { type: "object" as const, properties: { severity: { type: "string" as const, enum: ["critical", "major", "minor"] }, location: { type: "string" as const }, description: { type: "string" as const }, suggestion: { type: "string" as const }, snippet: { type: "string" as const } }, required: ["severity", "description", "suggestion"] } }, converged: { type: "boolean" as const } }, required: ["findings", "converged"] } },
+    { temperature: 0.1, maxTokens: 4096 }
+  );
+
+  return {
+    findings: (result.findings || []).map((f: any) => ({
+      dimension: "world" as const,
+      severity: f.severity,
+      location: f.location || "",
+      description: f.description,
+      suggestion: f.suggestion,
+      snippet: f.snippet,
+    })),
+    converged: result.converged ?? (result.findings || []).length === 0,
+  };
+}
+
 async function reviewPacing(
   input: ReviewInput,
   llm: ReturnType<typeof createLLMProvider>,
@@ -887,6 +1243,105 @@ Output your review findings. Return an empty array if no issues found.`
       snippet: f.snippet,
     })),
   };
+}
+
+async function reviewPacingClean(
+  fullNovelText: string,
+  generatedProse: string,
+  llm: ReturnType<typeof createLLMProvider>,
+  zh: boolean
+): Promise<CleanReviewResult> {
+  const prompt = zh
+    ? `## 审查指南
+你是节奏审查员。检查生成文字的节奏是否自然合理。
+
+### 严重级别
+- **critical** = 节奏极其不自然（如高潮战斗场景被写成慢悠悠的景物描写和内心独白）
+- **major** = 关键情节被无关内容淹没（拖沓）；或重要转折一笔带过（仓促）
+- **minor** = 段落级别节奏微调（个别段落可以收紧或舒展）
+
+### 收敛判断
+如果生成文字的节奏自然、段落张弛有度，设置 converged: true。
+
+## 原文（节奏参考）
+${fullNovelText.slice(0, 60000)}
+
+## 生成文字
+${generatedProse.slice(0, 8000)}
+
+请输出审查发现和收敛判断。`
+
+    : `## Review Guidelines
+You are a pacing reviewer. Check if the generated prose has appropriate rhythm.
+
+### Severity
+- **critical** = Extremely unnatural pacing (climax battle written as leisurely scenery and introspection)
+- **major** = Key plot buried under irrelevant content (dragging); or important turning points glossed over (rushing)
+- **minor** = Paragraph-level micro-adjustments
+
+### Convergence
+Set converged: true if the pacing feels natural with appropriate tension and release.
+
+## Original (Pacing Reference)
+${fullNovelText.slice(0, 60000)}
+
+## Generated Prose
+${generatedProse.slice(0, 8000)}
+
+Output your findings and convergence judgment.`;
+
+  const result = await llm.chatWithTool<any>(
+    [{ role: "user", content: prompt }],
+    { name: "pacing_review_clean", description: "Review findings for pacing in clean mode", parameters: { type: "object" as const, properties: { findings: { type: "array" as const, items: { type: "object" as const, properties: { severity: { type: "string" as const, enum: ["critical", "major", "minor"] }, location: { type: "string" as const }, description: { type: "string" as const }, suggestion: { type: "string" as const }, snippet: { type: "string" as const } }, required: ["severity", "description", "suggestion"] } }, converged: { type: "boolean" as const } }, required: ["findings", "converged"] } },
+    { temperature: 0.2, maxTokens: 4096 }
+  );
+
+  return {
+    findings: (result.findings || []).map((f: any) => ({
+      dimension: "pacing" as const,
+      severity: f.severity,
+      location: f.location || "",
+      description: f.description,
+      suggestion: f.suggestion,
+      snippet: f.snippet,
+    })),
+    converged: result.converged ?? (result.findings || []).length === 0,
+  };
+}
+
+export async function runFullReviewClean(
+  fullNovelText: string,
+  generatedProse: string,
+  onEvent?: (event: any) => void
+): Promise<{ allConverged: boolean; allFindings: ReviewFinding[] }> {
+  const llm = createLLMProvider();
+  const zh = isChinese(generatedProse);
+
+  const agentDefs = [
+    { id: "review_char", name: "角色一致性", fn: reviewCharacterConsistencyClean },
+    { id: "review_cont", name: "连贯性", fn: reviewContinuityClean },
+    { id: "review_fore", name: "伏笔追踪", fn: reviewForeshadowingClean },
+    { id: "review_style", name: "风格", fn: reviewStyleClean },
+    { id: "review_world", name: "世界观", fn: reviewWorldBuildingClean },
+    { id: "review_pace", name: "节奏", fn: reviewPacingClean },
+  ];
+
+  const results = await Promise.all(
+    agentDefs.map(async (def) => {
+      if (onEvent) onEvent({ type: "agent", agentId: def.id, name: def.name, status: "running" });
+      const r = await def.fn(fullNovelText, generatedProse, llm, zh);
+      if (onEvent) onEvent({
+        type: "agent", agentId: def.id, name: def.name, status: "done",
+        messages: [{ role: "assistant" as const, content: JSON.stringify({ findings: r.findings, converged: r.converged }) }],
+      });
+      return r;
+    })
+  );
+
+  const allFindings = results.flatMap(r => r.findings);
+  const allConverged = results.every(r => r.converged);
+
+  return { allConverged, allFindings };
 }
 
 /**
