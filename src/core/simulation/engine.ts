@@ -342,7 +342,8 @@ response_language = "Chinese only"
       // --- Clean mode: serial review loop ---
       if (this.cleanMode) {
         let currentProse = prose;
-        let allConverged = false;
+        let prevFindingsCount = Infinity;
+        let stallRounds = 0;
         const maxRounds = 20;
 
         for (let round = 1; round <= maxRounds; round++) {
@@ -354,20 +355,35 @@ response_language = "Chinese only"
             this.onEvent
           );
 
-          allConverged = reviewResult.allConverged;
+          const findingsCount = reviewResult.allFindings.length;
 
           this.onEvent({
             type: "review_round" as any,
             round,
             findings: reviewResult.allFindings,
-            converged: allConverged,
+            converged: reviewResult.allConverged,
           });
 
-          debugLog("Engine", `Clean mode round ${round}: ${reviewResult.allFindings.length} findings, converged=${allConverged}`);
+          debugLog("Engine", `Clean mode round ${round}: ${findingsCount} findings`);
 
-          if (allConverged || round === maxRounds) {
+          // Convergence: stop if findings not decreasing for 2 rounds
+          if (findingsCount >= prevFindingsCount) {
+            stallRounds++;
+          } else {
+            stallRounds = 0;
+          }
+          prevFindingsCount = findingsCount;
+
+          if (stallRounds >= 2 && round > 1) {
+            debugLog("Engine", `Clean mode converged at round ${round} (stalled ${stallRounds} rounds)`);
             finalProse = currentProse;
             annotations = generateAnnotations(reviewResult.allFindings);
+            break;
+          }
+          if (findingsCount === 0) {
+            debugLog("Engine", `Clean mode converged at round ${round} (0 findings)`);
+            finalProse = currentProse;
+            annotations = [];
             break;
           }
 
@@ -415,71 +431,99 @@ ${findingsForRewrite}
         this.onEvent({ type: "final_prose", prose: finalProse, annotations });
       }
 
-      // --- Post-writing review (codex mode) ---
+      // --- Post-writing review (codex mode with iteration) ---
       else if (this.runReview && this.codex) {
-        debugLog("Engine", `Review gate: runReview=${this.runReview}, codex=${this.codex ? "present" : "null"}`);
-        try {
-          const chapterNumber = (this.state.rounds?.length || 0) + 1;
-          const charStates = (this.codex.characterDossiers?.currentStates || []).map((s: any) => ({
-            name: s.name || "",
-            currentLocation: s.currentLocation || "未知",
-            currentEmotion: s.currentEmotion || "未知",
-            currentGoal: s.currentGoal || "未知",
-          }));
-          const sharedSystemPrompt = buildSharedReviewSystemPrompt({
-            novelTitle: this.state.novelTitle,
-            chapterNumber,
-            outline,
-            scene: this.state.scene,
-            previousProse: this.state.fullNovelOutput || "",
-            characterStates: charStates,
-            narrativeStyle: {
-              pointOfView: this.state.scene.narrativeStyle.pointOfView,
-              tone: this.state.scene.narrativeStyle.tone,
-              targetLength: this.state.scene.narrativeStyle.targetLength,
-            },
-          });
-          const review = await runFullReview({
-            generatedProse: prose,
-            codex: this.codex,
-            chapterNumber,
-            sharedSystemPrompt,
-          }, this.onEvent);
-          debugLog("Engine", `Review done: ${review.findings.length} findings, ${review.needsHumanReview.length} need human review`);
-          this.onEvent({ type: "review", review });
+        debugLog("Engine", `Codex mode: starting review loop`);
+        let currentProse = prose;
+        let prevFindingsCount = Infinity;
+        let stallRounds = 0;
+        const maxRounds = 20;
 
-          if (review.needsHumanReview.length > 0) {
-            console.warn(
-              `[Engine] ${review.needsHumanReview.length} issues need human review:`,
-              review.needsHumanReview.map(f => `[${f.severity}] ${f.description}`).join("; ")
-            );
-          }
+        for (let round = 1; round <= maxRounds; round++) {
+          try {
+            const chapterNumber = (this.state.rounds?.length || 0) + 1;
+            const charStates = (this.codex.characterDossiers?.currentStates || []).map((s: any) => ({
+              name: s.name || "",
+              currentLocation: s.currentLocation || "未知",
+              currentEmotion: s.currentEmotion || "未知",
+              currentGoal: s.currentGoal || "未知",
+            }));
+            const sharedSystemPrompt = buildSharedReviewSystemPrompt({
+              novelTitle: this.state.novelTitle,
+              chapterNumber,
+              outline,
+              scene: this.state.scene,
+              previousProse: this.state.fullNovelOutput || "",
+              characterStates: charStates,
+              narrativeStyle: {
+                pointOfView: this.state.scene.narrativeStyle.pointOfView,
+                tone: this.state.scene.narrativeStyle.tone,
+                targetLength: this.state.scene.narrativeStyle.targetLength,
+              },
+            });
+            const review = await runFullReview({
+              generatedProse: currentProse,
+              codex: this.codex,
+              chapterNumber,
+              sharedSystemPrompt,
+            }, this.onEvent);
+            debugLog("Engine", `Codex round ${round}: ${review.findings.length} findings, ${review.needsHumanReview.length} critical`);
+            this.onEvent({ type: "review", review });
 
-          // --- Rewrite with findings ---
-          const hasFindings = review.findings.length > 0;
-          if (hasFindings) {
-            debugLog("Engine", `Rewrite starting: ${review.findings.length} findings`);
-            this.onEvent({ type: "rewriting", status: "rewriting" });
-            try {
-              const corrected = await rewriteProse(prose, review.findings, this.codex, this.onEvent);
-              annotations = generateAnnotations(review.findings);
-              finalProse = corrected;
-              debugLog("Engine", `Rewrite done: ${corrected.length} chars`);
-            } catch (e) {
-              debugLog("Engine", `Rewrite FAILED: ${(e as Error).message}`);
-              console.warn("[Engine] Rewrite failed, using original prose:", e);
-              annotations = generateAnnotations(review.findings);
+            if (review.needsHumanReview.length > 0) {
+              console.warn(
+                `[Engine] Round ${round} — ${review.needsHumanReview.length} issues need human review:`,
+                review.needsHumanReview.map(f => `[${f.severity}] ${f.description}`).join("; ")
+              );
             }
-          } else {
-            debugLog("Engine", `Rewrite skipped: 0 auto-fixable findings`);
-          }
 
-          // Update codex for next chapter
-          const outlineTitle = outline?.sceneTitle || "";
-          this.codex = updateCodexAfterChapter(this.codex, review, chapterNumber, outlineTitle);
-        } catch (e) {
-          debugLog("Engine", `Review FAILED: ${(e as Error).message}`);
-          console.warn("[Engine] Review failed, continuing:", e);
+            // Convergence check: stop if findings not decreasing
+            const findingsCount = review.findings.length;
+            if (findingsCount >= prevFindingsCount) {
+              stallRounds++;
+            } else {
+              stallRounds = 0;
+            }
+            prevFindingsCount = findingsCount;
+
+            if (stallRounds >= 2 && round > 1) {
+              debugLog("Engine", `Codex mode converged at round ${round} (stalled ${stallRounds} rounds)`);
+              finalProse = currentProse;
+              annotations = generateAnnotations(review.findings);
+              break;
+            }
+            if (findingsCount === 0) {
+              debugLog("Engine", `Codex mode converged at round ${round} (0 findings)`);
+              finalProse = currentProse;
+              annotations = [];
+              break;
+            }
+
+            // Rewrite
+            if (findingsCount > 0) {
+              debugLog("Engine", `Codex round ${round}: rewriting`);
+              this.onEvent({ type: "rewriting", status: `round_${round}` });
+              try {
+                const corrected = await rewriteProse(currentProse, review.findings, this.codex, this.onEvent);
+                currentProse = corrected;
+                this.onEvent({ type: "prose", prose: currentProse });
+                debugLog("Engine", `Codex round ${round}: rewrite done, ${corrected.length} chars`);
+              } catch (e) {
+                debugLog("Engine", `Codex round ${round}: rewrite FAILED ${(e as Error).message}`);
+                finalProse = currentProse;
+                annotations = generateAnnotations(review.findings);
+                break;
+              }
+            }
+
+            // Update codex for next round
+            const outlineTitle = outline?.sceneTitle || "";
+            this.codex = updateCodexAfterChapter(this.codex, review, chapterNumber, outlineTitle);
+          } catch (e) {
+            debugLog("Engine", `Codex round ${round}: review FAILED ${(e as Error).message}`);
+            console.warn("[Engine] Review failed, continuing:", e);
+            if (round === 1) break;  // can't continue without first review
+          }
         }
       } else {
         debugLog("Engine", "Review SKIPPED — runReview=false or codex is null");

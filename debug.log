@@ -111,3 +111,57 @@
 [2026-07-09T15:34:57.150Z] [Engine] Review done: 15 findings, 0 need human review
 [2026-07-09T15:34:57.150Z] [Engine] Rewrite starting: 15 findings
 [2026-07-09T15:35:18.359Z] [Engine] Rewrite done: 5753 chars
+[2026-07-09T16:30:29.377Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-09T16:30:29.382Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-09T16:30:52.476Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-09T16:30:52.480Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-09T16:31:34.735Z] [Engine] Clean mode round 1/20: reviewing...
+[2026-07-09T16:31:46.211Z] [Engine] Clean mode round 1: 23 findings, converged=false
+[2026-07-09T16:32:21.056Z] [Engine] Clean mode round 1: rewrite done, 5641 chars
+[2026-07-09T16:32:21.057Z] [Engine] Clean mode round 2/20: reviewing...
+[2026-07-09T16:32:30.916Z] [Engine] Clean mode round 2: 13 findings, converged=false
+[2026-07-09T16:33:01.911Z] [Engine] Clean mode round 2: rewrite done, 5725 chars
+[2026-07-09T16:33:01.912Z] [Engine] Clean mode round 3/20: reviewing...
+[2026-07-09T16:33:13.779Z] [Engine] Clean mode round 3: 17 findings, converged=false
+[2026-07-09T16:33:37.298Z] [Engine] Clean mode round 3: rewrite done, 5171 chars
+[2026-07-09T16:33:37.299Z] [Engine] Clean mode round 4/20: reviewing...
+[2026-07-09T16:33:45.323Z] [Engine] Clean mode round 4: 15 findings, converged=false
+[2026-07-09T16:34:07.333Z] [Engine] Clean mode round 4: rewrite done, 4897 chars
+[2026-07-09T16:34:07.334Z] [Engine] Clean mode round 5/20: reviewing...
+[2026-07-09T16:34:18.475Z] [Engine] Clean mode round 5: 19 findings, converged=false
+[2026-07-09T16:34:46.253Z] [Engine] Clean mode round 5: rewrite done, 5183 chars
+[2026-07-09T16:34:46.253Z] [Engine] Clean mode round 6/20: reviewing...
+[2026-07-09T16:34:56.732Z] [Engine] Clean mode round 6: 18 findings, converged=false
+[2026-07-09T16:35:22.676Z] [Engine] Clean mode round 6: rewrite done, 5500 chars
+[2026-07-09T16:35:22.677Z] [Engine] Clean mode round 7/20: reviewing...
+[2026-07-09T16:35:30.904Z] [Engine] Clean mode round 7: 13 findings, converged=false
+[2026-07-09T16:35:56.853Z] [Engine] Clean mode round 7: rewrite done, 5702 chars
+[2026-07-09T16:35:56.853Z] [Engine] Clean mode round 8/20: reviewing...
+[2026-07-09T16:36:07.560Z] [Engine] Clean mode round 8: 13 findings, converged=false
+[2026-07-09T16:36:37.062Z] [Engine] Clean mode round 8: rewrite done, 5937 chars
+[2026-07-09T16:36:37.062Z] [Engine] Clean mode round 9/20: reviewing...
+[2026-07-09T16:36:54.344Z] [Engine] Clean mode round 9: 21 findings, converged=false
+[2026-07-09T16:37:23.104Z] [Engine] Clean mode round 9: rewrite done, 6000 chars
+[2026-07-09T16:37:23.105Z] [Engine] Clean mode round 10/20: reviewing...
+[2026-07-09T16:37:32.362Z] [Engine] Clean mode round 10: 15 findings, converged=false
+[2026-07-09T16:38:13.784Z] [Engine] Clean mode round 10: rewrite done, 7668 chars
+[2026-07-09T16:38:13.784Z] [Engine] Clean mode round 11/20: reviewing...
+[2026-07-09T16:38:23.046Z] [Engine] Clean mode round 11: 15 findings, converged=false
+[2026-07-09T16:40:27.934Z] [Engine] Clean mode round 11: rewrite done, 26582 chars
+[2026-07-09T16:40:27.934Z] [Engine] Clean mode round 12/20: reviewing...
+[2026-07-09T16:40:39.531Z] [Engine] Clean mode round 12: 21 findings, converged=false
+[2026-07-09T16:42:25.584Z] [Engine] Clean mode round 12: rewrite done, 26576 chars
+[2026-07-09T16:42:25.584Z] [Engine] Clean mode round 13/20: reviewing...
+[2026-07-09T16:42:34.379Z] [Engine] Clean mode round 13: 21 findings, converged=false
+[2026-07-09T16:44:15.513Z] [Engine] Clean mode round 13: rewrite done, 26562 chars
+[2026-07-09T16:44:15.513Z] [Engine] Clean mode round 14/20: reviewing...
+[2026-07-09T16:44:25.125Z] [Engine] Clean mode round 14: 19 findings, converged=false
+[2026-07-09T16:46:03.881Z] [Engine] Clean mode round 14: rewrite done, 26664 chars
+[2026-07-09T16:46:03.882Z] [Engine] Clean mode round 15/20: reviewing...
+[2026-07-09T16:46:17.116Z] [Engine] Clean mode round 15: 25 findings, converged=false
+[2026-07-09T16:47:52.954Z] [Engine] Clean mode round 15: rewrite done, 26530 chars
+[2026-07-09T16:47:52.954Z] [Engine] Clean mode round 16/20: reviewing...
+[2026-07-09T16:48:01.829Z] [Engine] Clean mode round 16: 18 findings, converged=false
+[2026-07-09T16:48:54.250Z] [Engine] Clean mode round 16: rewrite done, 10412 chars
+[2026-07-09T16:48:54.251Z] [Engine] Clean mode round 17/20: reviewing...
+[2026-07-09T16:49:03.180Z] [Engine] Clean mode round 17: 22 findings, converged=false
