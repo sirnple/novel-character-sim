@@ -6,9 +6,9 @@ import { createLLMProvider } from "@/core/llm/factory";
 import { runOutlineWriter } from "./outline-agent";
 import { buildCodex } from "@/core/codex/builder";
 import { renderCodexAsPrompt } from "@/core/codex/renderer";
-import { runFullReview, rewriteProse, generateAnnotations, buildSharedReviewSystemPrompt } from "@/core/codex/review-orchestrator";
+import { runFullReview, rewriteProse, generateAnnotations, buildSharedReviewSystemPrompt, runFullReviewClean } from "@/core/codex/review-orchestrator";
 import { updateCodexAfterChapter } from "@/core/codex/updater";
-import type { WritersCodex, ProseAnnotation } from "@/core/codex/types";
+import type { WritersCodex, ProseAnnotation, ReviewFinding } from "@/core/codex/types";
 
 export type SimulationEventCallback = (event: SimulationEvent) => void;
 
@@ -17,6 +17,7 @@ export type SimulationEvent =
   | { type: "prose"; prose: string }
   | { type: "prompt"; systemPrompt: string; userPrompt: string }
   | { type: "review"; review: import("@/core/codex/types").ReviewReport }
+  | { type: "review_round"; round: number; findings: import("@/core/codex/types").ReviewFinding[]; converged: boolean }
   | { type: "rewriting"; status: string }
   | { type: "final_prose"; prose: string; annotations: import("@/core/codex/types").ProseAnnotation[] }
   | { type: "scene_end"; fullNovel: string }
@@ -108,6 +109,8 @@ export class SimulationEngine {
   private codex: WritersCodex | null = null;
   private runReview: boolean;
   private allowAdult: boolean;
+  private cleanMode: boolean;
+  private fullNovelText: string;
 
   constructor(
     novelTitle: string,
@@ -120,7 +123,9 @@ export class SimulationEngine {
     codex?: WritersCodex | null,
     runReview = true,
     initialProse?: string,
-    allowAdult = false
+    allowAdult = false,
+    cleanMode = false,
+    fullNovelText?: string
   ) {
     this.writingStyle = writingStyle;
     this.onEvent = onEvent;
@@ -129,6 +134,8 @@ export class SimulationEngine {
     this.codex = codex || null;
     this.runReview = runReview;
     this.allowAdult = allowAdult;
+    this.cleanMode = cleanMode;
+    this.fullNovelText = fullNovelText || "";
     this.state = {
       id: generateId(),
       status: "idle",
@@ -332,9 +339,85 @@ response_language = "Chinese only"
       let finalProse = prose;
       let annotations: ProseAnnotation[] = [];
 
-      // --- Post-writing review ---
-      debugLog("Engine", `Review gate: runReview=${this.runReview}, codex=${this.codex ? "present" : "null"}`);
-      if (this.runReview && this.codex) {
+      // --- Clean mode: serial review loop ---
+      if (this.cleanMode) {
+        let currentProse = prose;
+        let allConverged = false;
+        const maxRounds = 20;
+
+        for (let round = 1; round <= maxRounds; round++) {
+          debugLog("Engine", `Clean mode round ${round}/${maxRounds}: reviewing...`);
+
+          const reviewResult = await runFullReviewClean(
+            this.fullNovelText,
+            currentProse,
+            this.onEvent
+          );
+
+          allConverged = reviewResult.allConverged;
+
+          this.onEvent({
+            type: "review_round" as any,
+            round,
+            findings: reviewResult.allFindings,
+            converged: allConverged,
+          });
+
+          debugLog("Engine", `Clean mode round ${round}: ${reviewResult.allFindings.length} findings, converged=${allConverged}`);
+
+          if (allConverged || round === maxRounds) {
+            finalProse = currentProse;
+            annotations = generateAnnotations(reviewResult.allFindings);
+            break;
+          }
+
+          // Not converged — rewrite with findings
+          this.onEvent({ type: "rewriting", status: `round_${round}` });
+
+          const findingsForRewrite = reviewResult.allFindings.map((f, i) =>
+            `${i + 1}. [${f.dimension}][${f.severity}] ${f.description}\n   修改建议: ${f.suggestion}${f.snippet ? `\n   问题片段: "${f.snippet}"` : ""}`
+          ).join("\n\n");
+
+          const llm = createLLMProvider();
+          const rewritePrompt = `你是小说续写的修订作家。请根据审查反馈重写以下文字。
+
+## 原文（续写前的全文）
+${this.fullNovelText.slice(-30000)}
+
+## 当前生成的 prose
+${currentProse}
+
+## 审查反馈
+${findingsForRewrite}
+
+## 要求
+- 修复以上所有问题
+- 保持叙事流畅和风格一致
+- 直接输出修订后的完整文字`;
+
+          try {
+            const corrected = await llm.chat(
+              [{ role: "user", content: rewritePrompt }],
+              { temperature: 0.5, maxTokens: 16384 }
+            );
+            currentProse = corrected || currentProse;
+            this.onEvent({ type: "prose", prose: currentProse });
+            debugLog("Engine", `Clean mode round ${round}: rewrite done, ${currentProse.length} chars`);
+          } catch (e) {
+            debugLog("Engine", `Clean mode round ${round}: rewrite FAILED ${(e as Error).message}`);
+            finalProse = currentProse;
+            annotations = [];
+            break;
+          }
+        }
+
+        // Emit final prose
+        this.onEvent({ type: "final_prose", prose: finalProse, annotations });
+      }
+
+      // --- Post-writing review (codex mode) ---
+      else if (this.runReview && this.codex) {
+        debugLog("Engine", `Review gate: runReview=${this.runReview}, codex=${this.codex ? "present" : "null"}`);
         try {
           const chapterNumber = (this.state.rounds?.length || 0) + 1;
           const charStates = (this.codex.characterDossiers?.currentStates || []).map((s: any) => ({
@@ -402,8 +485,10 @@ response_language = "Chinese only"
         debugLog("Engine", "Review SKIPPED — runReview=false or codex is null");
       }
 
-      // Always emit final_prose — with or without review
-      this.onEvent({ type: "final_prose", prose: finalProse, annotations });
+      // Always emit final_prose — with or without review (clean mode emits its own)
+      if (!this.cleanMode) {
+        this.onEvent({ type: "final_prose", prose: finalProse, annotations });
+      }
 
       // --- Store result ---
       this.state.rounds.push({
