@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
     continueFromOffset,
     continueFromLabel,
     allowAdult,
+    cleanMode,
   }: {
     novelTitle: string;
     novelId?: string;
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
     continueFromOffset?: number;
     continueFromLabel?: string;
     allowAdult?: boolean;
+    cleanMode?: boolean;
   } = body;
 
   if (!characters?.length || !scene) {
@@ -133,7 +135,9 @@ export async function POST(request: NextRequest) {
         codex,
         !outlineOnly,  // runReview = false when outlineOnly
         continueFromOffset ? dbNovelText.slice(0, continueFromOffset) : undefined,
-        allowAdult || false
+        allowAdult || false,
+        cleanMode || false,
+        cleanMode ? dbNovelText : undefined
       );
 
       try {

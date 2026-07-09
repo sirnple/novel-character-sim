@@ -492,6 +492,13 @@ export default function WritingWorkspace({
                 case "prompt": setWriterPrompt({ systemPrompt: event.systemPrompt, userPrompt: event.userPrompt }); updateTask(activeTaskId!, { writerPrompt: { systemPrompt: event.systemPrompt, userPrompt: event.userPrompt } }); break;
                 case "prose": setOutputText(event.prose); break;
                 case "review": setReview(event.review); setShowReview(true); updateTask(activeTaskId!, { review: event.review }); break;
+                case "review_round":
+                  setReview({
+                    findings: event.findings,
+                    needsHumanReview: (event.findings || []).filter((f: any) => f.severity === "critical"),
+                  } as any);
+                  setShowReview(true);
+                  break;
                 case "rewriting": setStatus("generating"); break;
                 case "final_prose":
                   setOutputText(event.prose);
