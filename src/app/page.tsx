@@ -10,6 +10,7 @@ import StoryTimeline from "@/components/story-timeline";
 import StoryInfoPanel from "@/components/story-info-panel";
 import SimulationRunner from "@/components/simulation-runner";
 import WritingWorkspace from "@/components/writing-workspace";
+import AgentPanel from "@/components/agent-panel";
 import { novelFingerprint } from "@/lib/utils";
 import { useUserInfo } from "@/lib/rate-limit-ui";
 import {
@@ -103,7 +104,7 @@ export default function Home() {
   // UI state
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("overview");
   const [showRightPanel, setShowRightPanel] = useState(false);
-  const [rightPanelView, setRightPanelView] = useState<"codex" | "review">("codex");
+  const [rightPanelView, setRightPanelView] = useState<"codex" | "review" | "assistant">("codex");
   const [expandedSections, setExpandedSections] = useState<Record<SidebarSection, boolean>>({
     library: true,
     tasks: true,
@@ -881,6 +882,12 @@ export default function Home() {
                 >
                   REVIEW
                 </button>
+                <button
+                  onClick={() => setRightPanelView("assistant")}
+                  className={`px-2.5 py-1 text-[10px] font-mono transition-colors ${rightPanelView === "assistant" ? "bg-neutral-700 text-neutral-200" : "bg-transparent text-neutral-500 hover:text-neutral-300"}`}
+                >
+                  助手
+                </button>
               </div>
               <button
                 onClick={() => setShowRightPanel(false)}
@@ -900,6 +907,12 @@ export default function Home() {
                   <CodexPanelSection title="灵感库" count={0} detail="（手动添加）" />
                   <CodexPanelSection title="风格包" count={storyInfo?.writingStyle ? 1 : 0} />
                 </div>
+              ) : rightPanelView === "assistant" ? (
+                <AgentPanel
+                  novelTitle={novelTitle}
+                  characters={characters}
+                  novelText={novelText}
+                />
               ) : (
                 <div className="space-y-4">
                   <h3 className="text-[10px] text-neutral-500 font-mono uppercase tracking-widest">审查报告</h3>
