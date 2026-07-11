@@ -194,46 +194,19 @@ export default function WritingWorkspace({
 
   // --- Build script ---
   const buildScript = useCallback(
-    (chars: CharacterProfile[], ol: SceneOutline | null, sc: SceneDefinition) => {
-      const selectedChars = chars.filter(c => sc.characterIds.includes(c.id));
+    (_chars: CharacterProfile[], ol: SceneOutline | null, _sc: SceneDefinition) => {
       const lines: string[] = [];
       lines.push("# 写作大纲\n");
-      lines.push("## 场景");
-      lines.push(`地点：${sc.location || "（未指定）"}`);
-      lines.push(`时间：${sc.timeOfDay}  天气：${sc.weather}  氛围：${sc.atmosphere}`);
-      if (sc.initialSituation) lines.push(`\n${sc.initialSituation}`);
-
-      if (selectedChars.length > 0) {
-        lines.push("\n## 出场角色");
-        for (const c of selectedChars) {
-          const traits = Array.isArray(c.personality?.traits) ? c.personality.traits.join("、") : String(c.personality?.traits || "");
-          const goal = c.drive?.goal || "";
-          const speaking = c.speakingStyle?.description || "";
-          const cp = c.speakingStyle?.catchphrases;
-          const catchphrases = Array.isArray(cp) ? cp.join("、") : "";
-          const relList = Array.isArray(c.relationships) ? c.relationships : [];
-          const rels = relList
-            .filter(r => selectedChars.some(sc2 => sc2.name === r.characterName))
-            .map(r => `${r.characterName}（${r.type}：${r.dynamics}）`)
-            .join("；");
-          lines.push(`### ${c.name}`);
-          lines.push(`性格：${traits}。${c.personality?.description || ""}`);
-          if (goal) lines.push(`核心目标：${goal}`);
-          if (speaking) lines.push(`说话风格：${speaking}${catchphrases ? `（口头禅：${catchphrases}）` : ""}`);
-          if (rels) lines.push(`在场关系：${rels}`);
-          lines.push("");
-        }
-      }
 
       if (ol) {
-        lines.push("\n## 大纲");
         const title = ol.chapterTitle || ol.sceneTitle;
         const goal = ol.chapterGoal || ol.sceneGoal;
-        const ending = ol.chapterEnding || ol.sceneEnding;
         if (title) lines.push(`### ${title}`);
-        if (goal) lines.push(`\n**章节目标**：${goal}`);
+        if (goal) lines.push(`\n**续写目标**：${goal}`);
 
-        // Time & space
+        if (ol.estimatedWordCount) lines.push(`**预计字数**：${ol.estimatedWordCount} 字`);
+        if (ol.estimatedChapters) lines.push(`**预计章数**：${ol.estimatedChapters} 章`);
+
         const timeSpan = ol.timeSpan || (ol as any).time_span;
         const seasonAndTime = ol.seasonAndTime || (ol as any).season_and_time;
         const locations = ol.locations || (ol as any).location;
@@ -246,7 +219,6 @@ export default function WritingWorkspace({
           }
         }
 
-        // Focus characters
         const focusChars = ol.focusCharacters || (ol as any).focus_characters;
         if (Array.isArray(focusChars) && focusChars.length > 0) {
           lines.push("\n**焦点角色**");
@@ -255,7 +227,6 @@ export default function WritingWorkspace({
           }
         }
 
-        // Plot points
         const plotPoints = ol.plotPoints || ol.beats;
         if (Array.isArray(plotPoints) && plotPoints.length > 0) {
           lines.push("\n**情节点**");
@@ -268,7 +239,6 @@ export default function WritingWorkspace({
           }
         }
 
-        // Character threads
         const threads = ol.characterThreads || (ol as any).character_threads;
         if (Array.isArray(threads) && threads.length > 0) {
           lines.push("\n**角色发展**");
@@ -277,7 +247,6 @@ export default function WritingWorkspace({
           }
         }
 
-        // Foreshadowing
         const newFs = ol.newForeshadowing || [];
         const revealFs = ol.foreshadowingToReveal || [];
         if (newFs.length > 0 || revealFs.length > 0) {
@@ -290,8 +259,8 @@ export default function WritingWorkspace({
           }
         }
 
-        // Arc + ending + pacing
         if (ol.emotionalArc) lines.push(`\n**情感弧线**：${ol.emotionalArc}`);
+        const ending = ol.chapterEnding || ol.sceneEnding;
         if (ending) lines.push(`**章节收尾**：${ending}`);
         if (ol.pacing) lines.push(`**节奏**：${ol.pacing}`);
       }
