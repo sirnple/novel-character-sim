@@ -1,21 +1,14 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { Bot, Send, Loader2 } from "lucide-react";
+import { Bot, Send, Loader2, Wrench } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
 interface AgentMessage {
   id: string;
-  role: "user" | "agent";
+  role: "user" | "agent" | "tool";
   content: string;
-  metadata?: { type?: "outline" | "prose" | "text"; data?: any };
+  metadata?: { tool?: string; status?: "running" | "done" };
   timestamp: string;
-}
-
-interface AgentThread {
-  agentId: string;
-  name: string;
-  messages: AgentMessage[];
-  status: "idle" | "generating";
 }
 
 interface AgentPanelProps {
@@ -28,51 +21,32 @@ interface AgentPanelProps {
 }
 
 export default function AgentPanel({ novelTitle, characters, novelText, continueFromOffset, continueFromLabel, onOutlineGenerated }: AgentPanelProps) {
-  const [threads, setThreads] = useState<AgentThread[]>([
-    { agentId: "outline", name: "大纲", messages: [], status: "idle" },
-    { agentId: "writer", name: "Writer", messages: [], status: "idle" },
-    { agentId: "review", name: "审查", messages: [], status: "idle" },
-  ]);
-  const [activeAgentId, setActiveAgentId] = useState("outline");
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [status, setStatus] = useState<"idle" | "generating">("idle");
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const activeThread = threads.find(t => t.agentId === activeAgentId)!;
-
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeThread.messages]);
-
-  const addMessage = (agentId: string, msg: AgentMessage) => {
-    setThreads(prev => prev.map(t =>
-      t.agentId === agentId ? { ...t, messages: [...t.messages, msg] } : t
-    ));
-  };
-
-  const setStatus = (agentId: string, status: "idle" | "generating") => {
-    setThreads(prev => prev.map(t =>
-      t.agentId === agentId ? { ...t, status } : t
-    ));
-  };
+  }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || activeThread.status === "generating") return;
+    if (!input.trim() || status === "generating") return;
     const userMsg: AgentMessage = {
       id: Math.random().toString(36).slice(2),
       role: "user", content: input.trim(),
       timestamp: new Date().toISOString(),
     };
-    addMessage(activeAgentId, userMsg);
+    setMessages(prev => [...prev, userMsg]);
     setInput("");
-    setStatus(activeAgentId, "generating");
+    setStatus("generating");
 
     try {
       const res = await fetch("/api/agent/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          agentId: activeAgentId,
-          messages: [...activeThread.messages, userMsg],
+          messages: [...messages, userMsg],
           context: { novelTitle, characters, novelText, continueFromOffset, continueFromLabel },
         }),
       });
@@ -80,17 +54,16 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
 
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No stream");
-
       const decoder = new TextDecoder();
       let buffer = "";
       let agentContent = "";
       const agentMsgId = Math.random().toString(36).slice(2);
 
-      const agentMsg: AgentMessage = {
+      // Add empty agent message
+      setMessages(prev => [...prev, {
         id: agentMsgId, role: "agent", content: "",
         timestamp: new Date().toISOString(),
-      };
-      addMessage(activeAgentId, agentMsg);
+      }]);
 
       while (true) {
         const { done, value } = await reader.read();
@@ -98,84 +71,139 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
+
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const event = JSON.parse(line.slice(6));
-              if (event.type === "chunk") {
-                agentContent = event.content;
-                setThreads(prev => prev.map(t =>
-                  t.agentId === activeAgentId
-                    ? { ...t, messages: t.messages.map(m => m.id === agentMsgId ? { ...m, content: agentContent } : m) }
-                    : t
-                ));
-              } else if (event.type === "data" && event.data && onOutlineGenerated) {
-                onOutlineGenerated(event.data);
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+
+            if (event.type === "chunk") {
+              agentContent = event.content;
+              setMessages(prev => prev.map(m =>
+                m.id === agentMsgId ? { ...m, content: agentContent } : m
+              ));
+            } else if (event.type === "tool_call") {
+              // Add tool card
+              const toolId = Math.random().toString(36).slice(2);
+              if (event.status === "running") {
+                setMessages(prev => [...prev, {
+                  id: toolId, role: "tool", content: "",
+                  metadata: { tool: event.tool, status: "running" },
+                  timestamp: new Date().toISOString(),
+                }]);
+              } else if (event.status === "done") {
+                // Update the existing running tool card or add a new one
+                setMessages(prev => {
+                  const existing = prev.find(m => m.metadata?.tool === event.tool && m.metadata?.status === "running");
+                  if (existing) {
+                    return prev.map(m => m.id === existing.id
+                      ? { ...m, content: event.result || "", metadata: { tool: event.tool, status: "done" } }
+                      : m
+                    );
+                  }
+                  return [...prev, {
+                    id: toolId, role: "tool", content: event.result || "",
+                    metadata: { tool: event.tool, status: "done" },
+                    timestamp: new Date().toISOString(),
+                  }];
+                });
               }
-            } catch {}
-          }
+            } else if (event.type === "error") {
+              setMessages(prev => prev.map(m =>
+                m.id === agentMsgId ? { ...m, content: "**出错了**: " + event.message } : m
+              ));
+            }
+          } catch {}
         }
       }
     } catch (e) {
-      addMessage(activeAgentId, {
+      setMessages(prev => [...prev, {
         id: Math.random().toString(36).slice(2),
-        role: "agent", content: "抱歉，出错了：" + (e as Error).message,
+        role: "agent", content: "**连接失败**: " + (e as Error).message,
         timestamp: new Date().toISOString(),
-      });
+      }]);
     }
-    setStatus(activeAgentId, "idle");
+    setStatus("idle");
+  };
+
+  const toolNames: Record<string, string> = {
+    generate_outline: "大纲 Agent", write_prose: "Writer Agent",
+    review_character: "角色审查", review_continuity: "连贯性审查",
+    review_foreshadowing: "伏笔审查", review_style: "风格审查",
+    review_world: "世界观审查", review_pacing: "节奏审查",
+    get_novel_context: "获取原文", get_characters: "获取角色",
+    get_timeline: "获取时间线", get_codex: "获取创作法典",
+    get_world_bible: "获取世界观",
   };
 
   return (
     <div className="flex flex-col h-full bg-[#0c0c0c]">
-      {/* Agent tabs */}
-      <div className="flex border-b border-neutral-800/40 shrink-0">
-        {threads.map(t => (
-          <button key={t.agentId}
-            onClick={() => setActiveAgentId(t.agentId)}
-            className={`flex-1 py-2 text-[10px] font-mono transition-colors ${activeAgentId === t.agentId ? "text-orange-400 border-b border-orange-500 bg-orange-500/5" : "text-neutral-500 hover:text-neutral-300"}`}>
-            {t.name}
-            {t.messages.length > 0 && <span className="ml-1 text-[9px] text-neutral-600">{t.messages.length}</span>}
-          </button>
-        ))}
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-800/40 shrink-0">
+        <div className="flex items-center gap-2">
+          <Bot className="w-3.5 h-3.5 text-orange-500" />
+          <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">主编 Agent</h3>
+        </div>
+        {status === "generating" && (
+          <span className="text-[9px] text-orange-500 font-mono flex items-center gap-1">
+            <Loader2 className="w-2.5 h-2.5 animate-spin" />工作中
+          </span>
+        )}
       </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
-        {activeThread.messages.length === 0 && (
+        {messages.length === 0 && (
           <div className="text-center py-8 text-neutral-600 text-xs font-mono">
             <Bot className="w-6 h-6 mx-auto mb-2 opacity-30" />
-            与 {activeThread.name} Agent 对话，共同创作
+            我是你的创作助手。告诉我你想做什么——续写、修改大纲、检查 prose。
           </div>
         )}
-        {activeThread.messages.map(msg => (
-          <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[90%] rounded-lg px-3 py-2 text-xs ${
-              msg.role === "user"
-                ? "bg-orange-600/20 text-orange-300 border border-orange-600/20"
-                : "bg-neutral-800/50 text-neutral-300 border border-neutral-700/50"
-            }`}>
-              {msg.role === "agent" && msg.metadata?.type === "outline" ? (
-                <details>
-                  <summary className="cursor-pointer text-neutral-400">大纲结果</summary>
-                  <pre className="mt-1 text-[11px] text-neutral-400 font-mono whitespace-pre-wrap">{msg.content}</pre>
-                </details>
-              ) : (
-                <div className="prose prose-invert prose-xs max-w-none">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+
+        {messages.map(msg => {
+          // Tool card
+          if (msg.role === "tool") {
+            return (
+              <div key={msg.id} className="bg-neutral-800/20 border border-neutral-700/50 rounded-lg p-2">
+                <div className="flex items-center gap-2">
+                  <Wrench className="w-3 h-3 text-neutral-500" />
+                  <span className="text-[10px] text-neutral-400 font-mono">
+                    {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}
+                  </span>
+                  <span className={`w-2 h-2 rounded-full ml-auto ${msg.metadata?.status === "running" ? "bg-orange-500 animate-pulse" : "bg-green-500"}`} />
+                  <span className="text-[9px] text-neutral-600 font-mono">
+                    {msg.metadata?.status === "running" ? "执行中" : "完成"}
+                  </span>
                 </div>
-              )}
+                {msg.content && msg.metadata?.status === "done" && (
+                  <details className="mt-1">
+                    <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400">查看结果 ({msg.content.length} 字符)</summary>
+                    <pre className="mt-1 text-[11px] text-neutral-400 font-mono whitespace-pre-wrap max-h-[200px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content.slice(0, 2000)}</pre>
+                  </details>
+                )}
+              </div>
+            );
+          }
+
+          // Chat bubble
+          return (
+            <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div className={`max-w-[90%] rounded-lg px-3 py-2 text-xs ${
+                msg.role === "user"
+                  ? "bg-orange-600/20 text-orange-300 border border-orange-600/20"
+                  : "bg-neutral-800/50 text-neutral-300 border border-neutral-700/50"
+              }`}>
+                {msg.content ? (
+                  <div className="prose prose-invert prose-xs max-w-none">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <span className="text-neutral-500 italic">思考中...</span>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
-        {activeThread.status === "generating" && (
-          <div className="flex justify-start">
-            <div className="bg-neutral-800/50 rounded-lg px-3 py-2 text-xs text-neutral-500 border border-neutral-700/50">
-              <Loader2 className="w-3 h-3 inline animate-spin mr-1" />
-              思考中...
-            </div>
-          </div>
-        )}
+          );
+        })}
         <div ref={messagesEndRef} />
       </div>
 
@@ -186,12 +214,12 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleSend()}
-            placeholder={`与 ${activeThread.name} 对话...`}
-            disabled={activeThread.status === "generating"}
+            placeholder="告诉主编你想做什么..."
+            disabled={status === "generating"}
             className="flex-1 bg-[#111110] border border-neutral-800 rounded px-3 py-1.5 text-xs text-neutral-300 font-mono outline-none focus:border-orange-600/50 disabled:opacity-50"
           />
           <button onClick={handleSend}
-            disabled={activeThread.status === "generating" || !input.trim()}
+            disabled={status === "generating" || !input.trim()}
             className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded text-xs font-mono transition-colors">
             <Send className="w-3 h-3" />
           </button>
