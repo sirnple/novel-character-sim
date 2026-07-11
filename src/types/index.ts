@@ -341,6 +341,8 @@ export interface SimulationState {
   createdAt: string;
 }
 
+import type { StreamEvent } from "@/core/agents/types";
+
 // --- LLM Provider ---
 
 export type LLMProviderType = "claude" | "openai" | "deepseek";
@@ -374,6 +376,12 @@ export interface LLMProvider {
     onChunk: (text: string) => void,
     options?: { model?: string; maxTokens?: number; temperature?: number }
   ): Promise<string>;
+
+  chatWithTools(
+    messages: LLMMessage[],
+    tools: ToolSchema[],
+    options?: { model?: string; maxTokens?: number; temperature?: number }
+  ): AsyncGenerator<StreamEvent>;
 }
 
 export interface ToolSchema {
