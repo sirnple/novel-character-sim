@@ -194,7 +194,7 @@ export async function generateOutline(input: {
       { role: "user", content: userPrompt },
     ],
     OUTLINE_SCHEMA,
-    { temperature: 0.7, maxTokens: 2048 }
+    { temperature: 0.4, maxTokens: 2048 }
   );
 
   console.log(`[OutlineAgent] Done in ${Date.now() - t0}ms: "${result.chapterTitle || result.sceneTitle}"`);
