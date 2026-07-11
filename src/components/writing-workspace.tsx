@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { CharacterProfile, SceneDefinition, WritingStyle, SceneOutline, ChapterTimeline, CharacterChapterState } from "@/types";
 import type { ReviewReport } from "@/core/codex/types";
 import { Loader2, Play, Sparkles, RefreshCw, Shield, ScrollText, Check, AlertCircle, Copy, Edit3, Bot, Save } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 interface WritingWorkspaceProps {
   novelId: string;
@@ -1048,11 +1049,13 @@ export default function WritingWorkspace({
                       {msg.role === "system" ? (
                         <details>
                           <summary className="text-xs text-neutral-500 cursor-pointer hover:text-neutral-400">展开 system prompt ({msg.content.length} 字符)</summary>
-                          <pre className="mt-2 text-xs text-neutral-500 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[300px] overflow-y-auto">{msg.content}</pre>
+                          <div className="mt-2 text-xs text-neutral-400 leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto prose prose-invert prose-xs max-w-none">
+                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          </div>
                         </details>
                       ) : (
-                        <div className="text-sm text-neutral-300 leading-relaxed whitespace-pre-wrap font-mono bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto">
-                          {msg.content}
+                        <div className="text-sm text-neutral-300 leading-relaxed bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[500px] overflow-y-auto prose prose-invert prose-sm max-w-none">
+                          <ReactMarkdown>{msg.content}</ReactMarkdown>
                         </div>
                       )}
                     </div>
