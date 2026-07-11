@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { LLMProvider, LLMMessage, ToolSchema } from "@/types";
+import type { StreamEvent } from "@/core/agents/types";
 import { extractJSON } from "@/lib/utils";
 
 export class ClaudeProvider implements LLMProvider {
@@ -112,5 +113,65 @@ export class ClaudeProvider implements LLMProvider {
     }
 
     return fullText;
+  }
+
+  async *chatWithTools(
+    messages: LLMMessage[],
+    tools: ToolSchema[],
+    options?: { model?: string; maxTokens?: number; temperature?: number }
+  ): AsyncGenerator<StreamEvent> {
+    const systemMsg = messages.find(m => m.role === "system");
+    const chatMessages = messages
+      .filter(m => m.role !== "system")
+      .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+    const anthropicTools = tools.map(t => ({
+      name: t.name,
+      description: t.description,
+      input_schema: {
+        type: "object" as const,
+        properties: t.parameters.properties as Record<string, unknown>,
+        required: t.parameters.required || [],
+      },
+    }));
+
+    const stream = this.client.messages.stream({
+      model: options?.model || this.defaultModel,
+      max_tokens: options?.maxTokens || 4096,
+      temperature: options?.temperature ?? 0.4,
+      system: systemMsg?.content || "",
+      messages: chatMessages,
+      tools: anthropicTools,
+    });
+
+    let currentToolId = "";
+    let currentToolName = "";
+    let currentToolArgs = "";
+
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        yield { type: "text_delta", text: event.delta.text };
+      } else if (event.type === "content_block_start" && event.content_block.type === "tool_use") {
+        currentToolId = event.content_block.id;
+        currentToolName = event.content_block.name;
+        currentToolArgs = "";
+      } else if (event.type === "content_block_delta" && event.delta.type === "input_json_delta") {
+        currentToolArgs += event.delta.partial_json;
+      } else if (event.type === "content_block_stop") {
+        if (currentToolId) {
+          try {
+            const args = JSON.parse(currentToolArgs);
+            yield { type: "tool_use", id: currentToolId, name: currentToolName, args };
+          } catch {
+            // incomplete JSON, skip
+          }
+          currentToolId = "";
+          currentToolName = "";
+          currentToolArgs = "";
+        }
+      }
+    }
+
+    yield { type: "done" };
   }
 }

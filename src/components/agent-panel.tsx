@@ -7,7 +7,7 @@ interface AgentMessage {
   id: string;
   role: "user" | "agent" | "tool";
   content: string;
-  metadata?: { tool?: string; status?: "running" | "done"; subMessages?: { role: string; content: string }[] };
+  metadata?: { tool?: string; status?: "running" | "done"; toolCallId?: string; subMessages?: { role: string; content: string }[] };
   timestamp: string;
 }
 
@@ -82,24 +82,31 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
               setMessages(prev => prev.map(m =>
                 m.id === agentMsgId ? { ...m, content: agentContent } : m
               ));
+            } else if (event.type === "tool_chunk") {
+              setMessages(prev => prev.map(m =>
+                m.metadata?.toolCallId === event.toolCallId
+                  ? { ...m, content: event.content }
+                  : m
+              ));
+            } else if (event.type === "thinking") {
+              setMessages(prev => prev.map(m =>
+                m.id === agentMsgId && !m.content ? { ...m, content: "决策中..." } : m
+              ));
             } else if (event.type === "tool_call") {
-              // Add tool card
-              const toolId = Math.random().toString(36).slice(2);
               if (event.status === "running") {
                 setMessages(prev => [...prev, {
-                  id: toolId, role: "tool", content: "",
-                  metadata: { tool: event.tool, status: "running" },
+                  id: Math.random().toString(36).slice(2), role: "tool", content: "",
+                  metadata: { tool: event.tool, status: "running", toolCallId: event.toolCallId },
                   timestamp: new Date().toISOString(),
                 }]);
               } else if (event.status === "done") {
-                // Update the existing running tool card or add a new one
                 setMessages(prev => {
-                  const existing = prev.find(m => m.metadata?.tool === event.tool && m.metadata?.status === "running");
-                  const data = { content: event.result || "", metadata: { tool: event.tool, status: "done" as const, subMessages: event.messages || [] } };
+                  const existing = prev.find(m => m.metadata?.toolCallId === event.toolCallId);
+                  const data = { content: event.result || "", metadata: { tool: event.tool, status: "done" as const, toolCallId: event.toolCallId, subMessages: event.messages || [] } };
                   if (existing) {
                     return prev.map(m => m.id === existing.id ? { ...m, ...data } : m);
                   }
-                  return [...prev, { id: toolId, role: "tool", ...data, timestamp: new Date().toISOString() }];
+                  return [...prev, { id: Math.random().toString(36).slice(2), role: "tool", ...data, timestamp: new Date().toISOString() }];
                 });
               }
             } else if (event.type === "error") {
@@ -157,6 +164,8 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         {messages.map(msg => {
           // Tool card
           if (msg.role === "tool") {
+            const isRunning = msg.metadata?.status === "running";
+            const isDone = msg.metadata?.status === "done";
             return (
               <div key={msg.id} className="bg-neutral-800/20 border border-neutral-700/50 rounded-lg p-2">
                 <div className="flex items-center gap-2">
@@ -164,30 +173,38 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   <span className="text-[10px] text-neutral-400 font-mono">
                     {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}
                   </span>
-                  <span className={`w-2 h-2 rounded-full ml-auto ${msg.metadata?.status === "running" ? "bg-orange-500 animate-pulse" : "bg-green-500"}`} />
+                  <span className={`w-2 h-2 rounded-full ml-auto ${isRunning ? "bg-orange-500 animate-pulse" : "bg-green-500"}`} />
                   <span className="text-[9px] text-neutral-600 font-mono">
-                    {msg.metadata?.status === "running" ? "执行中" : "完成"}
+                    {isRunning ? "执行中" : "完成"}
                   </span>
                 </div>
-                {msg.content && msg.metadata?.status === "done" && (
+                {/* Streamed content while running */}
+                {isRunning && msg.content && (
+                  <pre className="mt-2 text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content}</pre>
+                )}
+                {/* Final result when done */}
+                {isDone && msg.content && (
                   <details className="mt-2">
                     <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400">查看结果 ({msg.content.length} 字符)</summary>
                     {/* Sub-agent messages */}
                     {msg.metadata?.subMessages && msg.metadata.subMessages.length > 0 && (
-                      <div className="mt-2 space-y-2 mb-2">
-                        {msg.metadata.subMessages.map((sm, si) => (
-                          <div key={si} className="text-[10px]">
-                            <span className="text-neutral-600 font-mono uppercase">{sm.role === "system" ? "System" : sm.role === "user" ? "User" : "Assistant"}</span>
-                            {sm.role === "system" ? (
-                              <details><summary className="text-neutral-600 cursor-pointer">展开</summary><pre className="mt-1 text-neutral-500 font-mono whitespace-pre-wrap bg-[#080808] rounded p-1.5 max-h-[150px] overflow-y-auto">{sm.content}</pre></details>
-                            ) : (
-                              <pre className="mt-0.5 text-neutral-400 font-mono whitespace-pre-wrap bg-[#080808] rounded p-1.5 max-h-[150px] overflow-y-auto">{sm.content}</pre>
-                            )}
-                          </div>
-                        ))}
+                      <div className="mt-2 space-y-1.5 mb-2">
+                        {msg.metadata.subMessages
+                          .filter(sm => sm.role !== "system")
+                          .map((sm, si) => (
+                            <div key={si} className={`flex ${sm.role === "user" ? "justify-end" : "justify-start"}`}>
+                              <div className={`max-w-[95%] rounded px-2 py-1 text-[10px] leading-relaxed whitespace-pre-wrap break-words ${
+                                sm.role === "user"
+                                  ? "bg-orange-600/10 text-orange-300/80 border border-orange-600/20"
+                                  : "bg-neutral-800/50 text-neutral-400 border border-neutral-700/30"
+                              }`}>
+                                {sm.content.slice(0, 2000)}
+                              </div>
+                            </div>
+                          ))}
                       </div>
                     )}
-                    <pre className="text-[11px] text-neutral-400 font-mono whitespace-pre-wrap max-h-[150px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content.slice(0, 2000)}</pre>
+                    <pre className="text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[150px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content.slice(0, 2000)}</pre>
                   </details>
                 )}
               </div>

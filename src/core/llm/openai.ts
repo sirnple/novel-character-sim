@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { LLMProvider, LLMMessage, ToolSchema } from "@/types";
+import type { StreamEvent } from "@/core/agents/types";
 import { extractJSON } from "@/lib/utils";
 
 /**
@@ -145,6 +146,84 @@ export class OpenAIProvider implements LLMProvider {
     );
 
     return fullText;
+  }
+
+  async *chatWithTools(
+    messages: LLMMessage[],
+    tools: ToolSchema[],
+    options?: { model?: string; maxTokens?: number; temperature?: number }
+  ): AsyncGenerator<StreamEvent> {
+    const model = options?.model || this.defaultModel;
+    const inputLen = messages.reduce((sum, m) => sum + m.content.length, 0);
+    console.log(`[LLM:chatWithTools] model=${model} tools=${tools.map(t => t.name).join(",")} inputLen=${inputLen} starting...`);
+    const t0 = Date.now();
+
+    const openaiTools = tools.map(t => ({
+      type: "function" as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: {
+          type: "object" as const,
+          properties: t.parameters.properties || {},
+          required: t.parameters.required || [],
+        },
+      },
+    }));
+
+    const stream = await this.client.chat.completions.create({
+      model,
+      max_tokens: options?.maxTokens || 4096,
+      temperature: options?.temperature ?? 0.4,
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+      tools: openaiTools,
+      stream: true,
+    });
+
+    let currentToolId = "";
+    let currentToolName = "";
+    let currentToolArgs = "";
+    let outputLen = 0;
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta;
+      if (!delta) continue;
+
+      if (delta.content) {
+        outputLen += delta.content.length;
+        yield { type: "text_delta", text: delta.content };
+      }
+
+      if (delta.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          if (tc.id) {
+            if (currentToolId && currentToolId !== tc.id) {
+              try {
+                yield { type: "tool_use", id: currentToolId, name: currentToolName, args: JSON.parse(currentToolArgs) };
+              } catch { /* skip incomplete */ }
+            }
+            if (tc.id !== currentToolId) {
+              currentToolId = tc.id;
+              currentToolName = tc.function?.name || "";
+              currentToolArgs = "";
+            }
+          }
+          if (tc.function?.arguments) {
+            currentToolArgs += tc.function.arguments;
+          }
+        }
+      }
+    }
+
+    if (currentToolId) {
+      try {
+        yield { type: "tool_use", id: currentToolId, name: currentToolName, args: JSON.parse(currentToolArgs) };
+      } catch { /* skip */ }
+    }
+
+    const elapsed = Date.now() - t0;
+    console.log(`[LLM:chatWithTools] model=${model} elapsed=${elapsed}ms outputLen=${outputLen}`);
+    yield { type: "done" };
   }
 }
 
