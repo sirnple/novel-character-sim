@@ -46,6 +46,7 @@ interface WritingTask {
   branchId?: string;
   allowAdult?: boolean;
   cleanMode?: boolean;
+  mode?: import("@/types").CreationMode;
   createdAt: string;
 }
 

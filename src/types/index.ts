@@ -405,6 +405,18 @@ export interface AppConfig {
   };
 }
 
+export type CreationMode = "main" | "branch" | "free";
+
+export interface Draft {
+  id: string;
+  novelId: string;
+  title: string;
+  content: string;
+  parentOffset: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Branch {
   id: string;
   novelId: string;
