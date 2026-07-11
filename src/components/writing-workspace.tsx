@@ -25,6 +25,7 @@ interface WritingWorkspaceProps {
   presetContinueOffset?: number;
   presetContinueLabel?: string;
   onReaderContinueUsed?: () => void;
+  onTaskCreated?: () => void;
 }
 
 interface WritingTask {
@@ -68,7 +69,7 @@ export default function WritingWorkspace({
   timeline, lastChapterStates, storyInfo,
   branches, onBranchesChange,
   presetContinueOffset, presetContinueLabel,
-  onReaderContinueUsed,
+  onReaderContinueUsed, onTaskCreated,
 }: WritingWorkspaceProps) {
   // --- Persisted tasks ---
   const [tasks, setTasks] = useState<WritingTask[]>(() => {
@@ -342,6 +343,7 @@ export default function WritingWorkspace({
     setStatus("idle");
     setCreatingTask(false);
     setContinuePoint(null);
+    onTaskCreated?.();
   }, [continuePoint, newTaskLabel, scene, characters, novelId, tasks, persistTasks]);
 
   // --- AI generate outline for existing task ---
@@ -640,45 +642,6 @@ export default function WritingWorkspace({
   // ===== RENDER: Active workspace =====
   return (
     <div className="flex gap-4" style={{ height: "calc(100vh - 130px)" }}>
-      {/* LEFT */}
-      <div className="w-[420px] shrink-0 flex flex-col gap-3">
-        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-3 flex items-center gap-3">
-          <button onClick={handleCancelTask} className="text-neutral-500 hover:text-neutral-300 font-mono text-xs shrink-0">←</button>
-          <div className="flex-1">
-            <input type="text" value={activeTask?.label || ""} onChange={e => updateTask(activeTaskId!, { label: e.target.value })}
-              className="w-full bg-transparent border-0 text-sm text-neutral-200 font-mono outline-none placeholder-neutral-600" />
-            <div className="text-[10px] text-neutral-600 font-mono mt-0.5 flex items-center gap-3">
-              <span>承接：{activeTask?.continueFromLabel}  ·  偏移{activeTask?.continueFromOffset}字</span>
-              <label className="flex items-center gap-1 cursor-pointer" title="允许生成成人内容">
-                <input type="checkbox" checked={activeTask?.allowAdult || false}
-                  onChange={e => updateTask(activeTaskId!, { allowAdult: e.target.checked })}
-                  className="w-3 h-3 accent-red-500" />
-                <span className={activeTask?.allowAdult ? "text-red-400" : "text-neutral-600"}>成人</span>
-              </label>
-              <label className="flex items-center gap-1 cursor-pointer" title="干净模式：全文上下文+循环审查直到收敛">
-                <input type="checkbox" checked={activeTask?.cleanMode || false}
-                  onChange={e => updateTask(activeTaskId!, { cleanMode: e.target.checked })}
-                  className="w-3 h-3 accent-blue-500" />
-                <span className={activeTask?.cleanMode ? "text-blue-400" : "text-neutral-600"}>干净</span>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        {/* Start button */}
-        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-3">
-          {status === "idle" || status === "completed" || status === "error" ? (
-            <button onClick={startWriting}
-              className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors flex items-center justify-center gap-2">
-              <Play className="w-4 h-4" /> {status === "completed" ? "重新生成" : "开始写作"}
-            </button>
-          ) : (
-            <button onClick={stopWriting} className="w-full py-2.5 bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 text-sm font-mono rounded-lg transition-colors flex items-center justify-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> 停止
-            </button>
-          )}
-        </div>
-      </div>
 
       {/* RIGHT */}
       <div className="flex-1 flex flex-col min-w-0 relative">

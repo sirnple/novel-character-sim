@@ -837,6 +837,10 @@ export default function Home() {
                       setReaderContinueOffset(null);
                       setReaderContinueLabel("");
                     }}
+                    onTaskCreated={() => {
+                      setShowRightPanel(true);
+                      setRightPanelView("assistant");
+                    }}
                   />
                 </div>
               )}

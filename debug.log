@@ -234,3 +234,26 @@
 [2026-07-11T12:11:35.379Z] [Engine] Codex round 2: rewrite done, 3318 chars
 [2026-07-11T12:11:44.307Z] [Engine] Codex round 3: 10 findings, 0 critical
 [2026-07-11T12:11:44.307Z] [Engine] Codex mode converged at round 3 (stalled 2 rounds)
+[2026-07-11T14:04:52.130Z] [StreamRoute] Novel loaded: text=78197chars, storyInfo=yes, timeline=yes(1ch)
+[2026-07-11T14:04:52.135Z] [StreamRoute] Codex built: chars=10, chapters=7, worldRules=4
+[2026-07-11T14:05:33.590Z] [Engine] Codex mode: starting review loop
+[2026-07-11T14:05:46.068Z] [Engine] Codex round 1: 21 findings, 1 critical
+[2026-07-11T14:05:46.069Z] [Engine] Codex round 1: rewriting
+[2026-07-11T14:06:03.617Z] [Engine] Codex round 1: rewrite done, 3766 chars
+[2026-07-11T14:06:09.960Z] [Engine] Codex round 2: 7 findings, 0 critical
+[2026-07-11T14:06:09.961Z] [Engine] Codex round 2: rewriting
+[2026-07-11T14:06:27.027Z] [Engine] Codex round 2: rewrite done, 3538 chars
+[2026-07-11T14:06:35.484Z] [Engine] Codex round 3: 5 findings, 0 critical
+[2026-07-11T14:06:35.484Z] [Engine] Codex round 3: rewriting
+[2026-07-11T14:06:51.832Z] [Engine] Codex round 3: rewrite done, 3539 chars
+[2026-07-11T14:07:09.152Z] [Engine] Codex round 4: 19 findings, 0 critical
+[2026-07-11T14:07:09.153Z] [Engine] Codex round 4: rewriting
+[2026-07-11T14:07:39.019Z] [Engine] Codex round 4: rewrite done, 3888 chars
+[2026-07-11T14:08:01.554Z] [Engine] Codex round 5: 14 findings, 0 critical
+[2026-07-11T14:08:01.554Z] [Engine] Codex round 5: rewriting
+[2026-07-11T14:08:28.514Z] [Engine] Codex round 5: rewrite done, 3950 chars
+[2026-07-11T14:08:42.230Z] [Engine] Codex round 6: 16 findings, 0 critical
+[2026-07-11T14:08:42.231Z] [Engine] Codex round 6: rewriting
+[2026-07-11T14:09:10.432Z] [Engine] Codex round 6: rewrite done, 3888 chars
+[2026-07-11T14:09:30.349Z] [Engine] Codex round 7: 16 findings, 0 critical
+[2026-07-11T14:09:30.349Z] [Engine] Codex mode converged at round 7 (stalled 2 rounds)
