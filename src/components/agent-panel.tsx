@@ -103,7 +103,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
             try {
               const event = JSON.parse(line.slice(6));
               if (event.type === "chunk") {
-                agentContent += event.content;
+                agentContent = event.content;
                 setThreads(prev => prev.map(t =>
                   t.agentId === activeAgentId
                     ? { ...t, messages: t.messages.map(m => m.id === agentMsgId ? { ...m, content: agentContent } : m) }
