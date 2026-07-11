@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useNovel } from "@/lib/novel-context";
-import { GitBranch, Plus, BookOpen, Sparkles, Play } from "lucide-react";
+import { GitBranch, Plus, BookOpen, Sparkles } from "lucide-react";
 
 interface BranchInfo { id: string; name: string; text: string; parent_offset: number; updated_at: string; }
 
@@ -14,9 +14,14 @@ export default function WritePage() {
   const readerRef = useRef<HTMLDivElement>(null);
   const [showNewBranch, setShowNewBranch] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
+  const [newBranchNameInput, setNewBranchNameInput] = useState("");
+  // Click-to-fork state
+  const [forkPoint, setForkPoint] = useState<{ offset: number; label: string; context: string } | null>(null);
+  const [showForkDialog, setShowForkDialog] = useState(false);
 
   const activeBranch = branches.find(b => b.id === activeBranchId);
-  const displayText = freeMode ? freeText : (activeBranchId ? activeBranch?.text || "" : novelText);
+  const currentText = activeBranchId ? (activeBranch?.text || "") : novelText;
+  const displayText = freeMode ? freeText : currentText;
 
   useEffect(() => {
     fetch(`/api/branches?novelId=${novelId}`).then(r => r.json()).then(d => {
@@ -26,18 +31,42 @@ export default function WritePage() {
 
   const createBranch = async () => {
     if (!newBranchName.trim()) return;
+    const offset = forkPoint?.offset || 0;
     const res = await fetch("/api/branches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ novelId, name: newBranchName, parentOffset: 0, content: "" }),
+      body: JSON.stringify({ novelId, name: newBranchName, parentOffset: offset, content: "" }),
     });
     const data = await res.json();
     if (data.branch) {
       setBranches(prev => [data.branch, ...prev]);
       setActiveBranchId(data.branch.id);
-      setShowNewBranch(false);
+      setShowForkDialog(false);
       setNewBranchName("");
+      setForkPoint(null);
     }
+  };
+
+  // Click handler for fork point selection
+  const handleEditorClick = (e: React.MouseEvent) => {
+    if (!currentText || freeMode) return;
+    const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+    if (!range) return;
+    const el = readerRef.current; if (!el) return;
+    let offset = 0;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let node: Text | null;
+    while ((node = walker.nextNode() as Text | null)) {
+      if (node === range.startContainer) { offset += range.startOffset; break; }
+      offset += node.textContent?.length || 0;
+    }
+    const contextStart = Math.max(0, offset - 100);
+    const contextEnd = Math.min(currentText.length, offset + 100);
+    setForkPoint({
+      offset,
+      label: `偏移 ${offset} 字`,
+      context: currentText.slice(contextStart, contextEnd),
+    });
   };
 
   return (
@@ -50,9 +79,7 @@ export default function WritePage() {
           </h3>
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-          {/* Main branch */}
-          <button
-            onClick={() => { setActiveBranchId(null); setFreeMode(false); }}
+          <button onClick={() => { setActiveBranchId(null); setFreeMode(false); }}
             className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors ${
               !activeBranchId && !freeMode ? "bg-orange-500/10 border-l-2 border-orange-500 text-neutral-200" : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
             }`}>
@@ -61,10 +88,8 @@ export default function WritePage() {
               <span className="text-[10px] text-neutral-600">{novelText.length.toLocaleString()}字</span>
             </div>
           </button>
-          {/* IF branches */}
           {branches.map(b => (
-            <button key={b.id}
-              onClick={() => { setActiveBranchId(b.id); setFreeMode(false); }}
+            <button key={b.id} onClick={() => { setActiveBranchId(b.id); setFreeMode(false); }}
               className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors ${
                 activeBranchId === b.id ? "bg-orange-500/10 border-l-2 border-orange-500 text-neutral-200" : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
               }`}>
@@ -74,67 +99,46 @@ export default function WritePage() {
               </div>
             </button>
           ))}
-          {/* Free mode */}
-          <button
-            onClick={() => { setFreeMode(true); setActiveBranchId(null); }}
+          <button onClick={() => { setFreeMode(true); setActiveBranchId(null); }}
             className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors ${
               freeMode ? "bg-blue-500/10 border-l-2 border-blue-500 text-blue-400" : "text-neutral-500 hover:bg-neutral-800/50 hover:text-neutral-400"
             }`}>
             <div className="flex items-center gap-1"><Sparkles className="w-3 h-3" /> 自由创作</div>
           </button>
         </div>
-        <div className="p-2 border-t border-neutral-800/40">
-          {showNewBranch ? (
-            <div className="space-y-1">
-              <input value={newBranchName} onChange={e => setNewBranchName(e.target.value)}
-                placeholder="分支名称" onKeyDown={e => e.key === "Enter" && createBranch()}
-                className="w-full px-2 py-1 bg-[#111110] border border-neutral-800 rounded text-xs text-neutral-300 font-mono outline-none" autoFocus />
-              <div className="flex gap-1">
-                <button onClick={createBranch} className="flex-1 py-1 bg-orange-600 hover:bg-orange-500 text-white text-[10px] font-mono rounded">创建</button>
-                <button onClick={() => setShowNewBranch(false)} className="flex-1 py-1 text-neutral-500 hover:text-neutral-300 text-[10px] font-mono border border-neutral-700 rounded">取消</button>
-              </div>
-            </div>
-          ) : (
-            <button onClick={() => setShowNewBranch(true)}
-              className="w-full text-left px-3 py-2 rounded text-xs text-neutral-500 hover:bg-neutral-800/50 hover:text-neutral-400 font-mono transition-colors flex items-center gap-1">
-              <Plus className="w-3 h-3" /> 新建分支
-            </button>
-          )}
-        </div>
       </aside>
 
       {/* Center: Editor */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
           <div className="flex items-center gap-2 text-xs font-mono">
             <BookOpen className="w-3.5 h-3.5 text-orange-500" />
-            <span className="text-neutral-400">
-              {freeMode ? "自由创作" : activeBranch ? activeBranch.name : "主线"}
-            </span>
-            <span className="text-neutral-600">
-              {displayText.length.toLocaleString()} 字
-            </span>
+            <span className="text-neutral-400">{freeMode ? "自由创作" : activeBranch ? activeBranch.name : "主线"}</span>
+            <span className="text-neutral-600">{displayText.length.toLocaleString()} 字</span>
           </div>
-          <div className="flex items-center gap-2">
-            <a href={`/novel/${novelId}/read`}
-              className="text-[10px] text-neutral-500 hover:text-neutral-300 font-mono flex items-center gap-1">
-              <BookOpen className="w-3 h-3" /> 阅读模式
-            </a>
-          </div>
+          <a href={`/novel/${novelId}/read`} className="text-[10px] text-neutral-500 hover:text-neutral-300 font-mono">阅读模式</a>
         </div>
 
-        {/* Editor body */}
         {freeMode ? (
           <textarea value={freeText} onChange={e => setFreeText(e.target.value)}
             className="flex-1 w-full bg-transparent border-0 outline-none resize-none p-6 text-base text-neutral-200 leading-relaxed font-serif custom-scrollbar placeholder-neutral-700"
             placeholder="自由创作模式——直接输入文字，或选中后告诉助手帮你续写..." />
         ) : (
-          <div ref={readerRef} className="flex-1 overflow-y-auto custom-scrollbar">
+          <div ref={readerRef} onClick={handleEditorClick} className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="max-w-[800px] mx-auto p-6">
-              {displayText ? (
+              {currentText ? (
                 <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
-                  {displayText}
+                  {forkPoint ? (
+                    <>
+                      {currentText.slice(0, forkPoint.offset)}
+                      <span className="inline-flex items-center gap-1 mx-1">
+                        <span className="inline-block w-2 h-4 bg-orange-500 animate-pulse rounded-sm" />
+                        <button onClick={() => { setShowForkDialog(true); setNewBranchName(""); }}
+                          className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-1.5 py-0.5 rounded font-mono">分叉</button>
+                      </span>
+                      {currentText.slice(forkPoint.offset)}
+                    </>
+                  ) : currentText}
                 </div>
               ) : (
                 <div className="text-center py-12 text-neutral-600 text-sm font-mono">
@@ -142,10 +146,52 @@ export default function WritePage() {
                   这个分支还没有内容。在助手面板里说"从这里续写"开始创作。
                 </div>
               )}
+              {forkPoint && (
+                <div className="mt-3 flex items-center gap-2 text-[10px] text-orange-500 font-mono">
+                  <span>{forkPoint.label}</span>
+                  <button onClick={() => { setForkPoint(null); setShowForkDialog(false); }} className="text-neutral-600 hover:text-neutral-400">取消</button>
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
+
+      {/* Fork dialog */}
+      {showForkDialog && forkPoint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setShowForkDialog(false)}>
+          <div className="w-full max-w-sm bg-[#0e0e0e] border border-neutral-800 rounded-lg p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-neutral-300 font-mono mb-4">新建分支</h3>
+            <div className="space-y-3">
+              <div>
+                <div className="text-xs text-neutral-500 font-mono mb-0.5">分叉点</div>
+                <div className="text-xs text-neutral-400 font-mono">{forkPoint.label}</div>
+              </div>
+              <div>
+                <div className="text-xs text-neutral-500 font-mono mb-1">上下文</div>
+                <div className="bg-neutral-800/30 rounded p-2 text-xs text-neutral-500 font-mono max-h-16 overflow-y-auto whitespace-pre-wrap">
+                  ...{forkPoint.context.slice(0, 80)}...
+                  <span className="text-orange-500 font-bold mx-0.5">|</span>
+                  {forkPoint.context.slice(80)}...
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-neutral-500 font-mono mb-1">分支名称</div>
+                <input value={newBranchName} onChange={e => setNewBranchName(e.target.value)}
+                  placeholder="IF线名称" onKeyDown={e => e.key === "Enter" && createBranch()}
+                  className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono outline-none focus:border-orange-600/50" autoFocus />
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => { setShowForkDialog(false); setForkPoint(null); }}
+                  className="flex-1 py-2 text-sm text-neutral-500 hover:text-neutral-300 font-mono border border-neutral-700 rounded-lg">取消</button>
+                <button onClick={createBranch} disabled={!newBranchName.trim()}
+                  className="flex-1 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg">创建分支</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
