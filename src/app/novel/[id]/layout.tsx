@@ -12,8 +12,8 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const { novelTitle, novelText, characters, timeline, storyInfo, setNovel, setCharacters, setStoryInfo, setTimeline } = useNovel();
   const [savedNovels, setSavedNovels] = useState<SavedNovel[]>([]);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [showRightPanel, setShowRightPanel] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(pathname.endsWith("/write"));
+  const [showRightPanel, setShowRightPanel] = useState(pathname.endsWith("/write"));
   const [rightPanelView, setRightPanelView] = useState<"codex" | "review" | "assistant">("assistant");
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ library: true, tasks: true, codex: false, review: false });
 
