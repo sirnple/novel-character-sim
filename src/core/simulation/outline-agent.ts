@@ -186,24 +186,6 @@ export async function generateOutline(input: {
 
 ${selectionInstruction}
 
-## 承接信息
-续写起点：${continueFromLabel}
-${previousProse ? `\n## 最近篇章末尾\n${previousProse.slice(-500)}` : ""}
-
-## 前文章节摘要
-${summaryText}
-
-## 角色档案（当前状态）
-${charSummaries}
-
-${worldBible ? `## 世界观\n- 时代：${worldBible.timePeriod}\n- 主舞台：${worldBible.location || "未指定"}\n- 力量体系：${worldBible.powerSystem || "未指定"}\n- 氛围：${worldBible.atmosphere || "未指定"}` : ""}
-
-## 活跃伏笔
-${foreshadowingText}
-
-## 作者意图
-${authorText}
-
 ## 大纲核心要素
 
 一个完整的续写大纲，必须明确以下信息：
@@ -245,43 +227,42 @@ ${authorText}
 - 收尾要有余韵——悬念、有分量的对话、一个意象——而非总结感悟
 - 节奏与内容匹配：战斗/追逐用快节奏，心理/情感用慢节奏`
 
-    : `You are an experienced novel outliner. Design the outline for the next chapter.
+    : `You are an experienced novel outliner. Design the outline for a continuation.
 
 ## Your Role
-You are a novel outliner. You think in terms of "what should this chapter contain," not scene beats or screenplay direction. A good outliner knows which characters should NOT appear in the current chapter.
+You are a novel outliner. You think in terms of "what should this continuation contain," not scene beats. A good outliner knows which characters should NOT appear.
 
 ${selectionInstruction}
 
-## Context
-Written up to: ${continueFromLabel}
-Next: Chapter ${continueFromChapter + 1}
-${previousProse ? `\n## Recent Prose\n${previousProse.slice(-500)}` : ""}
-
-## Chapter Summaries
-${summaryText}
-
-## Characters (Current State)
-${charSummaries}
-
-${worldBible ? `## World\n- Period: ${worldBible.timePeriod}\n- Location: ${worldBible.location || "TBD"}\n- Power: ${worldBible.powerSystem || "TBD"}\n- Atmosphere: ${worldBible.atmosphere || "TBD"}` : ""}
-
-## Active Foreshadowing
-${foreshadowingText}
-
-## Author Notes
-${authorText}
-
 ## Essential Outline Elements
-1. **Time**: When does this chapter take place? Immediate continuation or time skip? Season, time of day?
-2. **Space**: Where? Single or multiple locations? How do locations change from previous chapter? List at least 1-2 specific locations.
-3. **Focus Characters**: Pick 2-3 characters. Who needs their thread advanced? Why?
-4. **Plot Points**: 3-5 chapter-level plot points (not action-level). Let desire/fear/weakness/secret drive the plot.
-5. **Character Development**: What changes for each focus character?
-6. **Foreshadowing**: Plant new clues (max 3, quality over quantity). Resolve existing ones only if the plot naturally flows there.
-7. **Structure**: Complete arc (opening→development→escalation→resolution). Ending as resonance, not summary. Pacing matches content.`;
+1. **Scope**: Estimated word count (2000-8000 recommended), chapters (1-3 recommended)
+2. **Time**: Immediate continuation or time skip? Season, time of day?
+3. **Space**: Where? Single or multiple locations? List at least 1-2 specific locations.
+4. **Focus Characters**: Pick 2-3. Who needs their thread advanced? Why?
+5. **Plot Points**: 3-5 chapter-level plot points. Let desire/fear/weakness/secret drive the plot.
+6. **Character Development**: What changes for each focus character?
+7. **Foreshadowing**: Plant new clues (max 3). Resolve existing ones if the plot naturally flows there.
+8. **Structure**: Complete arc (opening→development→escalation→resolution). Ending as resonance, not summary. Pacing matches content.`;
 
   const userPrompt = zh
-    ? `请为续写设计大纲。续写起点：${continueFromLabel}
+    ? `## 承接信息
+续写起点：${continueFromLabel}
+${previousProse ? `\n## 最近篇章末尾\n${previousProse.slice(-500)}` : ""}
+
+## 前文章节摘要
+${summaryText}
+
+## 角色档案（当前状态）
+${charSummaries}
+${worldBible ? `\n## 世界观\n- 时代：${worldBible.timePeriod}\n- 主舞台：${worldBible.location || "未指定"}\n- 力量体系：${worldBible.powerSystem || "未指定"}\n- 氛围：${worldBible.atmosphere || "未指定"}` : ""}
+
+## 活跃伏笔
+${foreshadowingText}
+
+## 作者意图
+${authorText}
+
+请为续写设计大纲。包含以下信息：
 
 **1) 篇幅规划**
 - 预计续写字数（建议2000-8000字）
@@ -310,7 +291,24 @@ ${authorText}
 - 情感弧线（从开篇到结尾的情绪变化）
 - 续写收尾（要有余韵，不要总结）
 - 节奏（fast/medium/slow）`
-    : `Design the outline for Chapter ${continueFromChapter + 1}. Include: 1) Time and space, 2) 2-3 focus characters with justification, 3) Chapter title, goal, 3-5 plot points, 4) Character development, 5) New and existing foreshadowing, emotional arc, chapter ending, pacing.`;
+    : `## Context
+Continuation point: ${continueFromLabel}
+${previousProse ? `\n## Recent Prose\n${previousProse.slice(-500)}` : ""}
+
+## Chapter Summaries
+${summaryText}
+
+## Character Profiles
+${charSummaries}
+${worldBible ? `\n## World\n- Period: ${worldBible.timePeriod}\n- Location: ${worldBible.location || "TBD"}\n- Power: ${worldBible.powerSystem || "TBD"}\n- Atmosphere: ${worldBible.atmosphere || "TBD"}` : ""}
+
+## Active Foreshadowing
+${foreshadowingText}
+
+## Author Notes
+${authorText}
+
+Design the continuation outline. Include: scope (estimated words, chapters), time and space, 2-3 focus characters with justification, plot points, character development, new and existing foreshadowing, emotional arc, chapter ending, pacing.`;
 
   console.log(`[OutlineAgent] Generating outline for chapter ${continueFromChapter + 1} (${characters.length} chars)...`);
   const t0 = Date.now();
