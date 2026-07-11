@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { useNovel } from "@/lib/novel-context";
-import { BookOpen, Users, Clock, ScrollText, Play, BookMarked, PanelRight, ChevronDown, ChevronRight, Settings, Eye, FileText, GitBranch, Sparkles } from "lucide-react";
+import { BookOpen, Users, Clock, ScrollText, Play, BookMarked, PanelRight, ChevronDown, ChevronRight, Settings, Eye } from "lucide-react";
 
 interface SavedNovel { id: string; title: string; total_length: number; created_at: string; }
 
@@ -33,16 +33,6 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
 
   const toggleSection = (s: string) => setExpandedSections(prev => ({ ...prev, [s]: !prev[s] }));
 
-  const currentTab = pathname.endsWith("/read") ? "read" : pathname.endsWith("/write") ? "write" : "overview";
-  const tabs = [
-    { key: "overview", label: "概览", icon: BookOpen, href: `/novel/${id}` },
-    { key: "characters", label: "角色", icon: Users, href: `/novel/${id}?tab=characters` },
-    { key: "timeline", label: "时间线", icon: Clock, href: `/novel/${id}?tab=timeline` },
-    { key: "world", label: "世界观", icon: ScrollText, href: `/novel/${id}?tab=world` },
-    { key: "read", label: "阅读", icon: BookOpen, href: `/novel/${id}/read` },
-    { key: "write", label: "写作", icon: Play, href: `/novel/${id}/write` },
-  ];
-
   return (
     <div className="h-screen flex flex-col">
       {/* Top Bar */}
@@ -64,16 +54,6 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
           )}
         </div>
         <div className="flex items-center gap-3">
-          {novelTitle && (
-            <div className="flex rounded border border-neutral-700 overflow-hidden">
-              {tabs.map(t => (
-                <Link key={t.key} href={t.href}
-                  className={`flex items-center gap-1 px-3 py-1 text-xs transition-colors ${currentTab === t.key ? "bg-neutral-700 text-neutral-200" : "bg-transparent text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800"}`}>
-                  <t.icon className="w-3 h-3" /> {t.label}
-                </Link>
-              ))}
-            </div>
-          )}
           <button onClick={() => { setShowRightPanel(!showRightPanel); if (!showRightPanel) setRightPanelView("assistant"); }}
             className={`p-1 rounded transition-colors ${showRightPanel ? "text-orange-400 bg-orange-500/10" : "text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800"}`}>
             <PanelRight className="w-4 h-4" />
