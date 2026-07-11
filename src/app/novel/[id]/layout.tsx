@@ -16,6 +16,21 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
   const [showRightPanel, setShowRightPanel] = useState(pathname.endsWith("/write"));
   const [rightPanelView, setRightPanelView] = useState<"codex" | "review" | "assistant">("assistant");
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ library: true, tasks: true, codex: false, review: false });
+  const [panelWidth, setPanelWidth] = useState(360);
+  const [dragging, setDragging] = useState(false);
+
+  const startDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setDragging(true);
+    const startX = e.clientX;
+    const startW = panelWidth;
+    const onMove = (ev: MouseEvent) => {
+      setPanelWidth(Math.max(280, Math.min(600, startW + startX - ev.clientX)));
+    };
+    const onUp = () => { setDragging(false); document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
 
   useEffect(() => {
     fetch("/api/novels").then(r => r.json()).then(d => setSavedNovels(d.novels || [])).catch(() => {});
@@ -106,7 +121,13 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
 
         {/* Right panel */}
         {showRightPanel && (
-          <aside className="w-[280px] shrink-0 border-l border-neutral-800/60 bg-[#0c0c0c] flex flex-col overflow-hidden">
+          <>
+            {/* Drag handle */}
+            <div
+              onMouseDown={startDrag}
+              className={`w-1 hover:w-1.5 cursor-col-resize transition-all shrink-0 ${dragging ? "bg-orange-500 w-1.5" : "bg-neutral-700/30 hover:bg-orange-500/50"}`}
+            />
+            <aside style={{ width: panelWidth }} className="shrink-0 border-l border-neutral-800/60 bg-[#0c0c0c] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-800/40">
               <div className="flex rounded border border-neutral-700 overflow-hidden">
                 {[
@@ -144,6 +165,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
               )}
             </div>
           </aside>
+          </>
         )}
       </div>
     </div>
