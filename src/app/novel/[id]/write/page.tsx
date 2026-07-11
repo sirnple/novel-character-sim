@@ -30,10 +30,11 @@ export default function WritePage() {
   const createBranch = async () => {
     if (!newBranchName.trim()) return;
     const offset = forkPoint?.offset || 0;
+    const baseText = !activeBranchId ? novelText.slice(0, offset) : "";
     const res = await fetch("/api/branches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ novelId, name: newBranchName, parentOffset: offset, content: "" }),
+      body: JSON.stringify({ novelId, name: newBranchName, parentOffset: offset, content: baseText }),
     });
     const data = await res.json();
     if (data.branch) {
