@@ -115,6 +115,7 @@ export default function WritingWorkspace({
   const [saveBranchId, setSaveBranchId] = useState<string | null>(null);
   const localBranches = branches || [];
   const readerRef = useRef<HTMLDivElement>(null);
+  const [showComparison, setShowComparison] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // Auto-scroll to continue point when comparison opens
@@ -740,58 +741,6 @@ export default function WritingWorkspace({
           </div>
 
           {/* Reader body */}
-          {status === "completed" && activeTask?.continueFromOffset != null ? (
-            <div ref={readerRef} className="flex-1 overflow-y-auto custom-scrollbar">
-              <div className="flex" style={{ minHeight: "100%" }}>
-                {/* Left: full original novel with continue marker */}
-                <div className="w-1/2">
-                  <div className="p-4 pr-3">
-                    <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">原文</div>
-                    <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
-                      {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
-                      <span ref={continueMarkerRef} className="inline-block w-full h-0.5 my-3 bg-orange-500/60" />
-                      <span className="text-[10px] text-orange-500 font-mono">— 续写点 —</span>
-                      {"\n"}
-                      {initialFullNovel?.slice(activeTask.continueFromOffset)}
-                    </div>
-                  </div>
-                </div>
-                {/* Divider */}
-                <div className="w-px bg-neutral-700/50" />
-                {/* Right: original up to point + generated prose */}
-                <div className="w-1/2">
-                  <div className="p-4 pl-3">
-                    <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">续写版本</div>
-                    <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
-                      {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
-                      <span className="inline-block w-full h-0.5 my-3 bg-green-500/60" />
-                      <span className="text-[10px] text-green-500 font-mono">— 续写 —</span>
-                      {"\n"}
-                      {outputText}
-                    </div>
-                  {annotations.length > 0 && !saved && (
-                    <div className="mt-6 space-y-2">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="flex-1 h-px bg-neutral-700/50" />
-                        <span className="text-xs text-neutral-500 font-mono shrink-0">审查修正 ({annotations.length} 处)</span>
-                        <div className="flex-1 h-px bg-neutral-700/50" />
-                      </div>
-                      {annotations.map((a) => (
-                        <div key={a.id} className="p-2 rounded border text-xs border-neutral-700 bg-neutral-800/20">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="px-1 py-0.5 rounded text-[8px] font-mono uppercase bg-neutral-600/30 text-neutral-400">{a.finding.severity}</span>
-                            <span className="text-neutral-500 text-[10px]">{a.finding.dimension}</span>
-                          </div>
-                          <p className="text-neutral-400 text-[11px] leading-relaxed">{a.finding.description}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-          ) : (
           <div ref={readerRef} onClick={handleReaderClick} className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="p-6">
               {!initialFullNovel && !outputText && status !== "generating" ? (
@@ -907,6 +856,14 @@ export default function WritingWorkspace({
                       </div>
                     </div>
                   )}
+
+                  {/* Comparison button — shown when prose is done and has a continue offset */}
+                  {status === "completed" && activeTask?.continueFromOffset != null && (
+                    <button onClick={() => setShowComparison(true)}
+                      className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-green-400 font-mono mt-4">
+                      <Shield className="w-3 h-3" /> 对比原文
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -914,7 +871,6 @@ export default function WritingWorkspace({
             {showPrompt && writerPrompt && <PromptSection label="Writer Prompt" systemPrompt={writerPrompt.systemPrompt} userPrompt={writerPrompt.userPrompt} />}
             {showOutlinePrompt && outlinePrompt && <PromptSection label="大纲 Agent Prompt" systemPrompt={outlinePrompt.system} userPrompt={outlinePrompt.user} />}
           </div>
-          )}
         </div>
         {error && <ErrorBanner error={error} onRetry={startWriting} />}
         {showSaveDialog && (
@@ -1066,6 +1022,48 @@ export default function WritingWorkspace({
             </div>
           );
         })()}
+        {showComparison && activeTask && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            onClick={() => setShowComparison(false)}>
+            <div className="w-[90vw] max-w-6xl max-h-[90vh] bg-[#0e0e0e] border border-neutral-800 rounded-lg shadow-2xl flex flex-col overflow-hidden"
+              onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-800/40 shrink-0">
+                <h3 className="text-sm font-semibold text-neutral-300 font-mono">原文对比</h3>
+                <button onClick={() => setShowComparison(false)} className="text-neutral-500 hover:text-neutral-300 text-lg leading-none">&times;</button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <div className="flex" style={{ minHeight: "100%" }}>
+                  {/* Left: full original with continue marker */}
+                  <div className="w-1/2 border-r border-neutral-700/50">
+                    <div className="p-4">
+                      <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">原文</div>
+                      <div className="text-sm text-neutral-400 leading-relaxed whitespace-pre-wrap font-serif">
+                        {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
+                        <span className="inline-block w-full h-0.5 my-3 bg-orange-500/60" />
+                        <span className="text-[10px] text-orange-500 font-mono">— 续写点 —</span>
+                        {"\n"}
+                        {initialFullNovel?.slice(activeTask.continueFromOffset)}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Right: branch version */}
+                  <div className="w-1/2">
+                    <div className="p-4">
+                      <div className="text-[10px] text-green-500/70 font-mono uppercase mb-3">续写版本</div>
+                      <div className="text-sm text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
+                        {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
+                        <span className="inline-block w-full h-0.5 my-3 bg-green-500/60" />
+                        <span className="text-[10px] text-green-500 font-mono">— 续写 —</span>
+                        {"\n"}
+                        {outputText}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
