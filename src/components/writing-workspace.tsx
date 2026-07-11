@@ -548,7 +548,6 @@ export default function WritingWorkspace({
   const handleCancelTask = () => setActiveTaskId(null);
 
   // Writing is allowed as long as we have a scene location or script content
-  const canWrite = !!(activeTask?.scene?.location?.trim() || scriptText.trim());
 
   // ===== RENDER: No active task, not creating =====
   if (!activeTaskId && !creatingTask) {
@@ -666,39 +665,18 @@ export default function WritingWorkspace({
           </div>
         </div>
 
-        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg overflow-hidden flex flex-col flex-1">
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
-            <div className="flex items-center gap-2">
-              <Edit3 className="w-3.5 h-3.5 text-orange-500" />
-              <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">写作大纲</h3>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={handleGenerateOutline} disabled={generatingOutline}
-                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono bg-neutral-700 hover:bg-neutral-600 disabled:bg-neutral-800 disabled:text-neutral-600 text-white transition-colors">
-                {generatingOutline ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />}
-                {generatingOutline ? "生成中..." : "AI 生成大纲"}
-              </button>
-              <button onClick={() => setScriptText(buildScript(characters, outline, activeTask?.scene || scene))}
-                className="text-[10px] text-neutral-500 hover:text-neutral-300 font-mono">刷新</button>
-            </div>
-          </div>
-
-          <textarea value={scriptText} onChange={e => setScriptText(e.target.value)}
-            className="flex-1 w-full bg-transparent border-0 outline-none resize-none p-4 text-sm text-neutral-300 font-mono leading-relaxed custom-scrollbar placeholder-neutral-700"
-            placeholder="# 写作大纲..." spellCheck={false} />
-
-          <div className="px-4 py-3 border-t border-neutral-800/40 bg-[#0e0e0e] shrink-0">
-            {status === "idle" || status === "completed" || status === "error" ? (
-              <button onClick={startWriting} disabled={!canWrite}
-                className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors flex items-center justify-center gap-2">
-                <Play className="w-4 h-4" /> {status === "completed" ? "重新生成" : "开始写作"}
-              </button>
-            ) : (
-              <button onClick={stopWriting} className="w-full py-2.5 bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 text-sm font-mono rounded-lg transition-colors flex items-center justify-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" /> 停止
-              </button>
-            )}
-          </div>
+        {/* Start button */}
+        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-3">
+          {status === "idle" || status === "completed" || status === "error" ? (
+            <button onClick={startWriting}
+              className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors flex items-center justify-center gap-2">
+              <Play className="w-4 h-4" /> {status === "completed" ? "重新生成" : "开始写作"}
+            </button>
+          ) : (
+            <button onClick={stopWriting} className="w-full py-2.5 bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 text-sm font-mono rounded-lg transition-colors flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> 停止
+            </button>
+          )}
         </div>
       </div>
 
