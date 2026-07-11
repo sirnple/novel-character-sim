@@ -147,22 +147,39 @@ export async function runFullReview(input: ReviewInput, onEvent?: (event: any) =
 
   // Run all 6 reviewers in parallel
   const agentDefs = [
-    { id: "review_char", name: "角色一致性", fn: reviewCharacterConsistency },
-    { id: "review_cont", name: "连贯性", fn: reviewContinuity },
-    { id: "review_fore", name: "伏笔追踪", fn: reviewForeshadowing },
-    { id: "review_style", name: "风格", fn: reviewStyle },
-    { id: "review_world", name: "世界观", fn: reviewWorldBuilding },
-    { id: "review_pace", name: "节奏", fn: reviewPacing },
+    { id: "review_char", name: "角色一致性", fn: reviewCharacterConsistency, getMsgs: (input: ReviewInput) => [
+      { role: "system" as const, content: input.sharedSystemPrompt || "" },
+      { role: "user" as const, content: "角色一致性审查 prompt" },
+    ]},
+    { id: "review_cont", name: "连贯性", fn: reviewContinuity, getMsgs: (input: ReviewInput) => [
+      { role: "system" as const, content: input.sharedSystemPrompt || "" },
+      { role: "user" as const, content: "连贯性审查 prompt" },
+    ]},
+    { id: "review_fore", name: "伏笔追踪", fn: reviewForeshadowing, getMsgs: (input: ReviewInput) => [
+      { role: "system" as const, content: input.sharedSystemPrompt || "" },
+      { role: "user" as const, content: "伏笔追踪审查 prompt" },
+    ]},
+    { id: "review_style", name: "风格", fn: reviewStyle, getMsgs: (input: ReviewInput) => [
+      { role: "system" as const, content: input.sharedSystemPrompt || "" },
+      { role: "user" as const, content: "风格审查 prompt" },
+    ]},
+    { id: "review_world", name: "世界观", fn: reviewWorldBuilding, getMsgs: (input: ReviewInput) => [
+      { role: "system" as const, content: input.sharedSystemPrompt || "" },
+      { role: "user" as const, content: "世界观审查 prompt" },
+    ]},
+    { id: "review_pace", name: "节奏", fn: reviewPacing, getMsgs: (input: ReviewInput) => [
+      { role: "system" as const, content: input.sharedSystemPrompt || "" },
+      { role: "user" as const, content: "节奏审查 prompt" },
+    ]},
   ];
 
   const results = await Promise.all(
     agentDefs.map(async (def) => {
-      emitReviewAgent(def.id, def.name, "running");
+      emitReviewAgent(def.id, def.name, "running", def.getMsgs(input));
       const r = await def.fn(input, llm, zh);
       emitReviewAgent(def.id, def.name, "done", [
-        { role: "system", content: input.sharedSystemPrompt || "" },
-        { role: "user", content: def.name + "审查" },
-        { role: "assistant", content: JSON.stringify(r.findings) },
+        ...def.getMsgs(input),
+        { role: "assistant" as const, content: JSON.stringify(r.findings) },
       ]);
       return r;
     })

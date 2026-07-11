@@ -294,7 +294,13 @@ response_language = "Chinese only"
       const maxTokens = Math.max(config.llm.maxTokens || 4096, 16384);
 
       const writerAgentId = "writer";
-      this.onEvent({ type: "agent", agentId: writerAgentId, name: "Writer", status: "running" });
+      this.onEvent({
+        type: "agent", agentId: writerAgentId, name: "Writer", status: "running",
+        messages: [
+          { role: "system" as const, content: systemPrompt },
+          { role: "user" as const, content: userPrompt },
+        ],
+      });
 
       const prose = await llm.chatStream(
         [

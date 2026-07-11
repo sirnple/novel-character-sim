@@ -178,10 +178,10 @@ export async function generateOutline(input: {
     : "";
 
   const systemPrompt = zh
-    ? `你是一位经验丰富的小说大纲师。你的任务是为小说续写设计场景大纲。
+    ? `你是一位经验丰富的小说大纲师。你的任务是为小说续写设计大纲。
 
 ## 你的角色
-你是小说大纲师——你思考的是"这次续写要写什么"，而不是"这个场景怎么拍"。
+你是小说大纲师——你思考的是"这次续写要写什么"，而不是"每个细节怎么写"。
 好的大纲师的标志是：知道**哪些角色暂时不需要出场**。
 
 ${selectionInstruction}
@@ -214,7 +214,7 @@ ${authorText}
 
 ### 2. 时间
 本次续写发生在什么时间？紧接前文还是跳跃了几天/几个月/几年？什么季节？白天还是夜晚？
-时间影响角色行为、情绪和可用的场景元素。
+时间影响角色行为、情绪和可用的叙事元素。
 
 ### 2. 空间
 本次续写发生在哪里？一个地点还是多个地点？地点之间如何过渡？
@@ -281,7 +281,7 @@ ${authorText}
 7. **Structure**: Complete arc (opening→development→escalation→resolution). Ending as resonance, not summary. Pacing matches content.`;
 
   const userPrompt = zh
-    ? `请为续写设计场景大纲。续写起点：${continueFromLabel}
+    ? `请为续写设计大纲。续写起点：${continueFromLabel}
 
 **1) 篇幅规划**
 - 预计续写字数（建议2000-8000字）

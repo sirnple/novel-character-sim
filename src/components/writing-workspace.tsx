@@ -100,6 +100,7 @@ export default function WritingWorkspace({
   const [annotations, setAnnotations] = useState<import("@/core/codex/types").ProseAnnotation[]>([]);
   const [agents, setAgents] = useState<Map<string, AgentState>>(new Map());
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [markdownMode, setMarkdownMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -196,7 +197,7 @@ export default function WritingWorkspace({
     (chars: CharacterProfile[], ol: SceneOutline | null, sc: SceneDefinition) => {
       const selectedChars = chars.filter(c => sc.characterIds.includes(c.id));
       const lines: string[] = [];
-      lines.push("# 写作剧本\n");
+      lines.push("# 写作大纲\n");
       lines.push("## 场景");
       lines.push(`地点：${sc.location || "（未指定）"}`);
       lines.push(`时间：${sc.timeOfDay}  天气：${sc.weather}  氛围：${sc.atmosphere}`);
@@ -225,7 +226,7 @@ export default function WritingWorkspace({
       }
 
       if (ol) {
-        lines.push("\n## 剧本大纲");
+        lines.push("\n## 大纲");
         const title = ol.chapterTitle || ol.sceneTitle;
         const goal = ol.chapterGoal || ol.sceneGoal;
         const ending = ol.chapterEnding || ol.sceneEnding;
@@ -352,7 +353,7 @@ export default function WritingWorkspace({
       id: `task_${Date.now()}`,
       novelId,
       label: newTaskLabel || continuePoint.label + "续写",
-      script: `# 写作剧本\n\n## 场景\n承接：${continuePoint.label}\n\n> 请点击"AI 生成剧本"按钮生成场景大纲`,
+      script: `# 写作大纲\n\n## 场景\n承接：${continuePoint.label}\n\n> 请点击"AI 生成大纲"按钮生成场景大纲`,
       continueFromOffset: continuePoint.offset,
       continueFromLabel: continuePoint.label,
       scene: sc,
@@ -586,7 +587,7 @@ export default function WritingWorkspace({
         <div className="text-center max-w-md">
           <Bot className="w-12 h-12 mx-auto mb-4 text-neutral-700 opacity-50" />
           <p className="text-base text-neutral-400 font-mono mb-2">写作工作区</p>
-          <p className="text-sm text-neutral-600 mb-8">选择承接章节，AI 将自动生成写作剧本</p>
+          <p className="text-sm text-neutral-600 mb-8">选择承接章节，AI 将自动生成写作大纲</p>
 
           {tasks.filter(t => t.novelId === novelId).length > 0 && (
             <div className="mb-6">
@@ -699,13 +700,13 @@ export default function WritingWorkspace({
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
             <div className="flex items-center gap-2">
               <Edit3 className="w-3.5 h-3.5 text-orange-500" />
-              <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">写作剧本</h3>
+              <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">写作大纲</h3>
             </div>
             <div className="flex gap-2">
               <button onClick={handleGenerateOutline} disabled={generatingOutline}
                 className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono bg-neutral-700 hover:bg-neutral-600 disabled:bg-neutral-800 disabled:text-neutral-600 text-white transition-colors">
                 {generatingOutline ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />}
-                {generatingOutline ? "生成中..." : "AI 生成剧本"}
+                {generatingOutline ? "生成中..." : "AI 生成大纲"}
               </button>
               <button onClick={() => setScriptText(buildScript(characters, outline, activeTask?.scene || scene))}
                 className="text-[10px] text-neutral-500 hover:text-neutral-300 font-mono">刷新</button>
@@ -714,7 +715,7 @@ export default function WritingWorkspace({
 
           <textarea value={scriptText} onChange={e => setScriptText(e.target.value)}
             className="flex-1 w-full bg-transparent border-0 outline-none resize-none p-4 text-sm text-neutral-300 font-mono leading-relaxed custom-scrollbar placeholder-neutral-700"
-            placeholder="# 写作剧本..." spellCheck={false} />
+            placeholder="# 写作大纲..." spellCheck={false} />
 
           <div className="px-4 py-3 border-t border-neutral-800/40 bg-[#0e0e0e] shrink-0">
             {status === "idle" || status === "completed" || status === "error" ? (
@@ -828,9 +829,9 @@ export default function WritingWorkspace({
                 <div className="flex items-center justify-center py-20">
                   <div className="text-center">
                     <Bot className="w-12 h-12 mx-auto mb-4 text-neutral-700 opacity-50" />
-                    <p className="text-base text-neutral-500 font-mono">剧本已就绪</p>
-                    <p className="text-sm text-neutral-700 mt-2">编辑左侧剧本后点击"开始写作"</p>
-                    <p className="text-xs text-neutral-700 mt-1">也可以点击"AI 生成剧本"让大纲 Agent 自动生成大纲</p>
+                    <p className="text-base text-neutral-500 font-mono">大纲已就绪</p>
+                    <p className="text-sm text-neutral-700 mt-2">编辑左侧大纲后点击"开始写作"</p>
+                    <p className="text-xs text-neutral-700 mt-1">也可以点击"AI 生成大纲"让大纲 Agent 自动生成大纲</p>
                   </div>
                 </div>
               ) : (
@@ -1033,6 +1034,12 @@ export default function WritingWorkspace({
                     <span className={`text-[10px] font-mono ${agent.status === "running" ? "text-orange-500" : "text-green-500"}`}>
                       {agent.status === "running" ? "运行中" : "完成"}
                     </span>
+                    <button
+                      onClick={() => setMarkdownMode(!markdownMode)}
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${markdownMode ? "bg-blue-500/20 text-blue-400" : "text-neutral-500 hover:text-neutral-400"}`}
+                    >
+                      {markdownMode ? "预览" : "原文"}
+                    </button>
                     <button onClick={() => setSelectedAgentId(null)} className="text-neutral-500 hover:text-neutral-300 ml-2">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
@@ -1049,14 +1056,20 @@ export default function WritingWorkspace({
                       {msg.role === "system" ? (
                         <details>
                           <summary className="text-xs text-neutral-500 cursor-pointer hover:text-neutral-400">展开 system prompt ({msg.content.length} 字符)</summary>
-                          <div className="mt-2 text-xs text-neutral-400 leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto prose prose-invert prose-xs max-w-none">
-                            <ReactMarkdown>{msg.content}</ReactMarkdown>
-                          </div>
+                          {markdownMode ? (
+                            <div className="mt-2 text-xs text-neutral-400 leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto prose prose-invert prose-xs max-w-none">
+                              <ReactMarkdown>{msg.content}</ReactMarkdown>
+                            </div>
+                          ) : (
+                            <pre className="mt-2 text-xs text-neutral-400 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto">{msg.content}</pre>
+                          )}
                         </details>
-                      ) : (
+                      ) : markdownMode ? (
                         <div className="text-sm text-neutral-300 leading-relaxed bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[500px] overflow-y-auto prose prose-invert prose-sm max-w-none">
                           <ReactMarkdown>{msg.content}</ReactMarkdown>
                         </div>
+                      ) : (
+                        <pre className="text-sm text-neutral-300 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[500px] overflow-y-auto">{msg.content}</pre>
                       )}
                     </div>
                   )) : (
