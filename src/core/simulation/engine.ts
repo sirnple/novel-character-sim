@@ -50,6 +50,7 @@ export function buildWriterPrompt(opts: {
   } = opts;
 
   const presentChars = characters.filter(c => scene.characterIds.includes(c.id));
+  const zh = presentChars.length > 0 && isChinese(presentChars[0].personality.description);
   const charProfiles = presentChars
     .map(c => {
       const traits = c.personality.traits.join("、");

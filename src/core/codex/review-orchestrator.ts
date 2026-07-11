@@ -146,28 +146,28 @@ export async function runFullReview(input: ReviewInput, onEvent?: (event: any) =
   // Run all 6 reviewers in parallel
   const agentDefs = [
     { id: "review_char", name: "角色一致性", fn: reviewCharacterConsistency, getMsgs: (input: ReviewInput) => [
-      { role: "system" as const, content: input.sharedSystemPrompt || "" },
-      { role: "user" as const, content: "角色一致性审查 prompt" },
+      { role: "system" as const, content: "角色一致性审查 prompt" },
+      { role: "user" as const, content: input.sharedSystemPrompt || "" },
     ]},
     { id: "review_cont", name: "连贯性", fn: reviewContinuity, getMsgs: (input: ReviewInput) => [
-      { role: "system" as const, content: input.sharedSystemPrompt || "" },
-      { role: "user" as const, content: "连贯性审查 prompt" },
+      { role: "system" as const, content: "连贯性审查 prompt" },
+      { role: "user" as const, content: input.sharedSystemPrompt || "" },
     ]},
     { id: "review_fore", name: "伏笔追踪", fn: reviewForeshadowing, getMsgs: (input: ReviewInput) => [
-      { role: "system" as const, content: input.sharedSystemPrompt || "" },
-      { role: "user" as const, content: "伏笔追踪审查 prompt" },
+      { role: "system" as const, content: "伏笔追踪审查 prompt" },
+      { role: "user" as const, content: input.sharedSystemPrompt || "" },
     ]},
     { id: "review_style", name: "风格", fn: reviewStyle, getMsgs: (input: ReviewInput) => [
-      { role: "system" as const, content: input.sharedSystemPrompt || "" },
-      { role: "user" as const, content: "风格审查 prompt" },
+      { role: "system" as const, content: "风格审查 prompt" },
+      { role: "user" as const, content: input.sharedSystemPrompt || "" },
     ]},
     { id: "review_world", name: "世界观", fn: reviewWorldBuilding, getMsgs: (input: ReviewInput) => [
-      { role: "system" as const, content: input.sharedSystemPrompt || "" },
-      { role: "user" as const, content: "世界观审查 prompt" },
+      { role: "system" as const, content: "世界观审查 prompt" },
+      { role: "user" as const, content: input.sharedSystemPrompt || "" },
     ]},
     { id: "review_pace", name: "节奏", fn: reviewPacing, getMsgs: (input: ReviewInput) => [
-      { role: "system" as const, content: input.sharedSystemPrompt || "" },
-      { role: "user" as const, content: "节奏审查 prompt" },
+      { role: "system" as const, content: "节奏审查 prompt" },
+      { role: "user" as const, content: input.sharedSystemPrompt || "" },
     ]},
   ];
 
@@ -328,12 +328,7 @@ ${input.generatedProse.slice(0, 8000)}
 Output your review findings. Return an empty array if no issues found.`
 
   const result = await llm.chatWithTool<any>(
-    input.sharedSystemPrompt
-      ? [
-          { role: "system", content: input.sharedSystemPrompt },
-          { role: "user", content: prompt }
-        ]
-      : [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt ? [{ role: "system", content: prompt }, { role: "user", content: input.sharedSystemPrompt }] : [{ role: "system", content: prompt }],
     { ...REVIEW_SCHEMA, name: "character_review" },
     { temperature: 0.2, maxTokens: 4096 }
   );
@@ -528,12 +523,7 @@ ${input.generatedProse.slice(0, 8000)}
 Output your review findings. Return an empty array if no issues found.`
 
   const result = await llm.chatWithTool<any>(
-    input.sharedSystemPrompt
-      ? [
-          { role: "system", content: input.sharedSystemPrompt },
-          { role: "user", content: prompt }
-        ]
-      : [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt ? [{ role: "system", content: prompt }, { role: "user", content: input.sharedSystemPrompt }] : [{ role: "system", content: prompt }],
     { ...REVIEW_SCHEMA, name: "continuity_review" },
     { temperature: 0.1, maxTokens: 4096 }
   );
@@ -727,12 +717,7 @@ Output your review findings. Return an empty array if no issues found.`
   };
 
   const result = await llm.chatWithTool<any>(
-    input.sharedSystemPrompt
-      ? [
-          { role: "system", content: input.sharedSystemPrompt },
-          { role: "user", content: prompt }
-        ]
-      : [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt ? [{ role: "system", content: prompt }, { role: "user", content: input.sharedSystemPrompt }] : [{ role: "system", content: prompt }],
     schemaWithExtras,
     { temperature: 0.2, maxTokens: 4096 }
   );
@@ -910,12 +895,7 @@ ${input.generatedProse.slice(0, 8000)}
 Output your review findings. Return an empty array if no issues found.`
 
   const result = await llm.chatWithTool<any>(
-    input.sharedSystemPrompt
-      ? [
-          { role: "system", content: input.sharedSystemPrompt },
-          { role: "user", content: prompt }
-        ]
-      : [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt ? [{ role: "system", content: prompt }, { role: "user", content: input.sharedSystemPrompt }] : [{ role: "system", content: prompt }],
     { ...REVIEW_SCHEMA, name: "style_review" },
     { temperature: 0.2, maxTokens: 4096 }
   );
@@ -1077,12 +1057,7 @@ ${input.generatedProse.slice(0, 8000)}
 Output your review findings. Return an empty array if no issues found.`
 
   const result = await llm.chatWithTool<any>(
-    input.sharedSystemPrompt
-      ? [
-          { role: "system", content: input.sharedSystemPrompt },
-          { role: "user", content: prompt }
-        ]
-      : [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt ? [{ role: "system", content: prompt }, { role: "user", content: input.sharedSystemPrompt }] : [{ role: "system", content: prompt }],
     { ...REVIEW_SCHEMA, name: "world_review" },
     { temperature: 0.1, maxTokens: 4096 }
   );
@@ -1237,12 +1212,7 @@ ${input.generatedProse.slice(0, 8000)}
 Output your review findings. Return an empty array if no issues found.`
 
   const result = await llm.chatWithTool<any>(
-    input.sharedSystemPrompt
-      ? [
-          { role: "system", content: input.sharedSystemPrompt },
-          { role: "user", content: prompt }
-        ]
-      : [{ role: "user", content: prompt }],
+    input.sharedSystemPrompt ? [{ role: "system", content: prompt }, { role: "user", content: input.sharedSystemPrompt }] : [{ role: "system", content: prompt }],
     { ...REVIEW_SCHEMA, name: "pacing_review" },
     { temperature: 0.2, maxTokens: 4096 }
   );
