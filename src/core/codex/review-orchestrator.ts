@@ -19,7 +19,6 @@ export interface SharedReviewContext {
 
 export function buildSharedReviewSystemPrompt(ctx: SharedReviewContext): string {
   const zh = isChinese(ctx.previousProse || ctx.scene.initialSituation || "");
-
   const beats = ctx.outline?.beats || ctx.outline?.plotPoints || [];
   const beatsText = beats.length > 0
     ? beats.map((b: any) => {
@@ -140,7 +139,6 @@ const REVIEW_SCHEMA = {
 export async function runFullReview(input: ReviewInput, onEvent?: (event: any) => void): Promise<ReviewReport> {
   const llm = createLLMProvider();
   const zh = isChinese(input.generatedProse);
-
   function emitReviewAgent(agentId: string, name: string, status: "running" | "done", messages?: any[]) {
     if (onEvent) onEvent({ type: "agent", agentId, name, status, messages });
   }
@@ -1332,7 +1330,6 @@ export async function runFullReviewClean(
 ): Promise<{ allConverged: boolean; allFindings: ReviewFinding[] }> {
   const llm = createLLMProvider();
   const zh = isChinese(generatedProse);
-
   const agentDefs = [
     { id: "review_char", name: "角色一致性", fn: reviewCharacterConsistencyClean },
     { id: "review_cont", name: "连贯性", fn: reviewContinuityClean },
@@ -1378,7 +1375,6 @@ export async function rewriteProse(
 
   const llm = createLLMProvider();
   const zh = isChinese(originalProse);
-
   const findingsText = findings.map((f, i) =>
     `${i + 1}. [${f.dimension}][${f.severity}] ${f.description}\n   ${f.snippet ? `问题片段: "${f.snippet}"\n   ` : ""}修改建议: ${f.suggestion}`
   ).join("\n\n");

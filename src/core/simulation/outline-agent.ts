@@ -125,8 +125,6 @@ export async function generateOutline(input: {
     activeForeshadowing, worldBible, authorNotes, previousProse, selectCharacters, allowAdult } = input;
 
   const llm = createLLMProvider();
-  const zh = characters.length > 0 && isChinese(characters[0].personality.description);
-
   // ---- Character profiles (full detail, but AI will pick 2-3) ----
   const charSummaries = characters
     .map((c) => {
