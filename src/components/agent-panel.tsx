@@ -7,7 +7,7 @@ interface AgentMessage {
   id: string;
   role: "user" | "agent" | "tool";
   content: string;
-  metadata?: { tool?: string; status?: "running" | "done" };
+  metadata?: { tool?: string; status?: "running" | "done"; subMessages?: { role: string; content: string }[] };
   timestamp: string;
 }
 
@@ -95,17 +95,11 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                 // Update the existing running tool card or add a new one
                 setMessages(prev => {
                   const existing = prev.find(m => m.metadata?.tool === event.tool && m.metadata?.status === "running");
+                  const data = { content: event.result || "", metadata: { tool: event.tool, status: "done" as const, subMessages: event.messages || [] } };
                   if (existing) {
-                    return prev.map(m => m.id === existing.id
-                      ? { ...m, content: event.result || "", metadata: { tool: event.tool, status: "done" } }
-                      : m
-                    );
+                    return prev.map(m => m.id === existing.id ? { ...m, ...data } : m);
                   }
-                  return [...prev, {
-                    id: toolId, role: "tool", content: event.result || "",
-                    metadata: { tool: event.tool, status: "done" },
-                    timestamp: new Date().toISOString(),
-                  }];
+                  return [...prev, { id: toolId, role: "tool", ...data, timestamp: new Date().toISOString() }];
                 });
               }
             } else if (event.type === "error") {
@@ -176,9 +170,24 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   </span>
                 </div>
                 {msg.content && msg.metadata?.status === "done" && (
-                  <details className="mt-1">
+                  <details className="mt-2">
                     <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400">查看结果 ({msg.content.length} 字符)</summary>
-                    <pre className="mt-1 text-[11px] text-neutral-400 font-mono whitespace-pre-wrap max-h-[200px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content.slice(0, 2000)}</pre>
+                    {/* Sub-agent messages */}
+                    {msg.metadata?.subMessages && msg.metadata.subMessages.length > 0 && (
+                      <div className="mt-2 space-y-2 mb-2">
+                        {msg.metadata.subMessages.map((sm, si) => (
+                          <div key={si} className="text-[10px]">
+                            <span className="text-neutral-600 font-mono uppercase">{sm.role === "system" ? "System" : sm.role === "user" ? "User" : "Assistant"}</span>
+                            {sm.role === "system" ? (
+                              <details><summary className="text-neutral-600 cursor-pointer">展开</summary><pre className="mt-1 text-neutral-500 font-mono whitespace-pre-wrap bg-[#080808] rounded p-1.5 max-h-[150px] overflow-y-auto">{sm.content}</pre></details>
+                            ) : (
+                              <pre className="mt-0.5 text-neutral-400 font-mono whitespace-pre-wrap bg-[#080808] rounded p-1.5 max-h-[150px] overflow-y-auto">{sm.content}</pre>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <pre className="text-[11px] text-neutral-400 font-mono whitespace-pre-wrap max-h-[150px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content.slice(0, 2000)}</pre>
                   </details>
                 )}
               </div>
