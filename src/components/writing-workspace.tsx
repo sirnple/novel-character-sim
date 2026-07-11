@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { CharacterProfile, SceneDefinition, WritingStyle, SceneOutline, ChapterTimeline, CharacterChapterState } from "@/types";
 import type { ReviewReport } from "@/core/codex/types";
-import { Loader2, Play, Sparkles, RefreshCw, Shield, ScrollText, Check, AlertCircle, Copy, Edit3, Bot, Save } from "lucide-react";
+import { Loader2, Play, Sparkles, RefreshCw, Shield, ScrollText, Check, AlertCircle, Copy, Bot, Save } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
 interface WritingWorkspaceProps {
@@ -77,7 +77,6 @@ export default function WritingWorkspace({
   });
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
-  const [generatingOutline, setGeneratingOutline] = useState(false);
   const activeTask = activeTaskId ? tasks.find(t => t.id === activeTaskId) : null;
 
   // --- Task creation ---
@@ -158,10 +157,6 @@ export default function WritingWorkspace({
   }, [activeTaskId]);
 
   // Auto-save script
-  useEffect(() => {
-    if (!activeTaskId) return;
-    updateTask(activeTaskId, { script: scriptText });
-  }, [scriptText]);
 
   // Auto-scroll reader to bottom when novel content or output changes
   useEffect(() => {
@@ -347,77 +342,13 @@ export default function WritingWorkspace({
   }, [continuePoint, newTaskLabel, scene, characters, novelId, tasks, persistTasks]);
 
   // --- AI generate outline for existing task ---
-  const handleGenerateOutline = useCallback(async () => {
-    if (!activeTaskId) return;
-    setGeneratingOutline(true);
-    const sc = activeTask?.scene || scene;
 
-    try {
-      const res = await fetch("/api/simulation/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          novelTitle, novelId,
-          characters, // pass ALL characters so outline agent can select 2-3
-          scene: sc, writingStyle, outlineOnly: true,
-          timelineEvents: (timeline?.chapters || []).flatMap(ch => (ch?.events || [])),
-          lastChapterStates,
-          continueFromOffset: activeTask ? activeTask.continueFromOffset : 0,
-          continueFromLabel: activeTask ? activeTask.continueFromLabel : "当前内容",
-          allowAdult: activeTask?.allowAdult || false,
-          cleanMode: activeTask?.cleanMode || false,
-          authorNotes: activeTask?.script || "",
-        }),
-        signal: new AbortController().signal,
-      });
-
-      if (res.ok) {
-        const reader = res.body?.getReader();
-        if (reader) {
-          const decoder = new TextDecoder();
-          let buffer = "";
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                try {
-                  const event = JSON.parse(line.slice(6));
-                  if (event.type === "outline") {
-                    const ol = event.outline;
-                    const olp = event.prompt || null;
-                    setOutline(ol);
-                    setOutlinePrompt(olp);
-                    const newScript = buildScript(characters, ol, sc);
-                    setScriptText(newScript);
-                    updateTask(activeTaskId, {
-                      outline: ol, outlinePrompt: olp, script: newScript,
-                    });
-                    break;
-                  }
-                  if (event.type === "error") break;
-                } catch {}
-              }
-            }
-            if (outline) break;
-          }
-          reader.cancel();
-        }
-      }
-    } catch {}
-    setGeneratingOutline(false);
-  }, [activeTaskId, activeTask, scene, characters, lastChapterStates, novelId, novelTitle, outline, timeline, updateTask, buildScript, writingStyle]);
 
   // --- Writing ---
   const startWriting = useCallback(async () => {
     const taskScene = activeTask?.scene || scene;
     // Script-based writing: extract location from script if scene has none
     const location = taskScene.location?.trim() || "";
-    if (!location && !scriptText.trim()) return;
-
     // Build a scene from the script text if no location set
     let effectiveScene = taskScene;
     if (!location) {
@@ -645,6 +576,36 @@ export default function WritingWorkspace({
 
       {/* RIGHT */}
       <div className="flex-1 flex flex-col min-w-0 relative">
+        {/* Status bar */}
+        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-2 mb-2 flex items-center gap-3 shrink-0">
+          <button onClick={handleCancelTask} className="text-neutral-500 hover:text-neutral-300 font-mono text-xs shrink-0">← 返回</button>
+          <div className="flex-1 text-[10px] text-neutral-500 font-mono">
+            承接：{activeTask?.continueFromLabel}  ·  偏移{activeTask?.continueFromOffset}字
+          </div>
+          <label className="flex items-center gap-1 cursor-pointer" title="允许生成成人内容">
+            <input type="checkbox" checked={activeTask?.allowAdult || false}
+              onChange={e => updateTask(activeTaskId!, { allowAdult: e.target.checked })}
+              className="w-3 h-3 accent-red-500" />
+            <span className={`text-[10px] font-mono ${activeTask?.allowAdult ? "text-red-400" : "text-neutral-600"}`}>成人</span>
+          </label>
+          <label className="flex items-center gap-1 cursor-pointer" title="干净模式">
+            <input type="checkbox" checked={activeTask?.cleanMode || false}
+              onChange={e => updateTask(activeTaskId!, { cleanMode: e.target.checked })}
+              className="w-3 h-3 accent-blue-500" />
+            <span className={`text-[10px] font-mono ${activeTask?.cleanMode ? "text-blue-400" : "text-neutral-600"}`}>干净</span>
+          </label>
+          {(status === "idle" || status === "completed" || status === "error") && (
+            <button onClick={startWriting}
+              className="px-3 py-1 bg-orange-600 hover:bg-orange-500 text-white text-xs font-mono rounded transition-colors">
+              {status === "completed" ? "重新生成" : "开始写作"}
+            </button>
+          )}
+          {status === "generating" && (
+            <button onClick={stopWriting} className="px-3 py-1 bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 text-xs font-mono rounded transition-colors">
+              停止
+            </button>
+          )}
+        </div>
         <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg flex flex-col flex-1 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
