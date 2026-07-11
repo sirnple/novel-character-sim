@@ -26,7 +26,6 @@ export default function HomePage() {
       fetch(`/api/branches?novelId=${id}`).then(r => r.json()).then(d => {
         if (d.branches) setNovel({ branches: d.branches });
       }).catch(() => {});
-      window.location.href = `/novel/${id}`;
     }
   };
 
@@ -48,7 +47,6 @@ export default function HomePage() {
               const id = novelFingerprint(fullText);
               setNovel({ novelId: id, novelTitle: title, novelText: fullText, characters: [], storyInfo: null, timeline: null, lastChapterStates: [] });
               setShowUpload(false);
-              window.location.href = `/novel/${id}`;
             }} />
           </div>
         ) : (

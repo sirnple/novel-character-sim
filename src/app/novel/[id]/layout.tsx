@@ -19,7 +19,17 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     fetch("/api/novels").then(r => r.json()).then(d => setSavedNovels(d.novels || [])).catch(() => {});
-  }, []);
+    // Load novel data on mount (for direct URL access or refresh)
+    if (!novelTitle) {
+      fetch(`/api/novels?id=${id}`).then(r => r.json()).then(data => {
+        if (data.title) setNovel({
+          novelId: id, novelTitle: data.title, novelText: data.text || "",
+          characters: data.characters || [], storyInfo: data.storyInfo || null,
+          timeline: data.timeline || null, lastChapterStates: data.lastChapterStates || [],
+        });
+      }).catch(() => {});
+    }
+  }, [id]);
 
   const openNovel = async (nid: string) => {
     if (nid === id) return;
