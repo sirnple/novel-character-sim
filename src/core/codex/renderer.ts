@@ -143,9 +143,9 @@ ${segments.join("\n\n---\n\n")}
   // USER CONTEXT: the specific writing task for this turn
   // ============================================================
 
-  const sceneGoal = codex.currentTask.sceneGoal || "推进剧情";
-  const characters = (Array.isArray(codex.currentTask.targetCharacters) ? codex.currentTask.targetCharacters : []).join("、");
-  const pacing = codex.currentTask.pacing;
+  const ct = codex.currentTask;
+  const characters = (Array.isArray(ct.targetCharacters) ? ct.targetCharacters : []).join("、");
+  const pacing = ct.pacing;
   const pacingGuidance =
     pacing === "fast"
       ? "节奏要快——多用短句和行动，压缩描写，保持紧张感"
@@ -153,13 +153,30 @@ ${segments.join("\n\n---\n\n")}
         ? "节奏可以放缓——允许更丰富的感官细节和内心世界描摹，给读者沉淀的空间"
         : "保持均衡节奏——行动与内心并重，张弛有度";
 
-  const storyBeat = codex.currentTask.storyBeat || "";
-  const beatGuidance = storyBeat
-    ? `\n故事节点: ${storyBeat}${storyBeat === "高潮" ? "（这是场景张力最高的时刻，必须用最强的感官细节和最紧凑的节奏来写）" : storyBeat === "收尾" ? "（场景的尾声，留余韵而非总结，用画面或行动收束）" : storyBeat === "铺垫" ? "（为后续发展埋下线索，注意与伏笔账本对照）" : ""}`
-    : "";
+  const outlineBlocks: string[] = [];
+  if (ct.sceneGoal) outlineBlocks.push(`续写目标: ${ct.sceneGoal}`);
+  if (ct.emotionalArc) outlineBlocks.push(`情感弧线: ${ct.emotionalArc}`);
+  if (ct.stakes) outlineBlocks.push(`收尾: ${ct.stakes}`);
+  if (ct.estimatedWordCount) outlineBlocks.push(`预计字数: ${ct.estimatedWordCount} 字`);
+  if (ct.estimatedChapters) outlineBlocks.push(`预计章数: ${ct.estimatedChapters} 章`);
+  if (ct.outlines?.length) {
+    for (const o of ct.outlines) {
+      const beats = (o as any).beats || (o as any).plotPoints || [];
+      if (beats.length) {
+        outlineBlocks.push(`\n情节点:`);
+        for (const b of beats) {
+          outlineBlocks.push(`  节拍${b.beatNumber || b.sequence}: ${b.description} [出场: ${(b.activeCharacters || b.involvedCharacters || []).join("、")}]`);
+        }
+      }
+      if ((o as any).focusCharacters?.length) {
+        outlineBlocks.push(`\n焦点角色:`);
+        for (const fc of (o as any).focusCharacters) outlineBlocks.push(`  - ${fc.name}: ${fc.reason || ""}`);
+      }
+    }
+  }
+  const outlineText = outlineBlocks.length > 0 ? outlineBlocks.join("\n") : "";
 
-  const outlineText = codex.narrativeContext.currentOutline || "";
-  const userContext = outlineText && !outlineText.startsWith("场景:")
+  const userContext = outlineText
     ? `请根据以下续写大纲撰写小说正文。
 
 ${outlineText}
@@ -168,15 +185,9 @@ ${characters ? `出场角色: ${characters}` : ""}
 节奏要求: ${pacingGuidance}
 
 请直接输出小说叙事文字。不要输出JSON、不要用代码块包裹、不要添加任何解释或元评论。从场景的第一个词开始写。`
-    : `请撰写以下场景的小说正文。
+    : `请撰写续写场景的小说正文。
 
-场景: ${codex.currentTask.sceneLocation}
-时间: ${codex.currentTask.sceneTimeOfDay}
-天气: ${codex.currentTask.sceneWeather}
-氛围: ${codex.currentTask.sceneAtmosphere}
-冲突类型: ${codex.currentTask.conflictType}${beatGuidance}
-赌注: ${codex.currentTask.stakes}
-出场角色: ${characters}
+${characters ? `出场角色: ${characters}` : ""}
 节奏要求: ${pacingGuidance}
 
 请直接输出小说叙事文字。不要输出JSON、不要用代码块包裹、不要添加任何解释或元评论。从场景的第一个词开始写。`;
@@ -293,10 +304,7 @@ function renderNarrativeContext(codex: WritersCodex): string {
 ${summaries || "（暂无章节摘要）"}
 
 ### 最近前文
-${nc.recentProse ? nc.recentProse.slice(-6000) : "（无前文——这是故事的开端）"}
-
-### 续写大纲
-${nc.currentOutline}`;
+${nc.recentProse ? nc.recentProse.slice(-6000) : "（无前文——这是故事的开端）"}`;
 }
 
 function renderForeshadowingLedger(codex: WritersCodex): string {

@@ -112,7 +112,6 @@ export interface WritersCodex {
   narrativeContext: {
     chapterSummaries: ChapterSummary[];
     recentProse: string;
-    currentOutline: string;
   };
   foreshadowingLedger: {
     active: ForeshadowingEntry[];
@@ -120,16 +119,14 @@ export interface WritersCodex {
   };
   ideaBank: IdeaBank;
   currentTask: {
-    sceneLocation: string;
-    sceneTimeOfDay: string;
-    sceneWeather: string;
-    sceneAtmosphere: string;
     sceneGoal: string;
-    conflictType: string;
-    storyBeat: string;
+    emotionalArc: string;
     stakes: string;
     pacing: "fast" | "medium" | "slow";
     targetCharacters: string[];
+    estimatedWordCount: number;
+    estimatedChapters: number;
+    outlines: { chapterTitle?: string; chapterGoal?: string; emotionalArc?: string; chapterEnding?: string; pacing?: string; focusCharacters?: { name: string; reason: string }[]; beats?: any[] }[];
   };
 }
 

@@ -1178,8 +1178,7 @@ async function reviewPacing(
 
 ## 要求
 - 节奏: ${input.codex.currentTask.pacing}
-- 冲突类型: ${input.codex.currentTask.conflictType}
-- 故事节点: ${input.codex.currentTask.storyBeat}
+- 情感弧线: ${input.codex.currentTask.emotionalArc}
 - 赌注: ${input.codex.currentTask.stakes}
 
 ## 审查任务
@@ -1212,8 +1211,8 @@ Why: Dialogue can advance plot, reveal character, and build tension. Long dialog
 
 ## Requirements
 - Pacing: ${input.codex.currentTask.pacing}
-- Conflict Type: ${input.codex.currentTask.conflictType}
-- Story Beat: ${input.codex.currentTask.storyBeat}
+- Emotional Arc: ${input.codex.currentTask.emotionalArc}
+- Stakes: ${input.codex.currentTask.stakes}
 - Stakes: ${input.codex.currentTask.stakes}
 
 ## Review Task

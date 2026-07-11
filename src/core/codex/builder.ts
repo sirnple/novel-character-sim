@@ -86,9 +86,18 @@ export function buildCodex(input: BuildCodexInput): WritersCodex {
     })) ||
       []);
   const recentProse = input.recentProse || "";
-  const currentOutline = buildSceneOutline(input.scene, characters);
 
-  // Segment 5: Foreshadowing Ledger
+  // Segment 7: Current Task (filled by engine from outline)
+  const currentTask = {
+    sceneGoal: "",
+    emotionalArc: "",
+    stakes: "",
+    pacing: "medium" as "fast" | "medium" | "slow",
+    targetCharacters: [] as string[],
+    estimatedWordCount: 0,
+    estimatedChapters: 0,
+    outlines: [] as any[],
+  };
   const active = (input.foreshadowing || []).filter(f => f.status !== "revealed");
   const revealed = (input.foreshadowing || []).filter(f => f.status === "revealed");
 
@@ -100,28 +109,11 @@ export function buildCodex(input: BuildCodexInput): WritersCodex {
     authorNotes: "",
   };
 
-  // Segment 7: Current Task
-  const len = input.scene.narrativeStyle?.targetLength;
-  const currentTask = {
-    sceneLocation: input.scene.location,
-    sceneTimeOfDay: input.scene.timeOfDay,
-    sceneWeather: input.scene.weather,
-    sceneAtmosphere: input.scene.atmosphere,
-    sceneGoal: input.scene.plot?.storyBeat || "",
-    conflictType: input.scene.plot?.conflictType || "",
-    storyBeat: input.scene.plot?.storyBeat || "",
-    stakes: input.scene.plot?.stakes || "",
-    pacing: (len === "short" ? "fast" : len === "long" ? "slow" : "medium") as "fast" | "medium" | "slow",
-    targetCharacters: (input.scene.characterIds || []).map(id =>
-      characters.find(c => c.id === id)?.name || ""
-    ).filter(Boolean),
-  };
-
   return {
     styleProfiles: { writingStyle, fingerprint, examplePassages },
     characterDossiers: { profiles: characters, quotes, currentStates },
     worldBible,
-    narrativeContext: { chapterSummaries, recentProse, currentOutline },
+    narrativeContext: { chapterSummaries, recentProse },
     foreshadowingLedger: { active, revealed },
     ideaBank,
     currentTask,
