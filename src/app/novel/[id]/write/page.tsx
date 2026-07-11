@@ -10,7 +10,6 @@ export default function WritePage() {
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
   const [freeMode, setFreeMode] = useState(false);
-  const [freeText, setFreeText] = useState("");
   const readerRef = useRef<HTMLDivElement>(null);
   const [showNewBranch, setShowNewBranch] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
@@ -21,7 +20,6 @@ export default function WritePage() {
 
   const activeBranch = branches.find(b => b.id === activeBranchId);
   const currentText = activeBranchId ? (activeBranch?.text || "") : novelText;
-  const displayText = freeMode ? freeText : currentText;
 
   useEffect(() => {
     fetch(`/api/branches?novelId=${novelId}`).then(r => r.json()).then(d => {
@@ -114,15 +112,19 @@ export default function WritePage() {
           <div className="flex items-center gap-2 text-xs font-mono">
             <BookOpen className="w-3.5 h-3.5 text-orange-500" />
             <span className="text-neutral-400">{freeMode ? "自由创作" : activeBranch ? activeBranch.name : "主线"}</span>
-            <span className="text-neutral-600">{displayText.length.toLocaleString()} 字</span>
+            <span className="text-neutral-600">{novelText.length.toLocaleString()} 字</span>
           </div>
           <a href={`/novel/${novelId}/read`} className="text-[10px] text-neutral-500 hover:text-neutral-300 font-mono">阅读模式</a>
         </div>
 
         {freeMode ? (
-          <textarea value={freeText} onChange={e => setFreeText(e.target.value)}
-            className="flex-1 w-full bg-transparent border-0 outline-none resize-none p-6 text-base text-neutral-200 leading-relaxed font-serif custom-scrollbar placeholder-neutral-700"
-            placeholder="自由创作模式——直接输入文字，或选中后告诉助手帮你续写..." />
+          <div ref={readerRef} onClick={handleEditorClick} className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="max-w-[800px] mx-auto p-6">
+              <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
+                {novelText}
+              </div>
+            </div>
+          </div>
         ) : (
           <div ref={readerRef} onClick={handleEditorClick} className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="max-w-[800px] mx-auto p-6">
