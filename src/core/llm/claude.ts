@@ -123,7 +123,7 @@ export class ClaudeProvider implements LLMProvider {
     const systemMsg = messages.find(m => m.role === "system");
     const chatMessages = messages
       .filter(m => m.role !== "system")
-      .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+      .map(m => ({ role: m.role as "user" | "assistant", content: m.content as string | any[] }));
 
     const anthropicTools = tools.map(t => ({
       name: t.name,

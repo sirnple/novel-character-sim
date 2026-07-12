@@ -4,6 +4,21 @@ import type { StreamEvent } from "@/core/agents/types";
 import { extractJSON } from "@/lib/utils";
 import { logSession } from "@/lib/session-log";
 
+function len(m: LLMMessage): number {
+  const c = m.content;
+  if (typeof c === "string") return c.length;
+  if (Array.isArray(c)) return JSON.stringify(c).length;
+  return 0;
+}
+
+function toOpenAIMessages(messages: LLMMessage[]): any[] {
+  return messages.map(m => ({
+    role: m.role as "system" | "user" | "assistant" | "tool",
+    content: typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content : "",
+    ...(m.role === "tool" && "tool_call_id" in m ? { tool_call_id: (m as any).tool_call_id } : {}),
+  }));
+}
+
 /**
  * OpenAI-compatible provider. Supports OpenAI, DeepSeek, and any other
  * OpenAI-compatible API by passing a custom baseURL.
@@ -31,22 +46,19 @@ export class OpenAIProvider implements LLMProvider {
     options?: { model?: string; maxTokens?: number; temperature?: number }
   ): Promise<string> {
     const model = options?.model || this.defaultModel;
-    const inputLen = messages.reduce((sum, m) => sum + m.content.length, 0);
+    const inputLen = messages.reduce((sum, m) => sum + len(m), 0);
 
     console.log(`[LLM:chat] model=${model} inputLen=${inputLen} starting...`);
     const t0 = Date.now();
 
-    const response = await withRetry(
+    const response: any = await withRetry(
       () =>
         this.client.chat.completions.create({
           model,
           max_tokens: options?.maxTokens || 4096,
           temperature: options?.temperature ?? 0.7,
-          messages: messages.map((m) => ({
-            role: m.role as "system" | "user" | "assistant",
-            content: m.content,
-          })),
-        }),
+          messages: toOpenAIMessages(messages),
+        } as any),
       `chat(model=${model})`
     );
 
@@ -64,9 +76,8 @@ export class OpenAIProvider implements LLMProvider {
     toolSchema: ToolSchema,
     options?: { model?: string; maxTokens?: number; temperature?: number }
   ): Promise<T> {
-    // ... same implementation
     const model = options?.model || this.defaultModel;
-    const inputLen = messages.reduce((sum, m) => sum + m.content.length, 0);
+    const inputLen = messages.reduce((sum, m) => sum + len(m), 0);
 
     console.log(
       `[LLM:chatWithTool] model=${model} tool=${toolSchema.name} inputLen=${inputLen} starting...`
@@ -74,14 +85,14 @@ export class OpenAIProvider implements LLMProvider {
     const t0 = Date.now();
 
     const toolPrompt = [
-      messages.map((m) => `${m.role}: ${m.content}`).join("\n\n"),
+      messages.map((m) => `${m.role}: ${(m.content ?? "")}`).join("\n\n"),
       "",
       "IMPORTANT: You must respond with a valid JSON object that matches this schema:",
       JSON.stringify(toolSchema.parameters, null, 2),
       "Respond ONLY with the JSON object, no other text.",
     ].join("\n");
 
-    const response = await withRetry(
+    const response: any = await withRetry(
       () =>
         this.client.chat.completions.create({
           model,
@@ -89,7 +100,7 @@ export class OpenAIProvider implements LLMProvider {
           temperature: options?.temperature ?? 0.3,
           response_format: { type: "json_object" },
           messages: [{ role: "user", content: toolPrompt }],
-        }),
+        } as any),
       `chatWithTool(tool=${toolSchema.name}, model=${model})`
     );
 
@@ -117,24 +128,21 @@ export class OpenAIProvider implements LLMProvider {
     options?: { model?: string; maxTokens?: number; temperature?: number }
   ): Promise<string> {
     const model = options?.model || this.defaultModel;
-    const inputLen = messages.reduce((sum, m) => sum + m.content.length, 0);
+    const inputLen = messages.reduce((sum, m) => sum + len(m), 0);
     console.log(`[LLM:chatStream] model=${model} inputLen=${inputLen} starting...`);
     const t0 = Date.now();
 
-    const response = await this.client.chat.completions.create({
+    const response: any = await this.client.chat.completions.create({
       model,
       max_tokens: options?.maxTokens || 4096,
       temperature: options?.temperature ?? 0.7,
       stream: true,
-      messages: messages.map((m) => ({
-        role: m.role as "system" | "user" | "assistant",
-        content: m.content,
-      })),
-    });
+      messages: toOpenAIMessages(messages),
+    } as any);
 
     let fullText = "";
     for await (const chunk of response) {
-      const delta = chunk.choices[0]?.delta?.content;
+      const delta = (chunk as any).choices[0]?.delta?.content;
       if (delta) {
         fullText += delta;
         onChunk(fullText);
@@ -155,7 +163,7 @@ export class OpenAIProvider implements LLMProvider {
     options?: { model?: string; maxTokens?: number; temperature?: number }
   ): AsyncGenerator<StreamEvent> {
     const model = options?.model || this.defaultModel;
-    const inputLen = messages.reduce((sum, m) => sum + m.content.length, 0);
+    const inputLen = messages.reduce((sum, m) => sum + len(m), 0);
     console.log(`[LLM:chatWithTools] model=${model} tools=${tools.map(t => t.name).join(",")} inputLen=${inputLen} starting...`);
     const t0 = Date.now();
 
@@ -182,7 +190,7 @@ export class OpenAIProvider implements LLMProvider {
         messages: convertedMessages,
         tools: openaiTools,
         stream: true,
-      });
+      } as any);
     } catch (e) {
       logSession({
         ts: new Date().toISOString(),
@@ -206,7 +214,7 @@ export class OpenAIProvider implements LLMProvider {
     let outputLen = 0;
 
     for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta;
+      const delta = (chunk as any).choices[0]?.delta;
       if (!delta) continue;
 
       if (delta.content) {
@@ -247,11 +255,36 @@ export class OpenAIProvider implements LLMProvider {
   }
 }
 
-function convertAnthropicBlocksToOpenAI(m: { role: string; content: string | any[] }): any {
-  if (typeof m.content === "string") return { role: m.role, content: m.content };
+function convertAnthropicBlocksToOpenAI(m: LLMMessage): any {
+  const content = m.content;
+  const role = m.role;
 
-  // Check for tool_use content blocks (assistant message)
-  const toolUses = m.content.filter((b: any) => b.type === "tool_use");
+  // Tool message — preserve tool_call_id
+  if (role === "tool") {
+    return {
+      role: "tool",
+      tool_call_id: (m as any).tool_call_id,
+      content: typeof content === "string" ? content : JSON.stringify(content ?? ""),
+    };
+  }
+
+  // Assistant message with tool_calls — preserve
+  if (role === "assistant" && (m as any).tool_calls && (m as any).tool_calls.length > 0) {
+    return {
+      role: "assistant",
+      content: typeof content === "string" ? content : null,
+      tool_calls: (m as any).tool_calls,
+    };
+  }
+
+  // String content — pass through
+  if (typeof content === "string") return { role, content };
+  if (content === null) return { role, content: "" };
+
+  // Array content (Anthropic blocks)
+  const arr = content as any[];
+
+  const toolUses = arr.filter((b: any) => b.type === "tool_use");
   if (toolUses.length > 0) {
     return {
       role: "assistant",
@@ -264,8 +297,7 @@ function convertAnthropicBlocksToOpenAI(m: { role: string; content: string | any
     };
   }
 
-  // Check for tool_result content blocks (user message)
-  const toolResults = m.content.filter((b: any) => b.type === "tool_result");
+  const toolResults = arr.filter((b: any) => b.type === "tool_result");
   if (toolResults.length > 0) {
     return {
       role: "tool",
@@ -275,7 +307,7 @@ function convertAnthropicBlocksToOpenAI(m: { role: string; content: string | any
   }
 
   // Fallback: stringify text blocks
-  return { role: m.role, content: m.content.map((b: any) => b.text || JSON.stringify(b)).join("") };
+  return { role, content: arr.map((b: any) => b.text || JSON.stringify(b)).join("") };
 }
 
 /**
@@ -295,7 +327,6 @@ async function withRetry<T>(
       lastError = error instanceof Error ? error : new Error(String(error));
       const msg = lastError.message || "";
 
-      // Retry on network errors AND truncated/parse failures
       const isNetworkError =
         msg.includes("Premature close") ||
         msg.includes("ECONNRESET") ||
