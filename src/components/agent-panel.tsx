@@ -6,7 +6,7 @@ import { useNovel } from "@/lib/novel-context";
 
 interface AgentMessage {
   id: string;
-  role: "user" | "agent" | "tool_card";
+  role: "user" | "agent" | "tool";
   content: string;
   metadata?: { tool?: string; status?: "running" | "done"; toolCallId?: string; subMessages?: { role: string; content: string }[] };
   timestamp: string;
@@ -111,7 +111,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
               if (event.status === "running") {
                 currentTextMsgId = null;
                 setMessages(prev => [...prev, {
-                  id: Math.random().toString(36).slice(2), role: "tool_card", content: "",
+                  id: Math.random().toString(36).slice(2), role: "tool", content: "",
                   metadata: { tool: event.tool, status: "running", toolCallId: event.toolCallId },
                   timestamp: new Date().toISOString(),
                 }]);
@@ -123,7 +123,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   if (existing) {
                     return prev.map(m => m.id === existing.id ? { ...m, ...data } : m);
                   }
-                  return [...prev, { id: Math.random().toString(36).slice(2), role: "tool_card", ...data, timestamp: new Date().toISOString() }];
+                  return [...prev, { id: Math.random().toString(36).slice(2), role: "tool", ...data, timestamp: new Date().toISOString() }];
                 });
               }
             } else if (event.type === "error") {
@@ -207,7 +207,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
 
         {messages.map(msg => {
           // Tool card
-          if (msg.role === "tool") {
+          if (msg.role === "tool_card") {
             const isRunning = msg.metadata?.status === "running";
             const isDone = msg.metadata?.status === "done";
             const isReview = msg.metadata?.tool?.startsWith("review_");

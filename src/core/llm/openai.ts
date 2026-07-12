@@ -173,8 +173,9 @@ export class OpenAIProvider implements LLMProvider {
     }));
 
     const convertedMessages = messages.map(m => convertAnthropicBlocksToOpenAI(m));
+    let stream: any;
     try {
-      const stream = await this.client.chat.completions.create({
+      stream = await this.client.chat.completions.create({
         model,
         max_tokens: options?.maxTokens || 4096,
         temperature: options?.temperature ?? 0.4,
