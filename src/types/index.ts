@@ -355,8 +355,10 @@ export interface LLMProviderConfig {
 }
 
 export interface LLMMessage {
-  role: "system" | "user" | "assistant";
-  content: string | any[];
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | any[] | null;
+  tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
+  tool_call_id?: string;
 }
 
 export interface LLMProvider {
