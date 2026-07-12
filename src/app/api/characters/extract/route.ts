@@ -3,7 +3,7 @@ import { parseNovel } from "@/core/parser/novel-parser";
 import { CharacterExtractor } from "@/core/extractor/character-extractor";
 import { StoryExtractor } from "@/core/extractor/story-extractor";
 import { TimelineExtractor } from "@/core/extractor/timeline-extractor";
-import { saveNovel, saveStoryInfo, saveCharacters, saveTimeline, saveChapterStates, getStoryInfo, getCharacters, getTimeline, getChapterStates, saveGenerationLog } from "@/lib/db";
+import { saveNovel, saveStoryInfo, saveCharacters, saveTimeline, saveChapterStates, getStoryInfo, getCharacters, getTimeline, getChapterStates, saveGenerationLog, ensureMainBranch } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import type { StoryInfo, CharacterProfile, ChapterTimeline, CharacterChapterState } from "@/types";
 
@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
 
     // Save novel text
     saveNovel(userId, novelId, parsed.title, text);
+    ensureMainBranch(userId, novelId);
 
     // Extract story/world info
     console.log("[Extract] Starting story extraction...");
