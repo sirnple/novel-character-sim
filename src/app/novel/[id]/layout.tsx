@@ -10,7 +10,7 @@ interface SavedNovel { id: string; title: string; total_length: number; created_
 export default function NovelLayout({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
   const pathname = usePathname();
-  const { novelTitle, novelText, characters, timeline, storyInfo, setNovel, setCharacters, setStoryInfo, setTimeline, sessionNovelText, sessionContinueOffset, sessionContinueLabel } = useNovel();
+  const { novelTitle, novelText, characters, timeline, storyInfo, setNovel, setCharacters, setStoryInfo, setTimeline, sessionNovelText, sessionContinueOffset, sessionContinueLabel, activeBranchId, novelId } = useNovel();
   const [savedNovels, setSavedNovels] = useState<SavedNovel[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(pathname.endsWith("/write"));
   const [showRightPanel, setShowRightPanel] = useState(true);
@@ -134,7 +134,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
               </button>
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar">
-              <AgentPanelWrapper novelTitle={novelTitle} novelText={sessionNovelText || novelText} characters={characters} continueFromOffset={sessionContinueOffset} continueFromLabel={sessionContinueLabel} />
+              <AgentPanelWrapper novelTitle={novelTitle} novelText={sessionNovelText || novelText} characters={characters} continueFromOffset={sessionContinueOffset} continueFromLabel={sessionContinueLabel} branchId={activeBranchId} novelId={novelId} />
             </div>
           </aside>
           </>
@@ -162,6 +162,6 @@ function SidebarSection({ section, icon, label, expanded, onToggle, children }: 
 import dynamic from "next/dynamic";
 const AgentPanel = dynamic(() => import("@/components/agent-panel"), { ssr: false });
 
-function AgentPanelWrapper({ novelTitle, novelText, characters, continueFromOffset, continueFromLabel }: { novelTitle?: string; novelText?: string; characters?: any[]; continueFromOffset?: number; continueFromLabel?: string }) {
-  return <AgentPanel novelTitle={novelTitle} characters={characters} novelText={novelText} continueFromOffset={continueFromOffset} continueFromLabel={continueFromLabel} />;
+function AgentPanelWrapper({ novelTitle, novelText, characters, continueFromOffset, continueFromLabel, branchId, novelId }: { novelTitle?: string; novelText?: string; characters?: any[]; continueFromOffset?: number; continueFromLabel?: string; branchId?: string; novelId?: string }) {
+  return <AgentPanel novelTitle={novelTitle} characters={characters} novelText={novelText} continueFromOffset={continueFromOffset} continueFromLabel={continueFromLabel} branchId={branchId} novelId={novelId} />;
 }

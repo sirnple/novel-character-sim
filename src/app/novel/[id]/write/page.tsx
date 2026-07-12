@@ -6,9 +6,9 @@ import { GitBranch, Plus, BookOpen, Sparkles } from "lucide-react";
 interface BranchInfo { id: string; name: string; text: string; parent_offset: number; updated_at: string; }
 
 export default function WritePage() {
-  const { novelId, novelTitle, novelText, setNovelText, setNovel, generatedProse } = useNovel();
+  const { novelId, novelTitle, novelText, setNovelText, setNovel, generatedProse, setActiveBranchId } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
-  const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
+  const [activeBranchId, setLocalBranchId] = useState<string | null>(null);
   const [freeMode, setFreeMode] = useState(false);
   const readerRef = useRef<HTMLDivElement>(null);
   const [showNewBranch, setShowNewBranch] = useState(false);
@@ -42,24 +42,28 @@ export default function WritePage() {
         sessionContinueOffset: activeBranch.text.length,
         sessionContinueLabel: `分支: ${activeBranch.name}`,
       });
+      setActiveBranchId(activeBranchId);
     } else if (freeMode) {
       setNovel({
         sessionNovelText: novelText,
         sessionContinueOffset: undefined,
         sessionContinueLabel: "自由创作",
       });
+      setActiveBranchId(undefined);
     } else if (queryOffset) {
       setNovel({
         sessionNovelText: novelText,
         sessionContinueOffset: parseInt(queryOffset),
         sessionContinueLabel: queryLabel || "续写点",
       });
+      setActiveBranchId("main");
     } else {
       setNovel({
         sessionNovelText: undefined,
         sessionContinueOffset: undefined,
         sessionContinueLabel: undefined,
       });
+      setActiveBranchId("main");
     }
   }, [activeBranchId, activeBranch?.text, freeMode, novelText, queryOffset, queryLabel]);
 
@@ -75,7 +79,7 @@ export default function WritePage() {
     const data = await res.json();
     if (data.branch) {
       setBranches(prev => [data.branch, ...prev]);
-      setActiveBranchId(data.branch.id);
+      setLocalBranchId(data.branch.id);
       setShowForkDialog(false);
       setNewBranchName("");
       setForkPoint(null);
@@ -114,9 +118,9 @@ export default function WritePage() {
           </h3>
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-          <button onClick={() => { setActiveBranchId(null); setFreeMode(false); }}
+          <button onClick={() => { setLocalBranchId("main"); setFreeMode(false); }}
             className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors ${
-              !activeBranchId && !freeMode ? "bg-orange-500/10 border-l-2 border-orange-500 text-neutral-200" : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
+              activeBranchId === "main" && !freeMode ? "bg-orange-500/10 border-l-2 border-orange-500 text-neutral-200" : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
             }`}>
             <div className="flex items-center justify-between">
               <span>主线</span>
@@ -124,7 +128,7 @@ export default function WritePage() {
             </div>
           </button>
           {branches.map(b => (
-            <button key={b.id} onClick={() => { setActiveBranchId(b.id); setFreeMode(false); }}
+            <button key={b.id} onClick={() => { setLocalBranchId(b.id); setFreeMode(false); }}
               className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors ${
                 activeBranchId === b.id ? "bg-orange-500/10 border-l-2 border-orange-500 text-neutral-200" : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
               }`}>
@@ -134,7 +138,7 @@ export default function WritePage() {
               </div>
             </button>
           ))}
-          <button onClick={() => { setFreeMode(true); setActiveBranchId(null); }}
+          <button onClick={() => { setFreeMode(true); setLocalBranchId(null); }}
             className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors ${
               freeMode ? "bg-blue-500/10 border-l-2 border-blue-500 text-blue-400" : "text-neutral-500 hover:bg-neutral-800/50 hover:text-neutral-400"
             }`}>

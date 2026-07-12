@@ -4,6 +4,46 @@ import { Bot, Send, Loader2, Wrench } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useNovel } from "@/lib/novel-context";
 
+const AGENT_TYPES = new Set([
+  "generate_outline", "write_prose",
+  "review_character", "review_continuity", "review_foreshadowing",
+  "review_style", "review_world", "review_pacing",
+]);
+
+/**
+ * Reconstruct a valid OpenAI-format conversation from the local UI message
+ * history. Tool cards are synthesized into a `tool_calls` array on the
+ * preceding assistant message, paired with a `tool` message carrying the
+ * matching `tool_call_id`. Without this pairing the API rejects tool
+ * messages as orphans ("Messages with role 'tool' must be a response to a
+ * preceding message with 'tool_calls'").
+ */
+function buildOutgoingMessages(messages: AgentMessage[], userMsg: AgentMessage): any[] {
+  const out: any[] = [];
+  let lastAssistantIdx = -1;
+  for (const m of messages) {
+    if (m.role === "tool" && m.metadata?.toolCallId) {
+      const fnName = AGENT_TYPES.has(m.metadata.tool || "") ? "agent" : (m.metadata.tool || "unknown");
+      const tc = { id: m.metadata.toolCallId, type: "function", function: { name: fnName, arguments: "{}" } };
+      if (lastAssistantIdx >= 0) {
+        out[lastAssistantIdx].tool_calls = [...(out[lastAssistantIdx].tool_calls || []), tc];
+      } else {
+        out.push({ role: "assistant", content: null, tool_calls: [tc] });
+        lastAssistantIdx = out.length - 1;
+      }
+      out.push({ role: "tool", content: m.content, tool_call_id: m.metadata.toolCallId });
+    } else if (m.role === "tool") {
+      // incomplete tool card without a toolCallId — drop
+    } else {
+      const role = m.role === "agent" ? "assistant" : m.role;
+      out.push({ role, content: m.content });
+      if (role === "assistant") lastAssistantIdx = out.length - 1;
+    }
+  }
+  out.push(userMsg);
+  return out;
+}
+
 interface AgentMessage {
   id: string;
   role: "user" | "agent" | "tool";
@@ -18,10 +58,12 @@ interface AgentPanelProps {
   novelText?: string;
   continueFromOffset?: number;
   continueFromLabel?: string;
+  branchId?: string;
+  novelId?: string;
   onOutlineGenerated?: (outline: any) => void;
 }
 
-export default function AgentPanel({ novelTitle, characters, novelText, continueFromOffset, continueFromLabel, onOutlineGenerated }: AgentPanelProps) {
+export default function AgentPanel({ novelTitle, characters, novelText, continueFromOffset, continueFromLabel, branchId, novelId, onOutlineGenerated }: AgentPanelProps) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [status, setStatus] = useState<"idle" | "generating">("idle");
   const [input, setInput] = useState("");
@@ -52,13 +94,9 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [...messages.map(m => {
-            if (m.role === "tool" && m.metadata?.toolCallId) {
-              return { role: "tool", content: m.content, tool_call_id: m.metadata.toolCallId };
-            }
-            return { role: m.role === "agent" ? "assistant" : m.role, content: m.content };
-          }).filter(m => m.role !== "tool" || m.tool_call_id), userMsg],
-          context: { novelTitle, characters, novelText, continueFromOffset, continueFromLabel },
+          messages: buildOutgoingMessages(messages, userMsg),
+          branchId,
+          novelId,
         }),
         signal: abort.signal,
       });
@@ -239,10 +277,39 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                 {isRunning && msg.content && (
                   <pre className="mt-2 text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content}</pre>
                 )}
-                {/* Final result when done — only show expandable for non-trivial results */}
-                {isDone && msg.content && !(isReview && !hasFindings) && (
+                {/* Done — sequential message trail (system → user → assistant …), Claude-Code-style */}
+                {isDone && msg.metadata?.subMessages && msg.metadata.subMessages.length > 0 && (
+                  <details className="mt-1.5">
+                    <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400 font-mono">
+                      对话记录 ({msg.metadata.subMessages.length} 条消息)
+                    </summary>
+                    <div className="mt-1 space-y-2 max-h-[400px] overflow-y-auto bg-[#080808] rounded p-2">
+                      {msg.metadata.subMessages.map((sm, i) => (
+                        <div key={i} className="space-y-0.5">
+                          <div className="text-[9px] text-neutral-600 font-mono uppercase">
+                            {sm.role === "system" ? "system" : sm.role === "user" ? "user" : "assistant"}
+                          </div>
+                          {sm.role === "system" ? (
+                            <details>
+                              <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400">展开 ({sm.content.length} 字符)</summary>
+                              <div className="mt-1 text-[11px] text-neutral-400 leading-relaxed bg-[#0a0a0a] rounded p-2 border border-neutral-800/30 max-h-[200px] overflow-y-auto prose prose-invert prose-xs max-w-none">
+                                <ReactMarkdown>{sm.content}</ReactMarkdown>
+                              </div>
+                            </details>
+                          ) : (
+                            <div className="text-[11px] text-neutral-300 leading-relaxed bg-[#0a0a0a] rounded p-2 border border-neutral-800/30 max-h-[240px] overflow-y-auto prose prose-invert prose-xs max-w-none">
+                              <ReactMarkdown>{sm.content}</ReactMarkdown>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+                {/* Done — final result exhibit when there's no sub-messages */}
+                {isDone && msg.content && !(isReview && !hasFindings) && (!msg.metadata?.subMessages || msg.metadata.subMessages.length === 0) && (
                   <details className="mt-1">
-                    <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400">查看结果 ({msg.content.length} 字符)</summary>
+                    <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400 font-mono">输出 ({msg.content.length} 字符)</summary>
                     <pre className="mt-1 text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content.slice(0, 5000)}</pre>
                   </details>
                 )}

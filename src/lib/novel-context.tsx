@@ -11,6 +11,7 @@ interface NovelState {
   timeline: ChapterTimeline | null;
   lastChapterStates: CharacterChapterState[];
   branches: Branch[];
+  activeBranchId?: string;
   sessionNovelText?: string;
   sessionContinueOffset?: number;
   sessionContinueLabel?: string;
@@ -24,6 +25,7 @@ interface NovelContextType extends NovelState {
   setStoryInfo: (info: StoryInfo | null) => void;
   setTimeline: (tl: ChapterTimeline | null) => void;
   setBranches: (b: Branch[]) => void;
+  setActiveBranchId: (id: string | undefined) => void;
   setNovelText: (text: string) => void;
 }
 
@@ -65,12 +67,16 @@ export function NovelProvider({ children }: { children: ReactNode }) {
     setState(prev => ({ ...prev, branches: b }));
   }, []);
 
+  const setActiveBranchId = useCallback((id: string | undefined) => {
+    setState(prev => ({ ...prev, activeBranchId: id }));
+  }, []);
+
   const setNovelText = useCallback((text: string) => {
     setState(prev => ({ ...prev, novelText: text }));
   }, []);
 
   return (
-    <NovelContext.Provider value={{ ...state, setNovel, clearNovel, setCharacters, setStoryInfo, setTimeline, setBranches, setNovelText }}>
+    <NovelContext.Provider value={{ ...state, setNovel, clearNovel, setCharacters, setStoryInfo, setTimeline, setBranches, setActiveBranchId, setNovelText }}>
       {children}
     </NovelContext.Provider>
   );
