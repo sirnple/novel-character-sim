@@ -118,15 +118,6 @@ export default function WritePage() {
           </h3>
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-          <button onClick={() => { setLocalBranchId("main"); setFreeMode(false); }}
-            className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors ${
-              activeBranchId === "main" && !freeMode ? "bg-orange-500/10 border-l-2 border-orange-500 text-neutral-200" : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
-            }`}>
-            <div className="flex items-center justify-between">
-              <span>主线</span>
-              <span className="text-[10px] text-neutral-600">{novelText.length.toLocaleString()}字</span>
-            </div>
-          </button>
           {branches.map(b => (
             <button key={b.id} onClick={() => { setLocalBranchId(b.id); setFreeMode(false); }}
               className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors ${
