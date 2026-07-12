@@ -16,7 +16,7 @@ export const branchTools: ToolDefinition[] = [
       required: ["novelId", "branchId"],
     },
     execute: async (args, ctx) => {
-      const branch = getBranch(ctx.userId || "guest", args.branchId as string);
+      const branch = getBranch(ctx.userId || "guest", args.novelId as string, args.branchId as string);
       if (!branch) return { content: "分支不存在", messages: [] };
       const text = branch.text || "";
       return { content: text.slice(-TEXT_TAIL) || "无前文", messages: [] };
@@ -85,7 +85,7 @@ export const branchTools: ToolDefinition[] = [
       required: ["novelId", "branchId"],
     },
     execute: async (args, ctx) => {
-      const branch = getBranch(ctx.userId || "guest", args.branchId as string);
+      const branch = getBranch(ctx.userId || "guest", args.novelId as string, args.branchId as string);
       if (!branch) return { content: "分支不存在", messages: [] };
       return {
         content: JSON.stringify({
