@@ -19,14 +19,14 @@ export async function POST(request: NextRequest) {
     if (branchId || branchName) {
       if (branchId) {
         // Append to existing branch
-        appendBranchContent(userId, branchId, content);
-        const updated = getBranch(userId, branchId);
+        appendBranchContent(userId, novelId, branchId, content);
+        const updated = getBranch(userId, novelId, branchId);
         return NextResponse.json({ success: true, fullText: updated?.text || "", branch: updated });
       }
       // Create new branch
       const id = `branch_${Date.now()}`;
       saveBranch(userId, id, novelId, branchName, parentOffset || 0, content);
-      const created = getBranch(userId, id);
+      const created = getBranch(userId, novelId, id);
       return NextResponse.json({ success: true, fullText: created?.text || "", branch: created });
     }
 

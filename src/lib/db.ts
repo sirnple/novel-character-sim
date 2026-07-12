@@ -30,6 +30,35 @@ function getDb(): Database.Database {
  * (speakingStyle/background as strings).  New code expects nested objects.
  */
 function migrateOldData(d: Database.Database): void {
+  // Migrate branches table to (novel_id, id, user_id) PK so multiple novels can each have id="main".
+  try {
+    const cols = d.prepare("PRAGMA table_info(branches)").all() as { name: string }[];
+    if (cols.length > 0) {
+      d.exec(`ALTER TABLE branches RENAME TO branches_old_pk`);
+      d.exec(`
+        CREATE TABLE branches (
+          id TEXT NOT NULL,
+          novel_id TEXT NOT NULL,
+          user_id TEXT NOT NULL DEFAULT 'guest',
+          name TEXT NOT NULL DEFAULT '',
+          parent_offset INTEGER NOT NULL DEFAULT 0,
+          text TEXT NOT NULL DEFAULT '',
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          PRIMARY KEY (novel_id, id, user_id)
+        )
+      `);
+      d.exec(`
+        INSERT INTO branches (id, novel_id, user_id, name, parent_offset, text, created_at, updated_at)
+        SELECT id, novel_id, user_id, name, parent_offset, text, created_at, updated_at FROM branches_old_pk
+      `);
+      d.exec(`DROP TABLE branches_old_pk`);
+      console.log("[DB] Migrated branches PK to (novel_id, id, user_id)");
+    }
+  } catch (e) {
+    console.warn("[DB] branches migration skipped:", (e as Error).message);
+  }
+
   const rows = d.prepare("SELECT id, data FROM characters").all() as { id: string; data: string }[];
   if (rows.length === 0) return;
 
@@ -176,7 +205,7 @@ function initSchema(db: Database.Database) {
       text TEXT NOT NULL DEFAULT '',
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
-      PRIMARY KEY (id, user_id)
+      PRIMARY KEY (novel_id, id, user_id)
     );
     CREATE INDEX IF NOT EXISTS idx_branches_novel ON branches(novel_id);
 
@@ -550,28 +579,39 @@ export function saveBranch(
 
 export function appendBranchContent(
   userId: string,
+  novelId: string,
   branchId: string,
   newContent: string
 ): void {
   const d = getDb();
   const branch = d.prepare(
-    "SELECT text FROM branches WHERE id = ? AND user_id = ?"
-  ).get(branchId, userId) as { text: string } | undefined;
+    "SELECT text FROM branches WHERE novel_id = ? AND id = ? AND user_id = ?"
+  ).get(novelId, branchId, userId) as { text: string } | undefined;
   if (!branch) return;
   const combined = branch.text + "\n\n" + newContent;
   d.prepare(
-    "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?"
-  ).run(combined, branchId, userId);
+    "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = ? AND user_id = ?"
+  ).run(combined, novelId, branchId, userId);
 }
 
 export function getBranch(
   userId: string,
+  novelId: string,
   branchId: string
 ): BranchRow | null {
   const d = getDb();
+  return getBranchByNovelAndId(d, userId, novelId, branchId);
+}
+
+export function getBranchByNovelAndId(
+  d: Database.Database,
+  userId: string,
+  novelId: string,
+  branchId: string
+): BranchRow | null {
   return d.prepare(
-    "SELECT id, novel_id, name, parent_offset, text, created_at, updated_at FROM branches WHERE id = ? AND user_id = ?"
-  ).get(branchId, userId) as BranchRow | null;
+    "SELECT id, novel_id, name, parent_offset, text, created_at, updated_at FROM branches WHERE novel_id = ? AND id = ? AND user_id = ?"
+  ).get(novelId, branchId, userId) as BranchRow | null;
 }
 
 export function listBranches(
@@ -582,6 +622,15 @@ export function listBranches(
   return d.prepare(
     "SELECT id, novel_id, name, parent_offset, text, created_at, updated_at FROM branches WHERE novel_id = ? AND user_id = ? ORDER BY updated_at DESC"
   ).all(novelId, userId) as BranchRow[];
+}
+
+export function ensureMainBranch(userId: string, novelId: string): void {
+  const d = getDb();
+  const existing = getBranchByNovelAndId(d, userId, novelId, "main");
+  if (existing) return;
+  const novel = getNovel(userId, novelId);
+  const text = novel?.text || "";
+  saveBranch(userId, "main", novelId, "主线", 0, text);
 }
 
 // ---- Drafts ----

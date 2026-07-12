@@ -13,7 +13,8 @@ export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId");
 
   if (branchId) {
-    const branch = getBranch(userId, branchId);
+    if (!novelId) return NextResponse.json({ error: "novelId required with branchId" }, { status: 400 });
+    const branch = getBranch(userId, novelId, branchId);
     if (!branch) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ branch });
   }
@@ -40,13 +41,13 @@ export async function POST(request: NextRequest) {
   }
 
   if (append && branchId) {
-    appendBranchContent(userId, branchId, content || "");
-    const updated = getBranch(userId, branchId);
+    appendBranchContent(userId, novelId, branchId, content || "");
+    const updated = getBranch(userId, novelId, branchId);
     return NextResponse.json({ success: true, branch: updated });
   }
 
   const id = branchId || `branch_${Date.now()}`;
   saveBranch(userId, id, novelId, name, parentOffset || 0, content || "");
-  const branch = getBranch(userId, id);
+  const branch = getBranch(userId, novelId, id);
   return NextResponse.json({ success: true, branch });
 }
