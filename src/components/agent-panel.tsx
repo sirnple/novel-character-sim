@@ -6,7 +6,7 @@ import { useNovel } from "@/lib/novel-context";
 
 interface AgentMessage {
   id: string;
-  role: "user" | "agent" | "tool";
+  role: "user" | "agent" | "tool_card";
   content: string;
   metadata?: { tool?: string; status?: "running" | "done"; toolCallId?: string; subMessages?: { role: string; content: string }[] };
   timestamp: string;
@@ -52,7 +52,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [...messages.filter(m => m.role !== "tool"), userMsg],
+          messages: [...messages.filter(m => m.role !== "tool_card"), userMsg],
           context: { novelTitle, characters, novelText, continueFromOffset, continueFromLabel },
         }),
         signal: abort.signal,
@@ -111,7 +111,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
               if (event.status === "running") {
                 currentTextMsgId = null;
                 setMessages(prev => [...prev, {
-                  id: Math.random().toString(36).slice(2), role: "tool", content: "",
+                  id: Math.random().toString(36).slice(2), role: "tool_card", content: "",
                   metadata: { tool: event.tool, status: "running", toolCallId: event.toolCallId },
                   timestamp: new Date().toISOString(),
                 }]);
@@ -123,7 +123,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   if (existing) {
                     return prev.map(m => m.id === existing.id ? { ...m, ...data } : m);
                   }
-                  return [...prev, { id: Math.random().toString(36).slice(2), role: "tool", ...data, timestamp: new Date().toISOString() }];
+                  return [...prev, { id: Math.random().toString(36).slice(2), role: "tool_card", ...data, timestamp: new Date().toISOString() }];
                 });
               }
             } else if (event.type === "error") {

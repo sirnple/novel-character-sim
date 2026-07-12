@@ -171,14 +171,29 @@ export class OpenAIProvider implements LLMProvider {
       },
     }));
 
-    const stream = await this.client.chat.completions.create({
-      model,
-      max_tokens: options?.maxTokens || 4096,
-      temperature: options?.temperature ?? 0.4,
-      messages: messages.map(m => convertAnthropicBlocksToOpenAI(m)),
-      tools: openaiTools,
-      stream: true,
-    });
+    const convertedMessages = messages.map(m => convertAnthropicBlocksToOpenAI(m));
+    try {
+      const stream = await this.client.chat.completions.create({
+        model,
+        max_tokens: options?.maxTokens || 4096,
+        temperature: options?.temperature ?? 0.4,
+        messages: convertedMessages,
+        tools: openaiTools,
+        stream: true,
+      });
+    } catch (e) {
+      console.error("[LLM:chatWithTools] API call failed:", (e as Error).message);
+      const debug = convertedMessages.map((m: any, i: number) => ({
+        idx: i,
+        role: m.role,
+        hasContent: typeof m.content === "string" ? m.content.slice(0, 100) : !!m.content,
+        hasToolCalls: !!m.tool_calls,
+        hasToolCallId: !!m.tool_call_id,
+        toolCallId: m.tool_call_id,
+      }));
+      console.error("[LLM:chatWithTools] messages:", JSON.stringify(debug, null, 2));
+      throw e;
+    }
 
     let currentToolId = "";
     let currentToolName = "";
