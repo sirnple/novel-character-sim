@@ -42,7 +42,7 @@
     "typescript": "^5.5.0"
   },
   "lint-staged": {
-    "*.{ts,tsx}": "next lint --fix --file",
-    "*.{js,jsx}": "next lint --fix --file"
+    "*.{ts,tsx}": "eslint --fix",
+    "*.{js,jsx}": "eslint --fix"
   }
 }
