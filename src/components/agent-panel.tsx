@@ -53,11 +53,11 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [...messages.map(m => {
-            if (m.role === "tool") {
-              return { role: "tool", content: m.content, tool_call_id: m.metadata?.toolCallId || "" };
+            if (m.role === "tool" && m.metadata?.toolCallId) {
+              return { role: "tool", content: m.content, tool_call_id: m.metadata.toolCallId };
             }
             return { role: m.role === "agent" ? "assistant" : m.role, content: m.content };
-          }), userMsg],
+          }).filter(m => m.role !== "tool" || m.tool_call_id), userMsg],
           context: { novelTitle, characters, novelText, continueFromOffset, continueFromLabel },
         }),
         signal: abort.signal,
