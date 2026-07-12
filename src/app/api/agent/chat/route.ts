@@ -14,24 +14,6 @@ function ensureInit() {
   if (!initialized) { initRegistry(); initialized = true; }
 }
 
-const SYSTEM_PROMPT = `你是小说创作主编。按以下流程工作。
-
-## 续写流程
-1. 获取上下文: get_branch_text, get_branch_characters
-2. 规划大纲: agent(agent_type="generate_outline")，prompt里放前文+角色+用户要求
-3. 展示大纲并等待用户反馈。用户说"改"/"修改"时重新调generate_outline，说"写"/"继续"/"确认"时进入下一步
-4. 写作: agent(agent_type="write_prose")，prompt里放大纲全文+前文+角色。写作后系统会自动审查修改
-5. 汇报最终结果
-
-## 可用工具
-- agent(agent_type, prompt): agent_type可选 generate_outline, write_prose, review_character, review_continuity, review_foreshadowing, review_style, review_world, review_pacing
-- 数据工具: get_branch_text, get_branch_characters, get_branch_timeline, get_branch_world, get_branch_meta
-
-## 规则
-- 一次一个工具
-- prompt字段写完整上下文
-- 中文回复`;
-
 const REVIEW_TYPES = [
   "review_character", "review_continuity", "review_foreshadowing",
   "review_style", "review_world", "review_pacing",
@@ -44,10 +26,32 @@ export async function POST(request: NextRequest) {
   const rate = checkRateLimit(userId, "agent_chat", { windowMs: 60_000, maxRequests: 10 });
   if (!rate.allowed) return new Response(JSON.stringify({ error: rateLimitMessage(rate) }), { status: 429, headers: { "Content-Type": "application/json" } });
 
-  const { messages, context } = await request.json();
+  const { messages, branchId, novelId } = await request.json();
+  if (!branchId || !novelId) return new Response(JSON.stringify({ error: "branchId and novelId required" }), { status: 400, headers: { "Content-Type": "application/json" } });
+
   const llm = createLLMProvider();
   const encoder = new TextEncoder();
   const toolSchemas: ToolSchema[] = buildToolSchemas();
+  const sysPrompt = `你是小说创作主编。按以下流程工作。
+
+## 当前绑定分支
+- novelId = ${novelId}
+- branchId = ${branchId}（"main" 代表主线，其他为 IF 分支）
+
+## 续写流程
+1. 必要时调 get_branch_text / get_branch_characters 等分支查询工具了解当前分支
+2. 规划大纲: agent(agent_type="generate_outline")，prompt 里写用户要求 + 分支标识
+3. 展示大纲等用户反馈。用户说"改"/"修改"重新调 generate_outline，"写"/"继续"/"确认"进入下一步
+4. 写作: agent(agent_type="write_prose")，prompt 里放大纲 + 分支标识
+5. 子 agent 自行调 get_branch_* 工具取所需信息
+
+## 可用工具
+- agent(agent_type, prompt): agent_type 可选 generate_outline, write_prose, review_character, review_continuity, review_foreshadowing, review_style, review_world, review_pacing
+- 分支查询: get_branch_text, get_branch_characters, get_branch_timeline, get_branch_world, get_branch_meta（参数均为 novelId + branchId）
+
+## 规则
+- 一次一个工具
+- 中文回复`;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -74,7 +78,7 @@ export async function POST(request: NextRequest) {
         if (!agentDef) throw new Error(`Unknown agent: ${agentType}`);
         const t0 = Date.now();
         const result = await agentDef.execute(
-          { prompt, ...context, novelText: context.novelText || "", characters: context.characters || [] },
+          { prompt, novelId, branchId, userId },
           llm,
           sendToolChunk,
         );
@@ -87,14 +91,14 @@ export async function POST(request: NextRequest) {
         sendTool(name, "running", toolCallId);
         const toolDef = getTool(name);
         if (!toolDef) throw new Error(`Unknown tool: ${name}`);
-        const result = await toolDef.execute({}, context, llm);
+        const result = await toolDef.execute({ novelId, branchId }, { novelId, branchId, userId }, llm);
         sendTool(name, "done", toolCallId, result.content.slice(0, 2000), result.messages);
         return result;
       };
 
       try {
         const conversation: LLMMessage[] = [
-          { role: "system", content: SYSTEM_PROMPT } as SystemMessage,
+          { role: "system", content: sysPrompt } as SystemMessage,
           ...messages.map((m: any) => {
             if (m.role === "tool" && m.tool_call_id) {
               return { role: "tool", content: m.content, tool_call_id: m.tool_call_id } as ToolMessage;
