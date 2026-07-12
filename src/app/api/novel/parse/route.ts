@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseNovel } from "@/core/parser/novel-parser";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
-import { saveNovel } from "@/lib/db";
+import { saveNovel, ensureMainBranch } from "@/lib/db";
 import { novelFingerprint } from "@/lib/utils";
 import { createLLMProvider } from "@/core/llm/factory";
 import iconv from "iconv-lite";
@@ -131,6 +131,7 @@ export async function POST(request: NextRequest) {
     // Persist immediately so the novel survives page refresh
     const novelId = novelFingerprint(novelText);
     saveNovel(userId, novelId, title, novelText);
+    ensureMainBranch(userId, novelId);
 
     return NextResponse.json({
       title,

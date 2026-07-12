@@ -584,6 +584,17 @@ export function listBranches(
   ).all(novelId, userId) as BranchRow[];
 }
 
+export function ensureMainBranch(userId: string, novelId: string): void {
+  const d = getDb();
+  const existing = d.prepare(
+    "SELECT COUNT(*) as cnt FROM branches WHERE novel_id = ? AND user_id = ?"
+  ).get(novelId, userId) as { cnt: number } | undefined;
+  if (existing && existing.cnt > 0) return;
+  const novel = getNovel(userId, novelId);
+  if (!novel) return;
+  saveBranch(userId, `${novelId}--main`, novelId, "主线", 0, novel.text);
+}
+
 // ---- Drafts ----
 
 export interface DraftRow {
