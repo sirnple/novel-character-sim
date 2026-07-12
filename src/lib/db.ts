@@ -216,6 +216,7 @@ export function getNovel(userId: string, id: string): { title: string; text: str
   return d.prepare("SELECT title, text FROM novels WHERE id = ? AND user_id = ?").get(id, userId) as any || null;
 }
 
+/** @deprecated Use appendBranchContent(userId, novelId, "main", content) instead. */
 export function appendNovelContent(userId: string, id: string, newContent: string): void {
   const d = getDb();
   const novel = getNovel(userId, id);
