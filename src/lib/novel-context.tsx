@@ -11,6 +11,7 @@ interface NovelState {
   timeline: ChapterTimeline | null;
   lastChapterStates: CharacterChapterState[];
   branches: Branch[];
+  activeBranchId: string;
   sessionNovelText?: string;
   sessionContinueOffset?: number;
   sessionContinueLabel?: string;
@@ -38,6 +39,7 @@ const DEFAULT: NovelState = {
   timeline: null,
   lastChapterStates: [],
   branches: [],
+  activeBranchId: "main",
 };
 
 export function NovelProvider({ children }: { children: ReactNode }) {

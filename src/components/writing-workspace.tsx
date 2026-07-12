@@ -5,6 +5,7 @@ import type { CharacterProfile, SceneDefinition, WritingStyle, SceneOutline, Cha
 import type { ReviewReport } from "@/core/codex/types";
 import { Loader2, Play, Sparkles, RefreshCw, Shield, ScrollText, Check, AlertCircle, Copy, Bot, Save, Send } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { useNovel } from "@/lib/novel-context";
 
 interface WritingWorkspaceProps {
   novelId: string;
@@ -115,6 +116,7 @@ export default function WritingWorkspace({
   const [saveTarget, setSaveTarget] = useState<"main" | "branch">("main");
   const [saveBranchName, setSaveBranchName] = useState("");
   const [saveBranchId, setSaveBranchId] = useState<string | null>(null);
+  const { activeBranchId } = useNovel();
   const localBranches = branches || [];
   const readerRef = useRef<HTMLDivElement>(null);
   const [showComparison, setShowComparison] = useState(false);
@@ -398,6 +400,7 @@ export default function WritingWorkspace({
           lastChapterStates,
           continueFromOffset: activeTask?.continueFromOffset ?? 0,
           continueFromLabel: activeTask?.continueFromLabel ?? "",
+          branchId: activeBranchId || "main",
           allowAdult: activeTask?.allowAdult || false,
           cleanMode: activeTask?.cleanMode || false,
         }),
@@ -464,13 +467,13 @@ export default function WritingWorkspace({
     setSaveError(false);
     try {
       const body: any = { novelId, content: outputText };
-      if (saveTarget === "branch") {
-        if (saveBranchId) {
-          body.branchId = saveBranchId;
-        } else if (saveBranchName) {
-          body.branchName = saveBranchName;
-          body.parentOffset = activeTask?.continueFromOffset || 0;
-        }
+      if (saveTarget === "main") {
+        body.branchId = "main";
+      } else if (saveBranchId) {
+        body.branchId = saveBranchId;
+      } else if (saveBranchName) {
+        body.branchName = saveBranchName;
+        body.parentOffset = activeTask?.continueFromOffset || 0;
       }
       const res = await fetch("/api/writer/save", {
         method: "POST",
