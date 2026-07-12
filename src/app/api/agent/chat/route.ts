@@ -2,10 +2,10 @@ import { NextRequest } from "next/server";
 import { createLLMProvider } from "@/core/llm/factory";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { logSession } from "@/lib/session-log";
-import { getTool } from "@/core/agents/registry";
+import { getTool, buildToolSchemas } from "@/core/agents/registry";
 import { getAgent } from "@/core/agents/agent-registry";
 import { initRegistry } from "@/core/agents/init";
-import type { LLMMessage } from "@/types";
+import type { LLMMessage, ToolSchema } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +13,24 @@ let initialized = false;
 function ensureInit() {
   if (!initialized) { initRegistry(); initialized = true; }
 }
+
+const SYSTEM_PROMPT = `你是小说创作主编。按以下流程工作。
+
+## 续写流程
+1. 获取上下文: get_novel_context, get_characters
+2. 规划大纲: agent(agent_type="generate_outline")，prompt里放前文+角色+用户要求
+3. 展示大纲并等待用户反馈。用户说"改"/"修改"时重新调generate_outline，说"写"/"继续"/"确认"时进入下一步
+4. 写作: agent(agent_type="write_prose")，prompt里放大纲全文+前文+角色。写作后系统会自动审查修改
+5. 汇报最终结果
+
+## 可用工具
+- agent(agent_type, prompt): agent_type可选 generate_outline, write_prose, review_character, review_continuity, review_foreshadowing, review_style, review_world, review_pacing
+- 数据工具: get_novel_context, get_characters, get_timeline, get_codex, get_world_bible
+
+## 规则
+- 一次一个工具
+- prompt字段写完整上下文
+- 中文回复`;
 
 const REVIEW_TYPES = [
   "review_character", "review_continuity", "review_foreshadowing",
@@ -29,20 +47,21 @@ export async function POST(request: NextRequest) {
   const { messages, context } = await request.json();
   const llm = createLLMProvider();
   const encoder = new TextEncoder();
+  const toolSchemas: ToolSchema[] = buildToolSchemas();
 
   const stream = new ReadableStream({
     async start(controller) {
       const signal = request.signal;
-      const aborted = () => signal.aborted;
+      const checkAbort = () => { if (signal.aborted) throw new Error("ABORTED"); };
       const send = (data: Record<string, unknown>) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
       const sendChunk = (text: string) => send({ type: "chunk", content: text });
       let currentToolCallId = "";
+      let currentToolName = "";
       const sendToolChunk = (text: string) => {
         send({ type: "tool_chunk", toolCallId: currentToolCallId, content: text, tool: currentToolName });
       };
-      let currentToolName = "";
       const sendTool = (tool: string, status: string, toolCallId: string, result?: string, msgs?: any[]) => {
         send({ type: "tool_call", tool, status, toolCallId, result, messages: msgs });
       };
@@ -61,7 +80,7 @@ export async function POST(request: NextRequest) {
           sendToolChunk,
         );
         logSession({ ts: new Date().toISOString(), type: "tool_exec", tool: agentType, elapsed: Date.now() - t0, resultPreview: result.content.slice(0, 300) });
-        sendTool(agentType, "done", id, result.content.slice(0, 2000), result.messages);
+        sendTool(agentType, "done", id, result.content.slice(0, 5000), result.messages);
         return result;
       };
 
@@ -76,174 +95,153 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        const userMessage = messages[messages.length - 1]?.content || "";
-
-        const checkAbort = () => { if (signal.aborted) throw new Error("ABORTED"); };
-
-        // Step 1: Get context
-        checkAbort();
-        sendChunk("正在获取上下文...");
-        const [novelCtx, chars] = await Promise.all([
-          runDataTool("get_novel_context"),
-          runDataTool("get_characters"),
-        ]);
-
-        // Step 2: Outline
-        checkAbort();
-        sendChunk("正在规划续写大纲...");
-        const outlinePrompt = [
-          "请根据以下信息设计续写大纲。",
-          "## 用户要求",
-          userMessage,
-          "## 前文",
-          novelCtx.content,
-          "## 角色",
-          chars.content,
-        ].join("\n\n");
-        const outline = await runAgent("generate_outline", outlinePrompt);
-
-        // Step 3: Write
-        checkAbort();
-        sendChunk("正在撰写正文...");
-        const initialWritePrompt = [
-          "请根据以下大纲撰写正文。",
-          "## 大纲",
-          outline.content,
-          "## 前文（原文全文，注意其中所有设定和事件）",
-          novelCtx.content,
-          "## 角色",
-          chars.content,
-          "直接输出正文，不要JSON包裹。",
-        ].join("\n\n");
-
-        const writeSystem = `你是小说续写作家。根据大纲和前文创作续写正文。
-## 核心规则
-1. 严格遵循大纲的情节走向
-2. 保持与原文一致的叙事风格和人物性格
-3. 直接输出正文，不要JSON包裹，不要写"以下是续写"之类的引导语`;
-
-        const rewriteSystem = `你是小说修改编辑。你的任务是修复审查发现的具体问题。
-## 核心规则
-1. **只修改审查指出的问题**，未提及的部分一字不改
-2. 每个修改要精确、最小化——改一个字能解决的不要改一句
-3. 保持原文的叙事节奏、对话风格、描写方式完全不变
-4. 输出完整修改后的正文，不要任何解释或标记`;
-
-        // Build writer conversation
-        const writerMessages: LLMMessage[] = [
-          { role: "system", content: writeSystem },
-          { role: "user", content: initialWritePrompt },
+        const conversation: LLMMessage[] = [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...messages.map((m: any) => ({ role: m.role === "agent" ? "assistant" : m.role, content: m.content })),
         ];
 
-        let prose = "";
-        const writerId1 = Math.random().toString(36).slice(2);
-        currentToolCallId = writerId1;
-        currentToolName = "write_prose";
-        sendTool("write_prose", "running", writerId1);
-        await llm.chatStream(
-          writerMessages,
-          (acc) => { prose = acc; sendToolChunk(acc); },
-          { temperature: 0.7, maxTokens: 16384 }
-        );
-        writerMessages.push({ role: "assistant", content: prose });
-        sendTool("write_prose", "done", writerId1, prose.slice(0, 2000), [
-          { role: "assistant", content: prose.slice(0, 500) + "..." },
-        ]);
-
-        // Step 4: Review loop
-        let prevFindingCount = Infinity;
-        let stallCount = 0;
-        for (let round = 0; round < 5; round++) {
+        let maxSteps = 15;
+        while (maxSteps-- > 0) {
           checkAbort();
-          sendChunk(`审查轮次 ${round + 1}...`);
-          const allFindings: { dimension: string; severity: string; description: string; suggestion: string }[] = [];
-          let allConverged = true;
+          const eventStream = llm.chatWithTools(conversation, toolSchemas, { temperature: 0.4, maxTokens: 4096 });
 
-          for (const reviewType of REVIEW_TYPES) {
-            const r = await runAgent(reviewType, prose);
-            try {
-              const parsed = JSON.parse(r.content) as { converged: boolean; findings: typeof allFindings };
-              if (!parsed.converged) allConverged = false;
-              allFindings.push(...parsed.findings);
-            } catch {
-              if (!r.content.includes("未发现问题") && !r.content.includes("审查完成，未发现")) {
-                allConverged = false;
-                allFindings.push({ dimension: reviewType, severity: "major", description: r.content.slice(0, 500), suggestion: "" });
+          let hasToolUse = false;
+          let fullText = "";
+          let thinkingTimer: ReturnType<typeof setTimeout> | null = null;
+          let hasTextOutput = false;
+
+          thinkingTimer = setTimeout(() => {
+            if (!hasTextOutput) send({ type: "thinking", status: "deciding" });
+          }, 2000);
+
+          for await (const event of eventStream) {
+            if (event.type === "text_delta") {
+              if (!hasTextOutput) {
+                hasTextOutput = true;
+                if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; }
+              }
+              fullText += event.text;
+              sendChunk(fullText);
+            } else if (event.type === "tool_use") {
+              if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; }
+              hasToolUse = true;
+              const toolName = event.name;
+              const toolId = event.id;
+              const args = event.args as Record<string, any>;
+
+              // Build assistant message with tool_use content block
+              conversation.push({
+                role: "assistant",
+                content: [{ type: "tool_use", id: toolId, name: toolName, input: args }],
+              });
+
+              if (toolName === "agent") {
+                const agentType = args.agent_type as string;
+                const prompt = args.prompt as string;
+                if (!agentType || !prompt) {
+                  conversation.push({
+                    role: "user",
+                    content: [{ type: "tool_result", tool_use_id: toolId, content: "错误: agent_type 和 prompt 都是必需的", is_error: true }],
+                  });
+                  continue;
+                }
+
+                if (agentType === "write_prose") {
+                  let prose = (await runAgent("write_prose", prompt)).content;
+                  checkAbort();
+
+                  // Auto review loop (parallel)
+                  let prevCount = Infinity;
+                  let stallCount = 0;
+                  for (let round = 0; round < 5; round++) {
+                    checkAbort();
+                    sendChunk(`### 审查轮次 ${round + 1}`);
+
+                    const results = await Promise.all(
+                      REVIEW_TYPES.map(rt => runAgent(rt, prose))
+                    );
+
+                    const allFindings: { dimension: string; severity: string; description: string; suggestion: string }[] = [];
+                    let allConverged = true;
+                    for (let i = 0; i < REVIEW_TYPES.length; i++) {
+                      try {
+                        const parsed = JSON.parse(results[i].content) as { converged: boolean; findings: typeof allFindings };
+                        if (!parsed.converged) allConverged = false;
+                        allFindings.push(...parsed.findings);
+                      } catch {
+                        if (!results[i].content.includes("未发现")) {
+                          allConverged = false;
+                          allFindings.push({ dimension: REVIEW_TYPES[i], severity: "major", description: results[i].content.slice(0, 500), suggestion: "" });
+                        }
+                      }
+                    }
+
+                    const total = allFindings.length;
+                    const dimSummary = REVIEW_TYPES.map(dim => {
+                      const dfs = allFindings.filter(f =>
+                        f.dimension === dim || f.dimension === dim.replace("review_", "")
+                      );
+                      const dname = dim.replace("review_", "");
+                      if (dfs.length === 0) return `- ✓ ${dname}: 0`;
+                      const c = dfs.filter(f => f.severity === "critical").length;
+                      const m = dfs.filter(f => f.severity === "major").length;
+                      const parts = [c > 0 ? `${c}c` : "", m > 0 ? `${m}m` : ""].filter(Boolean).join(",");
+                      return `- ✗ ${dname}: ${dfs.length} (${parts})`;
+                    }).join("\n");
+                    sendChunk(`\n${dimSummary}\n**共${total}个问题**`);
+
+                    if (allConverged || total === 0) {
+                      logSession({ ts: new Date().toISOString(), type: "review_converged", round, totalFindings: total });
+                      sendChunk("✓ 审查通过，无需修改。");
+                      break;
+                    }
+
+                    if (total >= prevCount) {
+                      stallCount++;
+                      if (stallCount >= 2) {
+                        logSession({ ts: new Date().toISOString(), type: "review_stalled", round, total, prevCount, stallCount });
+                        sendChunk(`审查停滞（连续${stallCount}轮未减少），停止迭代。`);
+                        break;
+                      }
+                      sendChunk(`问题数未减少（${total}），再试一轮...`);
+                    } else {
+                      stallCount = 0;
+                    }
+                    prevCount = total;
+
+                    const fixPrompt = allFindings.map((f, i) =>
+                      `修改${i + 1}: ${f.suggestion || f.description}`
+                    ).join("\n");
+                    prose = (await runAgent("write_prose", `请对以下正文进行精确修改。只做下面列出的修改，其他内容一字不改。\n\n${fixPrompt}\n\n## 待修改正文\n${prose}`)).content;
+                  }
+
+                  conversation.push({
+                    role: "user",
+                    content: [{ type: "tool_result", tool_use_id: toolId, content: `写作结果:\n${prose.slice(0, 5000)}` }],
+                  });
+                } else {
+                  const result = await runAgent(agentType, prompt);
+                  conversation.push({
+                    role: "user",
+                    content: [{ type: "tool_result", tool_use_id: toolId, content: result.content.slice(0, 5000) }],
+                  });
+                }
+              } else {
+                const result = await runDataTool(toolName);
+                conversation.push({
+                  role: "user",
+                  content: [{ type: "tool_result", tool_use_id: toolId, content: result.content.slice(0, 5000) }],
+                });
               }
             }
           }
 
-          const criticalCount = allFindings.filter(f => f.severity === "critical").length;
-          const majorCount = allFindings.filter(f => f.severity === "major").length;
-          const totalCount = allFindings.length;
+          if (thinkingTimer) clearTimeout(thinkingTimer);
+          if (!hasToolUse) break;
+        }
 
-          // Build per-dimension summary
-          const dimSummary = REVIEW_TYPES.map(dim => {
-            const dimFindings = allFindings.filter(f => f.dimension === dim ||
-              (dim === "review_character" && f.dimension === "角色一致性") ||
-              (dim === "review_continuity" && f.dimension === "连贯性") ||
-              (dim === "review_foreshadowing" && f.dimension === "伏笔") ||
-              (dim === "review_style" && f.dimension === "风格") ||
-              (dim === "review_world" && f.dimension === "世界观") ||
-              (dim === "review_pacing" && f.dimension === "节奏")
-            );
-            const dimName = dim.replace("review_", "");
-            if (dimFindings.length === 0) return `- ✓ ${dimName}: 0`;
-            const c = dimFindings.filter(f => f.severity === "critical").length;
-            const m = dimFindings.filter(f => f.severity === "major").length;
-            const parts = [c > 0 ? `${c} critical` : "", m > 0 ? `${m} major` : ""].filter(Boolean).join(", ");
-            return `- ✗ ${dimName}: ${dimFindings.length}个 (${parts})`;
-          }).join("\n");
-          sendChunk(`### 第${round + 1}轮审查\n${dimSummary}\n**共${totalCount}个问题**`);
-
-          if (allConverged || totalCount === 0) {
-            logSession({ ts: new Date().toISOString(), type: "review_converged", round, totalFindings: totalCount });
-            sendChunk("审查通过，未发现问题。创作完成！");
-            break;
-          }
-
-          if (totalCount >= prevFindingCount) {
-            stallCount++;
-            if (stallCount >= 2) {
-              logSession({ ts: new Date().toISOString(), type: "review_stalled", round, totalFindings: totalCount, prevCount: prevFindingCount, stallCount });
-              sendChunk(`审查停滞（连续${stallCount}轮未减少），停止迭代。`);
-              break;
-            }
-            sendChunk(`问题数未减少（${totalCount}），再试一轮...`);
-          } else {
-            stallCount = 0;
-          }
-          prevFindingCount = totalCount;
-
-          sendChunk(`发现 ${totalCount} 个问题（critical: ${criticalCount}, major: ${majorCount}），正在修改...`);
-          const fixPrompt = [
-            "请修复以下审查发现的问题。只修改问题相关部分，其余内容保持原样。",
-            "",
-            ...allFindings.map((f, i) =>
-              `${i + 1}. [${f.dimension}][${f.severity}] ${f.description}\n   建议: ${f.suggestion || "请根据上下文修改"}`
-            ),
-          ].join("\n");
-
-          // Continue writer conversation for rewrite
-          const rewriteMessages: LLMMessage[] = [
-            { role: "system", content: rewriteSystem },
-            ...writerMessages.slice(1), // skip original system, use rewrite system
-            { role: "user", content: fixPrompt },
-          ];
-
-          const writerId2 = Math.random().toString(36).slice(2);
-          currentToolCallId = writerId2;
-          currentToolName = "write_prose";
-          sendTool("write_prose", "running", writerId2);
-          await llm.chatStream(
-            rewriteMessages,
-            (acc) => { prose = acc; sendToolChunk(acc); },
-            { temperature: 0.5, maxTokens: 16384 }
-          );
-          writerMessages.push({ role: "user", content: fixPrompt }, { role: "assistant", content: prose });
-          sendTool("write_prose", "done", writerId2, prose.slice(0, 2000), [
-            { role: "assistant", content: prose.slice(0, 500) + "..." },
-          ]);
+        if (maxSteps <= 0) {
+          logSession({ ts: new Date().toISOString(), type: "master_agent", status: "max_steps" });
         }
       } catch (e) {
         if ((e as Error).message === "ABORTED") {

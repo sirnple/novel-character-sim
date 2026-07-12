@@ -175,7 +175,7 @@ export class OpenAIProvider implements LLMProvider {
       model,
       max_tokens: options?.maxTokens || 4096,
       temperature: options?.temperature ?? 0.4,
-      messages: messages.map(m => ({ role: m.role, content: m.content })),
+      messages: messages.map(m => convertAnthropicBlocksToOpenAI(m)),
       tools: openaiTools,
       stream: true,
     });
@@ -225,6 +225,37 @@ export class OpenAIProvider implements LLMProvider {
     console.log(`[LLM:chatWithTools] model=${model} elapsed=${elapsed}ms outputLen=${outputLen}`);
     yield { type: "done" };
   }
+}
+
+function convertAnthropicBlocksToOpenAI(m: { role: string; content: string | any[] }): any {
+  if (typeof m.content === "string") return { role: m.role, content: m.content };
+
+  // Check for tool_use content blocks (assistant message)
+  const toolUses = m.content.filter((b: any) => b.type === "tool_use");
+  if (toolUses.length > 0) {
+    return {
+      role: "assistant",
+      content: null,
+      tool_calls: toolUses.map((tu: any) => ({
+        id: tu.id,
+        type: "function",
+        function: { name: tu.name, arguments: JSON.stringify(tu.input) },
+      })),
+    };
+  }
+
+  // Check for tool_result content blocks (user message)
+  const toolResults = m.content.filter((b: any) => b.type === "tool_result");
+  if (toolResults.length > 0) {
+    return {
+      role: "tool",
+      tool_call_id: toolResults[0].tool_use_id,
+      content: typeof toolResults[0].content === "string" ? toolResults[0].content : JSON.stringify(toolResults[0].content),
+    };
+  }
+
+  // Fallback: stringify text blocks
+  return { role: m.role, content: m.content.map((b: any) => b.text || JSON.stringify(b)).join("") };
 }
 
 /**

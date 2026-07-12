@@ -8,7 +8,7 @@ import StoryInfoPanel from "@/components/story-info-panel";
 interface BranchInfo { id: string; name: string; text: string; created_at: string; }
 
 export default function NovelPage() {
-  const { novelId, novelTitle, novelText, characters, storyInfo, timeline } = useNovel();
+  const { novelId, novelTitle, novelText, characters, storyInfo, timeline, setNovel } = useNovel();
   const [extractLoading, setExtractLoading] = useState(false);
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -23,11 +23,20 @@ export default function NovelPage() {
     setExtractLoading(true);
     const ctrl = new AbortController(); abortRef.current = ctrl;
     try {
-      await fetch("/api/characters/extract", {
+      const res = await fetch("/api/characters/extract", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId: novelId, text: novelText, forceRefresh: false }),
         signal: ctrl.signal,
       });
+      if (res.ok) {
+        const data = await res.json();
+        setNovel({
+          characters: data.characters || [],
+          storyInfo: data.storyInfo || null,
+          timeline: data.timeline || null,
+          lastChapterStates: data.lastChapterStates || [],
+        });
+      }
     } catch (e: any) { if (e.name === "AbortError") return; }
     setExtractLoading(false); abortRef.current = null;
   };

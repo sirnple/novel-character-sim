@@ -16,8 +16,12 @@ export default function HomePage() {
   const [showUpload, setShowUpload] = useState(false);
   const [savedNovels, setSavedNovels] = useState<SavedNovel[]>([]);
 
-  useEffect(() => {
+  const refreshNovels = () => {
     fetch("/api/novels").then(r => r.json()).then(d => setSavedNovels(d.novels || [])).catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshNovels();
   }, []);
 
   const openNovel = async (id: string) => {
@@ -50,6 +54,8 @@ export default function HomePage() {
               const id = novelFingerprint(fullText);
               setNovel({ novelId: id, novelTitle: title, novelText: fullText, characters: [], storyInfo: null, timeline: null, lastChapterStates: [] });
               setShowUpload(false);
+              refreshNovels();
+              router.push(`/novel/${id}`);
             }} />
           </div>
         ) : (

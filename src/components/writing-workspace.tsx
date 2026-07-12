@@ -929,21 +929,21 @@ export default function WritingWorkspace({
                       </div>
                       {msg.role === "system" ? (
                         <details>
-                          <summary className="text-xs text-neutral-500 cursor-pointer hover:text-neutral-400">展开 system prompt ({msg.content.length} 字符)</summary>
+                          <summary className="text-xs text-neutral-500 cursor-pointer hover:text-neutral-400">展开 system prompt ({String(msg.content).length} 字符)</summary>
                           {markdownMode ? (
                             <div className="mt-2 text-xs text-neutral-400 leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto prose prose-invert prose-xs max-w-none">
-                              <ReactMarkdown>{msg.content}</ReactMarkdown>
+                              <ReactMarkdown>{String(msg.content)}</ReactMarkdown>
                             </div>
                           ) : (
-                            <pre className="mt-2 text-xs text-neutral-400 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto">{msg.content}</pre>
+                            <pre className="mt-2 text-xs text-neutral-400 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto">{String(msg.content)}</pre>
                           )}
                         </details>
                       ) : markdownMode ? (
                         <div className="text-sm text-neutral-300 leading-relaxed bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[500px] overflow-y-auto prose prose-invert prose-sm max-w-none">
-                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          <ReactMarkdown>{String(msg.content)}</ReactMarkdown>
                         </div>
                       ) : (
-                        <pre className="text-sm text-neutral-300 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[500px] overflow-y-auto">{msg.content}</pre>
+                        <pre className="text-sm text-neutral-300 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[500px] overflow-y-auto">{String(msg.content)}</pre>
                       )}
                     </div>
                   )) : (

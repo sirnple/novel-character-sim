@@ -3,8 +3,10 @@ import { parseNovel } from "@/core/parser/novel-parser";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { saveNovel } from "@/lib/db";
 import { novelFingerprint } from "@/lib/utils";
+import { createLLMProvider } from "@/core/llm/factory";
 import iconv from "iconv-lite";
 import AdmZip from "adm-zip";
+import type { LLMMessage } from "@/types";
 
 function decodeChineseText(buffer: Buffer): string {
   const utf8 = buffer.toString("utf8");
@@ -108,6 +110,23 @@ export async function POST(request: NextRequest) {
     }
 
     const parsed = parseNovel(novelText);
+
+    // Use LLM to extract the real title from text content
+    try {
+      const llm = createLLMProvider();
+      const sample = novelText.slice(0, 2000);
+      const messages: LLMMessage[] = [
+        { role: "system", content: "你是一个文本解析器。从小说开头提取正式书名。只返回书名，不要引号、不要解释、不要额外文字。如果找不到，返回空。" },
+        { role: "user", content: sample },
+      ];
+      const llmTitle = (await llm.chat(messages, { temperature: 0, maxTokens: 50 })).trim();
+      if (llmTitle && llmTitle.length < 100) {
+        title = llmTitle;
+        console.log(`[NovelParse] LLM extracted title: "${title}"`);
+      }
+    } catch (e) {
+      console.warn("[NovelParse] LLM title extraction failed, using filename:", (e as Error).message);
+    }
 
     // Persist immediately so the novel survives page refresh
     const novelId = novelFingerprint(novelText);
