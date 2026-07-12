@@ -3,7 +3,7 @@ import type { CharacterProfile, SceneDefinition, WritingStyle, SceneOutline, Tim
 import { SimulationEngine, type SimulationEvent } from "@/core/simulation/engine";
 import { buildCodex } from "@/core/codex/builder";
 import type { WritersCodex } from "@/core/codex/types";
-import { saveCodex, getNovel, getStoryInfo, getTimeline } from "@/lib/db";
+import { saveCodex, getBranch, getStoryInfo, getTimeline } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { debugLog } from "@/lib/debug-log";
 import { saveGenerationLog } from "@/lib/db";
@@ -81,16 +81,18 @@ export async function POST(request: NextRequest) {
   try {
     if (novelId) {
       try {
-        const dbNovel = getNovel(userId, novelId);
-        if (dbNovel) {
-          dbNovelText = dbNovel.text;
+        const branchId = body.branchId as string | undefined;
+        const effectiveBranchId = branchId || "main";
+        const dbBranch = getBranch(userId, novelId, effectiveBranchId);
+        if (dbBranch) {
+          dbNovelText = dbBranch.text;
           dbStoryInfo = getStoryInfo(userId, novelId);
           dbTimeline = getTimeline(userId, novelId);
-          debugLog("StreamRoute", `Novel loaded: text=${dbNovelText.length}chars, storyInfo=${dbStoryInfo ? "yes" : "no"}, timeline=${dbTimeline ? `yes(${dbTimeline.chapters?.length || 0}ch)` : "no"}`);
+          debugLog("StreamRoute", `Branch loaded: id=${effectiveBranchId}, text=${dbNovelText.length}chars, storyInfo=${dbStoryInfo ? "yes" : "no"}, timeline=${dbTimeline ? `yes(${dbTimeline.chapters?.length || 0}ch)` : "no"}`);
         } else {
-          debugLog("StreamRoute", `Novel NOT FOUND in DB for id=${novelId}`);
+          debugLog("StreamRoute", `Branch NOT FOUND novelId=${novelId} branchId=${effectiveBranchId}`);
         }
-      } catch {}
+      } catch (e) {}
     }
 
     codex = buildCodex({

@@ -552,26 +552,81 @@ export function appendBranchContent(
   userId: string,
   branchId: string,
   newContent: string
+): void;
+export function appendBranchContent(
+  userId: string,
+  novelId: string,
+  branchId: string,
+  newContent: string
+): void;
+export function appendBranchContent(
+  userId: string,
+  param2: string,
+  param3: string,
+  param4?: string
 ): void {
   const d = getDb();
-  const branch = d.prepare(
-    "SELECT text FROM branches WHERE id = ? AND user_id = ?"
-  ).get(branchId, userId) as { text: string } | undefined;
-  if (!branch) return;
-  const combined = branch.text + "\n\n" + newContent;
-  d.prepare(
-    "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?"
-  ).run(combined, branchId, userId);
+  let branch: { text: string } | undefined;
+  if (param4 !== undefined) {
+    // 4-arg: appendBranchContent(userId, novelId, branchId, newContent)
+    branch = d.prepare(
+      "SELECT text FROM branches WHERE novel_id = ? AND user_id = ? AND id = ?"
+    ).get(param2, userId, param3) as { text: string } | undefined;
+    if (!branch) return;
+    const combined = branch.text + "\n\n" + param4;
+    d.prepare(
+      "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND user_id = ? AND id = ?"
+    ).run(combined, param2, userId, param3);
+  } else {
+    // 3-arg: appendBranchContent(userId, branchId, newContent)
+    branch = d.prepare(
+      "SELECT text FROM branches WHERE id = ? AND user_id = ?"
+    ).get(param2, userId) as { text: string } | undefined;
+    if (!branch) return;
+    const combined = branch.text + "\n\n" + param3;
+    d.prepare(
+      "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?"
+    ).run(combined, param2, userId);
+  }
 }
 
 export function getBranch(
   userId: string,
   branchId: string
+): BranchRow | null;
+export function getBranch(
+  userId: string,
+  novelId: string,
+  branchId: string
+): BranchRow | null;
+export function getBranch(
+  userId: string,
+  param2: string,
+  param3?: string
 ): BranchRow | null {
   const d = getDb();
+  if (param3 !== undefined) {
+    // 3-arg: getBranch(userId, novelId, branchId)
+    return d.prepare(
+      "SELECT id, novel_id, name, parent_offset, text, created_at, updated_at FROM branches WHERE novel_id = ? AND user_id = ? AND id = ?"
+    ).get(param2, userId, param3) as BranchRow | null;
+  }
+  // 2-arg: getBranch(userId, branchId)
   return d.prepare(
     "SELECT id, novel_id, name, parent_offset, text, created_at, updated_at FROM branches WHERE id = ? AND user_id = ?"
-  ).get(branchId, userId) as BranchRow | null;
+  ).get(param2, userId) as BranchRow | null;
+}
+
+export function ensureMainBranch(userId: string, novelId: string): void {
+  const d = getDb();
+  const existing = d.prepare(
+    "SELECT id FROM branches WHERE novel_id = ? AND user_id = ? AND id = 'main'"
+  ).get(novelId, userId);
+  if (!existing) {
+    d.prepare(
+      "INSERT INTO branches (id, novel_id, user_id, name, parent_offset, text, updated_at) VALUES ('main', ?, ?, '主线', 0, '', datetime('now'))"
+    ).run(novelId, userId);
+  }
 }
 
 export function listBranches(
