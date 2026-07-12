@@ -354,12 +354,29 @@ export interface LLMProviderConfig {
   temperature?: number;
 }
 
-export interface LLMMessage {
-  role: "system" | "user" | "assistant" | "tool";
+export interface SystemMessage {
+  role: "system";
+  content: string;
+}
+
+export interface UserMessage {
+  role: "user";
+  content: string | any[];
+}
+
+export interface AssistantMessage {
+  role: "assistant";
   content: string | any[] | null;
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
-  tool_call_id?: string;
 }
+
+export interface ToolMessage {
+  role: "tool";
+  content: string;
+  tool_call_id: string;
+}
+
+export type LLMMessage = SystemMessage | UserMessage | AssistantMessage | ToolMessage;
 
 export interface LLMProvider {
   chat(

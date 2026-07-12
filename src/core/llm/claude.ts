@@ -18,10 +18,10 @@ export class ClaudeProvider implements LLMProvider {
   ): Promise<string> {
     const systemMsg = messages.find((m) => m.role === "system");
     const chatMessages = messages
-      .filter((m) => m.role !== "system")
+      .filter((m) => m.role !== "system" && m.content != null)
       .map((m) => ({
         role: m.role as "user" | "assistant",
-        content: m.content,
+        content: m.content as string | any[],
       }));
 
     const response = await this.client.messages.create({
@@ -47,10 +47,10 @@ export class ClaudeProvider implements LLMProvider {
     // ... same implementation
     const systemMsg = messages.find((m) => m.role === "system");
     const chatMessages = messages
-      .filter((m) => m.role !== "system")
+      .filter((m) => m.role !== "system" && m.content != null)
       .map((m) => ({
         role: m.role as "user" | "assistant",
-        content: m.content,
+        content: m.content as string | any[],
       }));
 
     const toolSystemPrompt = [
@@ -89,10 +89,10 @@ export class ClaudeProvider implements LLMProvider {
   ): Promise<string> {
     const systemMsg = messages.find((m) => m.role === "system");
     const chatMessages = messages
-      .filter((m) => m.role !== "system")
+      .filter((m) => m.role !== "system" && m.content != null)
       .map((m) => ({
         role: m.role as "user" | "assistant",
-        content: m.content,
+        content: m.content as string | any[],
       }));
 
     const stream = await this.client.messages.create({

@@ -5,7 +5,7 @@ import { logSession } from "@/lib/session-log";
 import { getTool, buildToolSchemas } from "@/core/agents/registry";
 import { getAgent } from "@/core/agents/agent-registry";
 import { initRegistry } from "@/core/agents/init";
-import type { LLMMessage, ToolSchema } from "@/types";
+import type { LLMMessage, SystemMessage, UserMessage, AssistantMessage, ToolMessage, ToolSchema } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -94,12 +94,15 @@ export async function POST(request: NextRequest) {
 
       try {
         const conversation: LLMMessage[] = [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: SYSTEM_PROMPT } as SystemMessage,
           ...messages.map((m: any) => {
-            const msg: LLMMessage = { role: m.role === "agent" ? "assistant" : m.role, content: m.content };
-            if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
-            if (m.tool_calls) msg.tool_calls = m.tool_calls;
-            return msg;
+            if (m.role === "tool" && m.tool_call_id) {
+              return { role: "tool", content: m.content, tool_call_id: m.tool_call_id } as ToolMessage;
+            }
+            if (m.tool_calls) {
+              return { role: "assistant", content: m.content, tool_calls: m.tool_calls } as AssistantMessage;
+            }
+            return { role: m.role === "agent" ? "assistant" : m.role, content: m.content } as UserMessage | AssistantMessage;
           }),
         ];
 
@@ -136,7 +139,7 @@ export async function POST(request: NextRequest) {
               conversation.push({
                 role: "assistant",
                 content: [{ type: "tool_use", id: toolId, name: toolName, input: args }],
-              });
+              } as AssistantMessage);
 
               if (toolName === "agent") {
                 const agentType = args.agent_type as string;
