@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendNovelContent, getNovel, appendBranchContent, getBranch, saveBranch } from "@/lib/db";
+import { appendBranchContent, getBranch, saveBranch, ensureMainBranch } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
@@ -30,9 +30,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, fullText: created?.text || "", branch: created });
     }
 
-    // Main text save (existing behavior)
-    appendNovelContent(userId, novelId, content);
-    const updated = getNovel(userId, novelId);
+    // Main text save — now writes to the main branch (id="main")
+    ensureMainBranch(userId, novelId);
+    appendBranchContent(userId, novelId, "main", content);
+    const updated = getBranch(userId, novelId, "main");
     return NextResponse.json({ success: true, fullText: updated?.text || "" });
   } catch (error) {
     console.error("Writer save error:", error);
