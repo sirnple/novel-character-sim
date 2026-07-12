@@ -1,10 +1,14 @@
 import type { AgentDef } from "../types";
+import { runSubAgentToolLoop } from "../tool-loop";
+import { branchTools } from "./branch-tools";
+
+const BRANCH_TOOL_SCHEMAS = branchTools.map(t => ({
+  name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown>,
+}));
 
 export const writerAgent: AgentDef = {
   execute: async (ctx, llm, onChunk) => {
-    let prose = "";
     const isRewrite = ctx.prompt.includes("修改") || ctx.prompt.includes("修复");
-
     const sys = isRewrite
       ? `你是小说审校编辑。你的任务是**精确修改**正文中的具体问题。
 ## 铁律
@@ -24,24 +28,12 @@ export const writerAgent: AgentDef = {
 4. **禁止编造原文未提及的设定**。所有人物关系、道具去向、已发生事件以原文为准
 5. 直接输出正文，不要写"以下是续写"之类的引导语`;
 
-    const uc = ctx.prompt;
-
-    if (onChunk) {
-      await llm.chatStream(
-        [{ role: "system", content: sys }, { role: "user", content: uc }],
-        (acc) => { prose = acc; onChunk(acc); },
-        { temperature: 0.5, maxTokens: 16384 }
-      );
-    } else {
-      prose = await llm.chat(
-        [{ role: "system", content: sys }, { role: "user", content: uc }],
-        { temperature: 0.5, maxTokens: 16384 }
-      );
-    }
-
+    const uc = `${ctx.prompt}\n\n## 当前绑定分支\nnovelId=${ctx.novelId}, branchId=${ctx.branchId}\n\n如需前文/角色/设定，请调用 get_branch_* 工具自取（参数同上）。直接输出正文。`;
+    const { trail } = await runSubAgentToolLoop(llm, sys, uc, BRANCH_TOOL_SCHEMAS, ctx, onChunk);
+    const finalText = trail.filter(m => m.role === "assistant").pop()?.content || "";
     return {
-      content: prose,
-      messages: [{ role: "assistant", content: prose.slice(0, 500) + "..." }],
+      content: finalText,
+      messages: trail,
     };
   },
 };

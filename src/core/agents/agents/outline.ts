@@ -1,30 +1,21 @@
 import type { AgentDef } from "../types";
 import { renderPrompt } from "@/core/prompts/renderer";
+import { runSubAgentToolLoop } from "../tool-loop";
+import { branchTools } from "./branch-tools";
+
+const BRANCH_TOOL_SCHEMAS = branchTools.map(t => ({
+  name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown>,
+}));
 
 export const outlineAgent: AgentDef = {
   execute: async (ctx, llm, onChunk) => {
     const sys = renderPrompt("outline-system.md", {});
-    const lastText = (ctx.novelText || "").slice(-3000);
-    const label = ctx.continueFromLabel && ctx.continueFromLabel !== "未知"
-      ? ctx.continueFromLabel
-      : `全文末尾（共${(ctx.novelText || "").length}字）`;
-    const uc = `${ctx.prompt}\n\n## 续写点\n${label}\n\n## 最近前文（续写点之前的内容）\n${lastText}`;
-    let r: string;
-    if (onChunk) {
-      r = await llm.chatStream(
-        [{ role: "system", content: sys }, { role: "user", content: uc }],
-        (acc) => onChunk(acc),
-        { temperature: 0.4, maxTokens: 4096 }
-      );
-    } else {
-      r = await llm.chat(
-        [{ role: "system", content: sys }, { role: "user", content: uc }],
-        { temperature: 0.4, maxTokens: 4096 }
-      );
-    }
+    const uc = `${ctx.prompt}\n\n## 当前绑定分支\nnovelId=${ctx.novelId}, branchId=${ctx.branchId}\n\n如需前文/角色/时间线，请调用 get_branch_* 工具自取（参数 novelId 与 branchId 同上）。`;
+    const { trail } = await runSubAgentToolLoop(llm, sys, uc, BRANCH_TOOL_SCHEMAS, ctx, onChunk);
+    const finalText = trail.filter(m => m.role === "assistant").pop()?.content || "";
     return {
-      content: r,
-      messages: [{ role: "assistant", content: r }],
+      content: finalText,
+      messages: trail,
     };
   },
 };
