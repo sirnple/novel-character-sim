@@ -52,7 +52,12 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [...messages.filter(m => m.role !== "tool"), userMsg],
+          messages: [...messages.map(m => {
+            if (m.role === "tool") {
+              return { role: "tool", content: m.content, tool_call_id: m.metadata?.toolCallId || "" };
+            }
+            return { role: m.role === "agent" ? "assistant" : m.role, content: m.content };
+          }), userMsg],
           context: { novelTitle, characters, novelText, continueFromOffset, continueFromLabel },
         }),
         signal: abort.signal,
