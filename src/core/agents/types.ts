@@ -16,13 +16,9 @@ export interface ToolDefinition {
 }
 
 export interface ToolContext {
-  novelText: string;
-  novelTitle?: string;
-  characters: any[];
-  timeline?: any;
-  worldBible?: any;
-  continueFromOffset?: number;
-  continueFromLabel?: string;
+  novelId: string;
+  branchId: string;
+  userId: string;
 }
 
 export interface ToolResult {
@@ -36,13 +32,9 @@ export interface AgentDef {
 
 export interface AgentContext {
   prompt: string;
-  novelText: string;
-  novelTitle?: string;
-  characters: any[];
-  timeline?: any;
-  worldBible?: any;
-  continueFromOffset?: number;
-  continueFromLabel?: string;
+  novelId: string;
+  branchId: string;
+  userId: string;
 }
 
 export type StreamEvent =
