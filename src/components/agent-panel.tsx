@@ -238,6 +238,16 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                 {isDone && msg.content && !(isReview && !hasFindings) && (
                   <details className="mt-1">
                     <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400">查看结果 ({msg.content.length} 字符)</summary>
+                    {msg.metadata?.subMessages && msg.metadata.subMessages.length > 0 && (
+                      <div className="mt-1 space-y-1 mb-1">
+                        {msg.metadata.subMessages.map((sm, si) => (
+                          <div key={si}>
+                            <div className="text-[9px] text-neutral-600 font-mono mb-0.5">{sm.role === "user" ? "📥 收到的任务" : "📤 回复"}</div>
+                            <pre className="text-[10px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[150px] overflow-y-auto bg-[#080808] rounded p-1.5">{sm.content.slice(0, 2000)}</pre>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <pre className="mt-1 text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content.slice(0, 5000)}</pre>
                   </details>
                 )}

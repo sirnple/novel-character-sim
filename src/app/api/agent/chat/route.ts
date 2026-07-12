@@ -18,7 +18,11 @@ const SYSTEM_PROMPT = `你是小说创作主编。按以下流程工作。
 
 ## 续写流程
 1. 获取上下文: get_novel_context, get_characters
-2. 规划大纲: agent(agent_type="generate_outline")，prompt里放前文+角色+用户要求
+2. 规划大纲: agent(agent_type="generate_outline")。**prompt必须包含**:
+   - 用户要求
+   - 全文的最后2000字（标注为"续写点之前的内容"）
+   - 续写位置说明（如"从全文末尾继续续写"）
+   - 角色信息
 3. 展示大纲并等待用户反馈。用户说"改"/"修改"时重新调generate_outline，说"写"/"继续"/"确认"时进入下一步
 4. 写作: agent(agent_type="write_prose")，prompt里放大纲全文+前文+角色。写作后系统会自动审查修改
 5. 汇报最终结果
@@ -29,7 +33,7 @@ const SYSTEM_PROMPT = `你是小说创作主编。按以下流程工作。
 
 ## 规则
 - 一次一个工具
-- prompt字段写完整上下文
+- prompt字段写完整上下文，特别是**续写的位置**必须明确
 - 中文回复`;
 
 const REVIEW_TYPES = [
@@ -129,10 +133,11 @@ export async function POST(request: NextRequest) {
               const toolId = event.id;
               const args = event.args as Record<string, any>;
 
-              // Build assistant message with tool_use content block
+              // Push assistant message with tool_calls (OpenAI-native format)
               conversation.push({
                 role: "assistant",
-                content: [{ type: "tool_use", id: toolId, name: toolName, input: args }],
+                content: null,
+                tool_calls: [{ id: toolId, type: "function", function: { name: toolName, arguments: JSON.stringify(args) } }],
               });
 
               if (toolName === "agent") {
@@ -140,8 +145,9 @@ export async function POST(request: NextRequest) {
                 const prompt = args.prompt as string;
                 if (!agentType || !prompt) {
                   conversation.push({
-                    role: "user",
-                    content: [{ type: "tool_result", tool_use_id: toolId, content: "错误: agent_type 和 prompt 都是必需的", is_error: true }],
+                    role: "tool",
+                    tool_call_id: toolId,
+                    content: "错误: agent_type 和 prompt 都是必需的",
                   });
                   continue;
                 }
@@ -216,21 +222,24 @@ export async function POST(request: NextRequest) {
                   }
 
                   conversation.push({
-                    role: "user",
-                    content: [{ type: "tool_result", tool_use_id: toolId, content: `写作结果:\n${prose.slice(0, 5000)}` }],
+                    role: "tool",
+                    tool_call_id: toolId,
+                    content: `写作结果:\n${prose.slice(0, 5000)}`,
                   });
                 } else {
                   const result = await runAgent(agentType, prompt);
                   conversation.push({
-                    role: "user",
-                    content: [{ type: "tool_result", tool_use_id: toolId, content: result.content.slice(0, 5000) }],
+                    role: "tool",
+                    tool_call_id: toolId,
+                    content: result.content.slice(0, 5000),
                   });
                 }
               } else {
                 const result = await runDataTool(toolName);
                 conversation.push({
-                  role: "user",
-                  content: [{ type: "tool_result", tool_use_id: toolId, content: result.content.slice(0, 5000) }],
+                  role: "tool",
+                  tool_call_id: toolId,
+                  content: result.content.slice(0, 5000),
                 });
               }
             }

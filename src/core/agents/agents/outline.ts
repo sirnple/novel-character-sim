@@ -24,7 +24,10 @@ export const outlineAgent: AgentDef = {
     }
     return {
       content: r,
-      messages: [{ role: "assistant", content: r }],
+      messages: [
+        { role: "user", content: `续写点: ${label}\n\n${lastText.slice(0, 1500)}` },
+        { role: "assistant", content: r.slice(0, 2000) },
+      ],
     };
   },
 };
