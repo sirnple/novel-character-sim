@@ -30,7 +30,7 @@ export class OpenAIProvider implements LLMProvider {
     options?: { model?: string; maxTokens?: number; temperature?: number }
   ): Promise<string> {
     const model = options?.model || this.defaultModel;
-    const inputLen = messages.reduce((sum, m) => sum + (m.content || "").length, 0);
+    const inputLen = messages.reduce((sum, m) => sum + m.content.length, 0);
 
     console.log(`[LLM:chat] model=${model} inputLen=${inputLen} starting...`);
     const t0 = Date.now();
@@ -42,8 +42,8 @@ export class OpenAIProvider implements LLMProvider {
           max_tokens: options?.maxTokens || 4096,
           temperature: options?.temperature ?? 0.7,
           messages: messages.map((m) => ({
-            role: m.role as any,
-            content: m.content || "",
+            role: m.role as "system" | "user" | "assistant",
+            content: m.content,
           })),
         }),
       `chat(model=${model})`
@@ -65,7 +65,7 @@ export class OpenAIProvider implements LLMProvider {
   ): Promise<T> {
     // ... same implementation
     const model = options?.model || this.defaultModel;
-    const inputLen = messages.reduce((sum, m) => sum + (m.content || "").length, 0);
+    const inputLen = messages.reduce((sum, m) => sum + m.content.length, 0);
 
     console.log(
       `[LLM:chatWithTool] model=${model} tool=${toolSchema.name} inputLen=${inputLen} starting...`
@@ -116,7 +116,7 @@ export class OpenAIProvider implements LLMProvider {
     options?: { model?: string; maxTokens?: number; temperature?: number }
   ): Promise<string> {
     const model = options?.model || this.defaultModel;
-    const inputLen = messages.reduce((sum, m) => sum + (m.content || "").length, 0);
+    const inputLen = messages.reduce((sum, m) => sum + m.content.length, 0);
     console.log(`[LLM:chatStream] model=${model} inputLen=${inputLen} starting...`);
     const t0 = Date.now();
 
@@ -126,8 +126,8 @@ export class OpenAIProvider implements LLMProvider {
       temperature: options?.temperature ?? 0.7,
       stream: true,
       messages: messages.map((m) => ({
-        role: m.role as any,
-        content: m.content || "",
+        role: m.role as "system" | "user" | "assistant",
+        content: m.content,
       })),
     });
 
@@ -154,7 +154,7 @@ export class OpenAIProvider implements LLMProvider {
     options?: { model?: string; maxTokens?: number; temperature?: number }
   ): AsyncGenerator<StreamEvent> {
     const model = options?.model || this.defaultModel;
-    const inputLen = messages.reduce((sum, m) => sum + (m.content || "").length, 0);
+    const inputLen = messages.reduce((sum, m) => sum + m.content.length, 0);
     console.log(`[LLM:chatWithTools] model=${model} tools=${tools.map(t => t.name).join(",")} inputLen=${inputLen} starting...`);
     const t0 = Date.now();
 
@@ -175,12 +175,7 @@ export class OpenAIProvider implements LLMProvider {
       model,
       max_tokens: options?.maxTokens || 4096,
       temperature: options?.temperature ?? 0.4,
-      messages: messages.map(m => {
-        const msg: any = { role: m.role, content: m.content };
-        if (m.tool_calls) msg.tool_calls = m.tool_calls;
-        if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
-        return msg;
-      }),
+      messages: messages.map(m => convertAnthropicBlocksToOpenAI(m)),
       tools: openaiTools,
       stream: true,
     });
@@ -230,6 +225,37 @@ export class OpenAIProvider implements LLMProvider {
     console.log(`[LLM:chatWithTools] model=${model} elapsed=${elapsed}ms outputLen=${outputLen}`);
     yield { type: "done" };
   }
+}
+
+function convertAnthropicBlocksToOpenAI(m: { role: string; content: string | any[] }): any {
+  if (typeof m.content === "string") return { role: m.role, content: m.content };
+
+  // Check for tool_use content blocks (assistant message)
+  const toolUses = m.content.filter((b: any) => b.type === "tool_use");
+  if (toolUses.length > 0) {
+    return {
+      role: "assistant",
+      content: null,
+      tool_calls: toolUses.map((tu: any) => ({
+        id: tu.id,
+        type: "function",
+        function: { name: tu.name, arguments: JSON.stringify(tu.input) },
+      })),
+    };
+  }
+
+  // Check for tool_result content blocks (user message)
+  const toolResults = m.content.filter((b: any) => b.type === "tool_result");
+  if (toolResults.length > 0) {
+    return {
+      role: "tool",
+      tool_call_id: toolResults[0].tool_use_id,
+      content: typeof toolResults[0].content === "string" ? toolResults[0].content : JSON.stringify(toolResults[0].content),
+    };
+  }
+
+  // Fallback: stringify text blocks
+  return { role: m.role, content: m.content.map((b: any) => b.text || JSON.stringify(b)).join("") };
 }
 
 /**

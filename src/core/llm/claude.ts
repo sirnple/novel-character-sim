@@ -21,14 +21,14 @@ export class ClaudeProvider implements LLMProvider {
       .filter((m) => m.role !== "system")
       .map((m) => ({
         role: m.role as "user" | "assistant",
-        content: (m.content || "") as string,
+        content: m.content,
       }));
 
     const response = await this.client.messages.create({
       model: options?.model || this.defaultModel,
       max_tokens: options?.maxTokens || 4096,
       temperature: options?.temperature ?? 0.7,
-      system: systemMsg?.content || void 0,
+      system: systemMsg?.content,
       messages: chatMessages,
     });
 
@@ -50,7 +50,7 @@ export class ClaudeProvider implements LLMProvider {
       .filter((m) => m.role !== "system")
       .map((m) => ({
         role: m.role as "user" | "assistant",
-        content: (m.content || "") as string,
+        content: m.content,
       }));
 
     const toolSystemPrompt = [
@@ -92,14 +92,14 @@ export class ClaudeProvider implements LLMProvider {
       .filter((m) => m.role !== "system")
       .map((m) => ({
         role: m.role as "user" | "assistant",
-        content: (m.content || "") as string,
+        content: m.content,
       }));
 
     const stream = await this.client.messages.create({
       model: options?.model || this.defaultModel,
       max_tokens: options?.maxTokens || 4096,
       temperature: options?.temperature ?? 0.7,
-      system: systemMsg?.content || void 0,
+      system: systemMsg?.content,
       messages: chatMessages,
       stream: true,
     });
@@ -122,8 +122,8 @@ export class ClaudeProvider implements LLMProvider {
   ): AsyncGenerator<StreamEvent> {
     const systemMsg = messages.find(m => m.role === "system");
     const chatMessages = messages
-      .filter(m => m.role !== "system" && m.content != null)
-      .map(m => ({ role: m.role as "user" | "assistant", content: (m.content || "") as string }));
+      .filter(m => m.role !== "system")
+      .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
 
     const anthropicTools = tools.map(t => ({
       name: t.name,
@@ -139,7 +139,7 @@ export class ClaudeProvider implements LLMProvider {
       model: options?.model || this.defaultModel,
       max_tokens: options?.maxTokens || 4096,
       temperature: options?.temperature ?? 0.4,
-      system: systemMsg?.content || void 0,
+      system: systemMsg?.content || "",
       messages: chatMessages,
       tools: anthropicTools,
     });
