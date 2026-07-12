@@ -81,9 +81,11 @@ export default function ReadPage() {
             disabled={loadingText}
             className="bg-[#111110] border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-300 font-mono outline-none focus:border-orange-600/50 disabled:opacity-50"
           >
-            {branches.map(b => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
+            {branches.length === 0
+              ? <option value="main">主线</option>
+              : branches.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
           </select>
           {loadingText && <span className="text-[10px] text-orange-500 font-mono animate-pulse">加载中</span>}
         </div>
