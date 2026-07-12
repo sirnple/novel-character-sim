@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { LLMProvider, LLMMessage, ToolSchema } from "@/types";
 import type { StreamEvent } from "@/core/agents/types";
 import { extractJSON } from "@/lib/utils";
+import { logSession } from "@/lib/session-log";
 
 /**
  * OpenAI-compatible provider. Supports OpenAI, DeepSeek, and any other
@@ -182,16 +183,19 @@ export class OpenAIProvider implements LLMProvider {
         stream: true,
       });
     } catch (e) {
-      console.error("[LLM:chatWithTools] API call failed:", (e as Error).message);
-      const debug = convertedMessages.map((m: any, i: number) => ({
-        idx: i,
-        role: m.role,
-        hasContent: typeof m.content === "string" ? m.content.slice(0, 100) : !!m.content,
-        hasToolCalls: !!m.tool_calls,
-        hasToolCallId: !!m.tool_call_id,
-        toolCallId: m.tool_call_id,
-      }));
-      console.error("[LLM:chatWithTools] messages:", JSON.stringify(debug, null, 2));
+      logSession({
+        ts: new Date().toISOString(),
+        type: "chat_with_tools_error",
+        error: (e as Error).message,
+        model,
+        messages: convertedMessages.map((m: any) => ({
+          role: m.role,
+          content: typeof m.content === "string" ? m.content.slice(0, 500) : JSON.stringify(m.content).slice(0, 500),
+          hasToolCalls: !!m.tool_calls,
+          toolCallsCount: m.tool_calls?.length || 0,
+          toolCallId: m.tool_call_id || null,
+        })),
+      });
       throw e;
     }
 
