@@ -10,7 +10,7 @@ interface SavedNovel { id: string; title: string; total_length: number; created_
 export default function NovelLayout({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
   const pathname = usePathname();
-  const { novelTitle, novelText, characters, timeline, storyInfo, setNovel, setCharacters, setStoryInfo, setTimeline, sessionNovelText, sessionContinueOffset, sessionContinueLabel, activeBranchId, novelId } = useNovel();
+  const { novelTitle, novelText, characters, timeline, storyInfo, setNovel, setCharacters, setStoryInfo, setTimeline, setBranches, sessionNovelText, sessionContinueOffset, sessionContinueLabel, activeBranchId, novelId } = useNovel();
   const [savedNovels, setSavedNovels] = useState<SavedNovel[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(pathname.endsWith("/write"));
   const [showRightPanel, setShowRightPanel] = useState(true);
@@ -41,6 +41,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
           characters: data.characters || [], storyInfo: data.storyInfo || null,
           timeline: data.timeline || null, lastChapterStates: data.lastChapterStates || [],
         });
+        if (data.branches) setBranches(data.branches);
       }).catch(() => {});
     }
   }, [id]);
@@ -51,6 +52,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
     const data = await res.json();
     if (res.ok) {
       setNovel({ novelId: nid, novelTitle: data.title, novelText: data.text, characters: data.characters || [], storyInfo: data.storyInfo || null, timeline: data.timeline || null, lastChapterStates: data.lastChapterStates || [] });
+      if (data.branches) setBranches(data.branches);
       window.location.href = `/novel/${nid}`;
     }
   };

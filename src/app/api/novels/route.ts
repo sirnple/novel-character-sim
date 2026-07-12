@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listNovels, getNovel, getStoryInfo, getCharacters, deleteNovel, getBranch, ensureMainBranch } from "@/lib/db";
+import { listNovels, getNovel, getStoryInfo, getCharacters, deleteNovel, getBranch, ensureMainBranch, listBranches } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
@@ -21,7 +21,8 @@ export async function GET(request: NextRequest) {
     const novel = getNovel(userId, id);
     const storyInfo = getStoryInfo(userId, id);
     const characters = getCharacters(userId, id);
-    return NextResponse.json({ id, title: novel?.title || "", text: branch.text, storyInfo, characters });
+    const branches = listBranches(userId, id);
+    return NextResponse.json({ id, title: novel?.title || "", text: branch.text, storyInfo, characters, branches });
   }
 
   const novels = listNovels(userId);
