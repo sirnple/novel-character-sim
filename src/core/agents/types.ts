@@ -16,6 +16,7 @@ export interface ToolDefinition {
 }
 
 export interface ToolContext {
+  userId?: string;
   novelText: string;
   novelTitle?: string;
   characters: any[];
