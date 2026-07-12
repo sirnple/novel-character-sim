@@ -6,7 +6,7 @@ export const dataTools: ToolDefinition[] = [
     description: "获取续写点之前的上下文。返回最近前文。",
     parameters: { type: "object", properties: {}, required: [] },
     execute: async (_args, ctx) => ({
-      content: (ctx.novelText || "").slice(-6000) || "无前文",
+      content: ctx.novelText || "无前文",
       messages: [],
     }),
   },

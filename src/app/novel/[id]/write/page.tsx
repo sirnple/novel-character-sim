@@ -6,7 +6,7 @@ import { GitBranch, Plus, BookOpen, Sparkles } from "lucide-react";
 interface BranchInfo { id: string; name: string; text: string; parent_offset: number; updated_at: string; }
 
 export default function WritePage() {
-  const { novelId, novelTitle, novelText, setNovelText } = useNovel();
+  const { novelId, novelTitle, novelText, setNovelText, setNovel, generatedProse } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
   const [freeMode, setFreeMode] = useState(false);
@@ -20,12 +20,48 @@ export default function WritePage() {
 
   const activeBranch = branches.find(b => b.id === activeBranchId);
   const currentText = activeBranchId ? (activeBranch?.text || "") : novelText;
+  const [queryOffset, setQueryOffset] = useState<string | null>(null);
+  const [queryLabel, setQueryLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setQueryOffset(params.get("offset"));
+    setQueryLabel(params.get("label"));
+  }, []);
 
   useEffect(() => {
     fetch(`/api/branches?novelId=${novelId}`).then(r => r.json()).then(d => {
       if (d.branches) setBranches(d.branches);
     }).catch(() => {});
   }, [novelId]);
+
+  useEffect(() => {
+    if (activeBranchId && activeBranch) {
+      setNovel({
+        sessionNovelText: activeBranch.text,
+        sessionContinueOffset: activeBranch.text.length,
+        sessionContinueLabel: `分支: ${activeBranch.name}`,
+      });
+    } else if (freeMode) {
+      setNovel({
+        sessionNovelText: novelText,
+        sessionContinueOffset: undefined,
+        sessionContinueLabel: "自由创作",
+      });
+    } else if (queryOffset) {
+      setNovel({
+        sessionNovelText: novelText,
+        sessionContinueOffset: parseInt(queryOffset),
+        sessionContinueLabel: queryLabel || "续写点",
+      });
+    } else {
+      setNovel({
+        sessionNovelText: undefined,
+        sessionContinueOffset: undefined,
+        sessionContinueLabel: undefined,
+      });
+    }
+  }, [activeBranchId, activeBranch?.text, freeMode, novelText, queryOffset, queryLabel]);
 
   const createBranch = async () => {
     if (!newBranchName.trim()) return;
@@ -123,6 +159,9 @@ export default function WritePage() {
             <div className="max-w-[800px] mx-auto p-6">
               <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
                 {novelText}
+                {generatedProse && (
+                  <span className="text-orange-300/80">{generatedProse}</span>
+                )}
               </div>
             </div>
           </div>
@@ -140,8 +179,22 @@ export default function WritePage() {
                           className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-1.5 py-0.5 rounded font-mono">分叉</button>
                       </span>
                       {currentText.slice(forkPoint.offset)}
+                      {generatedProse && (
+                        <span className="text-orange-300/80">{generatedProse}</span>
+                      )}
                     </>
-                  ) : currentText}
+                  ) : (
+                    <>
+                      {currentText}
+                      {generatedProse && (
+                        <span className="text-orange-300/80">{generatedProse}</span>
+                      )}
+                    </>
+                  )}
+                </div>
+              ) : generatedProse ? (
+                <div className="text-base text-orange-300/80 leading-relaxed whitespace-pre-wrap font-serif">
+                  {generatedProse}
                 </div>
               ) : (
                 <div className="text-center py-12 text-neutral-600 text-sm font-mono">

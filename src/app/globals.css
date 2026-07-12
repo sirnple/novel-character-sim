@@ -55,17 +55,21 @@
   }
 }
 
-/* Admin page dark scrollbar */
+/* Scrollbar */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #555 transparent;
+}
 .custom-scrollbar::-webkit-scrollbar {
-  width: 5px;
+  width: 8px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
+  background: #111;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 3px;
+  background: #555;
+  border-radius: 4px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #888;
 }

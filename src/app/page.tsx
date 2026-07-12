@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { BookMarked, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import NovelUpload from "@/components/novel-upload";
 import { useNovel } from "@/lib/novel-context";
 import { novelFingerprint } from "@/lib/utils";
@@ -11,6 +12,7 @@ interface SavedNovel {
 
 export default function HomePage() {
   const { setNovel } = useNovel();
+  const router = useRouter();
   const [showUpload, setShowUpload] = useState(false);
   const [savedNovels, setSavedNovels] = useState<SavedNovel[]>([]);
 
@@ -26,6 +28,7 @@ export default function HomePage() {
       fetch(`/api/branches?novelId=${id}`).then(r => r.json()).then(d => {
         if (d.branches) setNovel({ branches: d.branches });
       }).catch(() => {});
+      router.push(`/novel/${id}`);
     }
   };
 

@@ -345,7 +345,7 @@ Output your review findings. Return an empty array if no issues found.`
   };
 }
 
-async function reviewCharacterConsistencyClean(
+export async function reviewCharacterConsistencyClean(
   fullNovelText: string,
   generatedProse: string,
   llm: ReturnType<typeof createLLMProvider>,
@@ -540,7 +540,7 @@ Output your review findings. Return an empty array if no issues found.`
   };
 }
 
-async function reviewContinuityClean(
+export async function reviewContinuityClean(
   fullNovelText: string,
   generatedProse: string,
   llm: ReturnType<typeof createLLMProvider>,
@@ -737,7 +737,7 @@ Output your review findings. Return an empty array if no issues found.`
   };
 }
 
-async function reviewForeshadowingClean(
+export async function reviewForeshadowingClean(
   fullNovelText: string,
   generatedProse: string,
   llm: ReturnType<typeof createLLMProvider>,
@@ -912,7 +912,7 @@ Output your review findings. Return an empty array if no issues found.`
   };
 }
 
-async function reviewStyleClean(
+export async function reviewStyleClean(
   fullNovelText: string,
   generatedProse: string,
   llm: ReturnType<typeof createLLMProvider>,
@@ -1074,7 +1074,7 @@ Output your review findings. Return an empty array if no issues found.`
   };
 }
 
-async function reviewWorldBuildingClean(
+export async function reviewWorldBuildingClean(
   fullNovelText: string,
   generatedProse: string,
   llm: ReturnType<typeof createLLMProvider>,
@@ -1229,7 +1229,7 @@ Output your review findings. Return an empty array if no issues found.`
   };
 }
 
-async function reviewPacingClean(
+export async function reviewPacingClean(
   fullNovelText: string,
   generatedProse: string,
   llm: ReturnType<typeof createLLMProvider>,

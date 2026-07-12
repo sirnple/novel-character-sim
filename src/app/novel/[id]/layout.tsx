@@ -10,11 +10,10 @@ interface SavedNovel { id: string; title: string; total_length: number; created_
 export default function NovelLayout({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
   const pathname = usePathname();
-  const { novelTitle, novelText, characters, timeline, storyInfo, setNovel, setCharacters, setStoryInfo, setTimeline } = useNovel();
+  const { novelTitle, novelText, characters, timeline, storyInfo, setNovel, setCharacters, setStoryInfo, setTimeline, sessionNovelText, sessionContinueOffset, sessionContinueLabel } = useNovel();
   const [savedNovels, setSavedNovels] = useState<SavedNovel[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(pathname.endsWith("/write"));
-  const [showRightPanel, setShowRightPanel] = useState(pathname.endsWith("/write"));
-  const [rightPanelView, setRightPanelView] = useState<"codex" | "review" | "assistant">("assistant");
+  const [showRightPanel, setShowRightPanel] = useState(true);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ library: true, tasks: true, codex: false, review: false });
   const [panelWidth, setPanelWidth] = useState(360);
   const [dragging, setDragging] = useState(false);
@@ -79,7 +78,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
           )}
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => { setShowRightPanel(!showRightPanel); if (!showRightPanel) setRightPanelView("assistant"); }}
+          <button onClick={() => setShowRightPanel(!showRightPanel)}
             className={`p-1 rounded transition-colors ${showRightPanel ? "text-orange-400 bg-orange-500/10" : "text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800"}`}>
             <PanelRight className="w-4 h-4" />
           </button>
@@ -106,7 +105,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
               </SidebarSection>
               <SidebarSection section="codex" icon={<BookMarked className="w-3 h-3" />} label="创作法典" expanded={expandedSections.codex} onToggle={() => toggleSection("codex")}>
                 {["角色卷宗", "世界观百科", "前文摘要", "伏笔账本"].map(item => (
-                  <button key={item} onClick={() => { setShowRightPanel(true); setRightPanelView("codex"); }}
+                  <button key={item} onClick={() => setShowRightPanel(true)}
                     className="w-full text-left px-3 py-1.5 rounded text-xs text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300 transition-colors">{item}</button>
                 ))}
               </SidebarSection>
@@ -129,40 +128,13 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
             />
             <aside style={{ width: panelWidth }} className="shrink-0 border-l border-neutral-800/60 bg-[#0c0c0c] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-800/40">
-              <div className="flex rounded border border-neutral-700 overflow-hidden">
-                {[
-                  { key: "codex" as const, label: "CODEX" },
-                  { key: "review" as const, label: "REVIEW" },
-                  { key: "assistant" as const, label: "助手" },
-                ].map(v => (
-                  <button key={v.key} onClick={() => setRightPanelView(v.key)}
-                    className={`px-2.5 py-1 text-[10px] font-mono transition-colors ${rightPanelView === v.key ? "bg-neutral-700 text-neutral-200" : "bg-transparent text-neutral-500 hover:text-neutral-300"}`}>
-                    {v.label}
-                  </button>
-                ))}
-              </div>
+              <span className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">助手</span>
               <button onClick={() => setShowRightPanel(false)} className="text-neutral-500 hover:text-neutral-300">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar">
-              {rightPanelView === "assistant" && (
-                <AgentPanelWrapper novelTitle={novelTitle} novelText={novelText} characters={characters} />
-              )}
-              {rightPanelView === "codex" && (
-                <div className="p-4 space-y-3">
-                  <h3 className="text-[10px] text-neutral-500 font-mono uppercase tracking-widest">创作法典</h3>
-                  {[{ title: "角色卷宗", count: characters.length }, { title: "世界观百科", count: storyInfo ? 1 : 0 }, { title: "前文摘要", count: timeline?.chapters?.length || 0 }].map(item => (
-                    <div key={item.title} className="border border-neutral-800/40 rounded p-3">
-                      <div className="flex items-center justify-between mb-1"><h4 className="text-xs font-medium text-neutral-400">{item.title}</h4><span className="text-[10px] text-neutral-600 font-mono">{item.count}</span></div>
-                      <p className="text-[10px] text-neutral-600">{item.count > 0 ? "已就绪" : "暂无数据"}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {rightPanelView === "review" && (
-                <div className="p-4"><p className="text-xs text-neutral-600">完成写作后可在此查看审查报告。</p></div>
-              )}
+              <AgentPanelWrapper novelTitle={novelTitle} novelText={sessionNovelText || novelText} characters={characters} continueFromOffset={sessionContinueOffset} continueFromLabel={sessionContinueLabel} />
             </div>
           </aside>
           </>
@@ -190,6 +162,6 @@ function SidebarSection({ section, icon, label, expanded, onToggle, children }: 
 import dynamic from "next/dynamic";
 const AgentPanel = dynamic(() => import("@/components/agent-panel"), { ssr: false });
 
-function AgentPanelWrapper({ novelTitle, novelText, characters }: { novelTitle?: string; novelText?: string; characters?: any[] }) {
-  return <AgentPanel novelTitle={novelTitle} characters={characters} novelText={novelText} />;
+function AgentPanelWrapper({ novelTitle, novelText, characters, continueFromOffset, continueFromLabel }: { novelTitle?: string; novelText?: string; characters?: any[]; continueFromOffset?: number; continueFromLabel?: string }) {
+  return <AgentPanel novelTitle={novelTitle} characters={characters} novelText={novelText} continueFromOffset={continueFromOffset} continueFromLabel={continueFromLabel} />;
 }

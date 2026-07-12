@@ -11,6 +11,10 @@ interface NovelState {
   timeline: ChapterTimeline | null;
   lastChapterStates: CharacterChapterState[];
   branches: Branch[];
+  sessionNovelText?: string;
+  sessionContinueOffset?: number;
+  sessionContinueLabel?: string;
+  generatedProse?: string;
 }
 
 interface NovelContextType extends NovelState {

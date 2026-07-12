@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Bot, Send, Loader2, Wrench } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { useNovel } from "@/lib/novel-context";
 
 interface AgentMessage {
   id: string;
@@ -25,6 +26,8 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
   const [status, setStatus] = useState<"idle" | "generating">("idle");
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const { setNovel } = useNovel();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -41,6 +44,9 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     setInput("");
     setStatus("generating");
 
+    const abort = new AbortController();
+    abortRef.current = abort;
+
     try {
       const res = await fetch("/api/agent/chat", {
         method: "POST",
@@ -49,6 +55,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
           messages: [...messages, userMsg],
           context: { novelTitle, characters, novelText, continueFromOffset, continueFromLabel },
         }),
+        signal: abort.signal,
       });
       if (!res.ok) throw new Error("Failed");
 
@@ -57,11 +64,12 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
       const decoder = new TextDecoder();
       let buffer = "";
       let agentContent = "";
-      const agentMsgId = Math.random().toString(36).slice(2);
+      let currentTextMsgId: string | null = Math.random().toString(36).slice(2);
 
-      // Add empty agent message
+      // First agent message — will be replaced if not used
+      const firstId = currentTextMsgId;
       setMessages(prev => [...prev, {
-        id: agentMsgId, role: "agent", content: "",
+        id: firstId, role: "agent", content: "",
         timestamp: new Date().toISOString(),
       }]);
 
@@ -79,8 +87,16 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
 
             if (event.type === "chunk") {
               agentContent = event.content;
+              if (!currentTextMsgId) {
+                currentTextMsgId = Math.random().toString(36).slice(2);
+                const id = currentTextMsgId;
+                setMessages(prev => [...prev, {
+                  id, role: "agent", content: "",
+                  timestamp: new Date().toISOString(),
+                }]);
+              }
               setMessages(prev => prev.map(m =>
-                m.id === agentMsgId ? { ...m, content: agentContent } : m
+                m.id === currentTextMsgId ? { ...m, content: agentContent } : m
               ));
             } else if (event.type === "tool_chunk") {
               setMessages(prev => prev.map(m =>
@@ -88,18 +104,19 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   ? { ...m, content: event.content }
                   : m
               ));
-            } else if (event.type === "thinking") {
-              setMessages(prev => prev.map(m =>
-                m.id === agentMsgId && !m.content ? { ...m, content: "决策中..." } : m
-              ));
+              if (event.tool === "write_prose") {
+                setNovel({ generatedProse: event.content });
+              }
             } else if (event.type === "tool_call") {
               if (event.status === "running") {
+                currentTextMsgId = null;
                 setMessages(prev => [...prev, {
                   id: Math.random().toString(36).slice(2), role: "tool", content: "",
                   metadata: { tool: event.tool, status: "running", toolCallId: event.toolCallId },
                   timestamp: new Date().toISOString(),
                 }]);
               } else if (event.status === "done") {
+                currentTextMsgId = null;
                 setMessages(prev => {
                   const existing = prev.find(m => m.metadata?.toolCallId === event.toolCallId);
                   const data = { content: event.result || "", metadata: { tool: event.tool, status: "done" as const, toolCallId: event.toolCallId, subMessages: event.messages || [] } };
@@ -110,21 +127,48 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                 });
               }
             } else if (event.type === "error") {
-              setMessages(prev => prev.map(m =>
-                m.id === agentMsgId ? { ...m, content: "**出错了**: " + event.message } : m
-              ));
+              if (currentTextMsgId) {
+                setMessages(prev => prev.map(m =>
+                  m.id === currentTextMsgId ? { ...m, content: "**出错了**: " + event.message } : m
+                ));
+              } else {
+                setMessages(prev => [...prev, {
+                  id: Math.random().toString(36).slice(2),
+                  role: "agent", content: "**出错了**: " + event.message,
+                  timestamp: new Date().toISOString(),
+                }]);
+              }
+            } else if (event.type === "stopped") {
+              if (currentTextMsgId) {
+                setMessages(prev => prev.map(m =>
+                  m.id === currentTextMsgId && !m.content ? { ...m, content: "**已停止**" } : m
+                ));
+              } else {
+                setMessages(prev => [...prev, {
+                  id: Math.random().toString(36).slice(2),
+                  role: "agent", content: "**已停止**",
+                  timestamp: new Date().toISOString(),
+                }]);
+              }
             }
           } catch {}
         }
       }
     } catch (e) {
-      setMessages(prev => [...prev, {
-        id: Math.random().toString(36).slice(2),
-        role: "agent", content: "**连接失败**: " + (e as Error).message,
-        timestamp: new Date().toISOString(),
-      }]);
+      if ((e as Error).name !== "AbortError") {
+        setMessages(prev => [...prev, {
+          id: Math.random().toString(36).slice(2),
+          role: "agent", content: "**连接失败**: " + (e as Error).message,
+          timestamp: new Date().toISOString(),
+        }]);
+      }
     }
+    abortRef.current = null;
     setStatus("idle");
+  };
+
+  const handleStop = () => {
+    abortRef.current?.abort();
   };
 
   const toolNames: Record<string, string> = {
@@ -166,45 +210,35 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
           if (msg.role === "tool") {
             const isRunning = msg.metadata?.status === "running";
             const isDone = msg.metadata?.status === "done";
+            const isReview = msg.metadata?.tool?.startsWith("review_");
+            const hasFindings = msg.content && !msg.content.includes('"findings":[]') && !msg.content.includes('"converged":true');
             return (
-              <div key={msg.id} className="bg-neutral-800/20 border border-neutral-700/50 rounded-lg p-2">
+              <div key={msg.id} className={`${isDone && isReview && !hasFindings ? "py-1" : "bg-neutral-800/20 border border-neutral-700/50 rounded-lg p-2"}`}>
                 <div className="flex items-center gap-2">
-                  <Wrench className="w-3 h-3 text-neutral-500" />
-                  <span className="text-[10px] text-neutral-400 font-mono">
-                    {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}
-                  </span>
-                  <span className={`w-2 h-2 rounded-full ml-auto ${isRunning ? "bg-orange-500 animate-pulse" : "bg-green-500"}`} />
-                  <span className="text-[9px] text-neutral-600 font-mono">
-                    {isRunning ? "执行中" : "完成"}
-                  </span>
+                  {isDone && isReview && !hasFindings ? (
+                    <span className="text-[10px] text-green-600 font-mono">✓ {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}</span>
+                  ) : (
+                    <>
+                      <Wrench className="w-3 h-3 text-neutral-500" />
+                      <span className="text-[10px] text-neutral-400 font-mono">
+                        {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}
+                      </span>
+                      <span className={`w-2 h-2 rounded-full ml-auto ${isRunning ? "bg-orange-500 animate-pulse" : "bg-green-500"}`} />
+                      <span className="text-[9px] text-neutral-600 font-mono">
+                        {isRunning ? "执行中" : "完成"}
+                      </span>
+                    </>
+                  )}
                 </div>
                 {/* Streamed content while running */}
                 {isRunning && msg.content && (
                   <pre className="mt-2 text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content}</pre>
                 )}
-                {/* Final result when done */}
-                {isDone && msg.content && (
-                  <details className="mt-2">
+                {/* Final result when done — only show expandable for non-trivial results */}
+                {isDone && msg.content && !(isReview && !hasFindings) && (
+                  <details className="mt-1">
                     <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400">查看结果 ({msg.content.length} 字符)</summary>
-                    {/* Sub-agent messages */}
-                    {msg.metadata?.subMessages && msg.metadata.subMessages.length > 0 && (
-                      <div className="mt-2 space-y-1.5 mb-2">
-                        {msg.metadata.subMessages
-                          .filter(sm => sm.role !== "system")
-                          .map((sm, si) => (
-                            <div key={si} className={`flex ${sm.role === "user" ? "justify-end" : "justify-start"}`}>
-                              <div className={`max-w-[95%] rounded px-2 py-1 text-[10px] leading-relaxed whitespace-pre-wrap break-words ${
-                                sm.role === "user"
-                                  ? "bg-orange-600/10 text-orange-300/80 border border-orange-600/20"
-                                  : "bg-neutral-800/50 text-neutral-400 border border-neutral-700/30"
-                              }`}>
-                                {sm.content.slice(0, 2000)}
-                              </div>
-                            </div>
-                          ))}
-                      </div>
-                    )}
-                    <pre className="text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[150px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content.slice(0, 2000)}</pre>
+                    <pre className="mt-1 text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content.slice(0, 5000)}</pre>
                   </details>
                 )}
               </div>
@@ -249,6 +283,12 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
             className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded text-xs font-mono transition-colors">
             <Send className="w-3 h-3" />
           </button>
+          {status === "generating" && (
+            <button onClick={handleStop}
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded text-xs font-mono transition-colors">
+              停止
+            </button>
+          )}
         </div>
       </div>
     </div>
