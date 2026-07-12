@@ -52,7 +52,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [...messages.filter(m => m.role !== "tool_card"), userMsg],
+          messages: [...messages.filter(m => m.role !== "tool"), userMsg],
           context: { novelTitle, characters, novelText, continueFromOffset, continueFromLabel },
         }),
         signal: abort.signal,
@@ -207,7 +207,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
 
         {messages.map(msg => {
           // Tool card
-          if (msg.role === "tool_card") {
+          if (msg.role === "tool") {
             const isRunning = msg.metadata?.status === "running";
             const isDone = msg.metadata?.status === "done";
             const isReview = msg.metadata?.tool?.startsWith("review_");
