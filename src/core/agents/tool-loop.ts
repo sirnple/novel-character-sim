@@ -43,7 +43,7 @@ export async function runToolLoop(
         let resultContent = "工具未注册或返回空";
         if (toolDef) {
           try {
-            const r = await toolDef.execute({ ...args, novelId: (ctx as any).novelId, branchId: (ctx as any).branchId }, ctx, llm);
+            const r = await toolDef.execute({ ...args, novelId: ctx.novelId, branchId: ctx.branchId }, ctx, llm);
             resultContent = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
             resultContent = resultContent.slice(0, 5000);
           } catch (e) {
