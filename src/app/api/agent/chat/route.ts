@@ -66,11 +66,10 @@ export async function POST(request: NextRequest) {
         send({ type: "tool_call", tool, status, toolCallId, result, messages: msgs });
       };
 
-      const runAgent = async (agentType: string, prompt: string) => {
-        const id = Math.random().toString(36).slice(2);
-        currentToolCallId = id;
+      const runAgent = async (agentType: string, prompt: string, toolCallId: string) => {
+        currentToolCallId = toolCallId;
         currentToolName = agentType;
-        sendTool(agentType, "running", id);
+        sendTool(agentType, "running", toolCallId);
         const agentDef = getAgent(agentType);
         if (!agentDef) throw new Error(`Unknown agent: ${agentType}`);
         const t0 = Date.now();
@@ -80,17 +79,16 @@ export async function POST(request: NextRequest) {
           sendToolChunk,
         );
         logSession({ ts: new Date().toISOString(), type: "tool_exec", tool: agentType, elapsed: Date.now() - t0, resultPreview: result.content.slice(0, 300) });
-        sendTool(agentType, "done", id, result.content.slice(0, 5000), result.messages);
+        sendTool(agentType, "done", toolCallId, result.content.slice(0, 5000), result.messages);
         return result;
       };
 
-      const runDataTool = async (name: string) => {
-        const id = Math.random().toString(36).slice(2);
-        sendTool(name, "running", id);
+      const runDataTool = async (name: string, toolCallId: string) => {
+        sendTool(name, "running", toolCallId);
         const toolDef = getTool(name);
         if (!toolDef) throw new Error(`Unknown tool: ${name}`);
         const result = await toolDef.execute({}, context, llm);
-        sendTool(name, "done", id, result.content.slice(0, 2000), result.messages);
+        sendTool(name, "done", toolCallId, result.content.slice(0, 2000), result.messages);
         return result;
       };
 
@@ -147,7 +145,7 @@ export async function POST(request: NextRequest) {
                 }
 
                 if (agentType === "write_prose") {
-                  let prose = (await runAgent("write_prose", prompt)).content;
+                  let prose = (await runAgent("write_prose", prompt, toolId)).content;
                   checkAbort();
 
                   // Auto review loop (parallel)
@@ -158,7 +156,7 @@ export async function POST(request: NextRequest) {
                     sendChunk(`### 审查轮次 ${round + 1}`);
 
                     const results = await Promise.all(
-                      REVIEW_TYPES.map(rt => runAgent(rt, prose))
+                      REVIEW_TYPES.map(rt => runAgent(rt, prose, toolId))
                     );
 
                     const allFindings: { dimension: string; severity: string; description: string; suggestion: string }[] = [];
@@ -212,7 +210,7 @@ export async function POST(request: NextRequest) {
                     const fixPrompt = allFindings.map((f, i) =>
                       `修改${i + 1}: ${f.suggestion || f.description}`
                     ).join("\n");
-                    prose = (await runAgent("write_prose", `请对以下正文进行精确修改。只做下面列出的修改，其他内容一字不改。\n\n${fixPrompt}\n\n## 待修改正文\n${prose}`)).content;
+                    prose = (await runAgent("write_prose", `请对以下正文进行精确修改...`, toolId)).content;
                   }
 
                   conversation.push({
@@ -220,14 +218,14 @@ export async function POST(request: NextRequest) {
                     content: [{ type: "tool_result", tool_use_id: toolId, content: `写作结果:\n${prose.slice(0, 5000)}` }],
                   });
                 } else {
-                  const result = await runAgent(agentType, prompt);
+                  const result = await runAgent(agentType, prompt, toolId);
                   conversation.push({
                     role: "user",
                     content: [{ type: "tool_result", tool_use_id: toolId, content: result.content.slice(0, 5000) }],
                   });
                 }
               } else {
-                const result = await runDataTool(toolName);
+                const result = await runDataTool(toolName, toolId);
                 conversation.push({
                   role: "user",
                   content: [{ type: "tool_result", tool_use_id: toolId, content: result.content.slice(0, 5000) }],
