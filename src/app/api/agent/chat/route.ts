@@ -95,7 +95,12 @@ export async function POST(request: NextRequest) {
       try {
         const conversation: LLMMessage[] = [
           { role: "system", content: SYSTEM_PROMPT },
-          ...messages.map((m: any) => ({ role: m.role === "agent" ? "assistant" : m.role, content: m.content })),
+          ...messages.map((m: any) => {
+            const msg: LLMMessage = { role: m.role === "agent" ? "assistant" : m.role, content: m.content };
+            if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
+            if (m.tool_calls) msg.tool_calls = m.tool_calls;
+            return msg;
+          }),
         ];
 
         let maxSteps = 15;
