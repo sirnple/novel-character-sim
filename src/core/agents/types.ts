@@ -27,7 +27,7 @@ export interface ToolContext {
 
 export interface ToolResult {
   content: string;
-  messages: { role: "user" | "assistant"; content: string }[];
+  messages: { role: "system" | "user" | "assistant"; content: string }[];
 }
 
 export interface AgentDef {
