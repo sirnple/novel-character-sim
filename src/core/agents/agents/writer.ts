@@ -29,8 +29,7 @@ export const writerAgent: AgentDef = {
 5. 直接输出正文，不要写"以下是续写"之类的引导语`;
 
     const uc = `${ctx.prompt}\n\n## 当前绑定分支\nnovelId=${ctx.novelId}, branchId=${ctx.branchId}\n\n如需前文/角色/设定，请调用 get_branch_* 工具自取（参数同上）。直接输出正文。`;
-    const { trail } = await runSubAgentToolLoop(llm, sys, uc, BRANCH_TOOL_SCHEMAS, ctx, onChunk);
-    const finalText = trail.filter(m => m.role === "assistant").pop()?.content || "";
+    const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, BRANCH_TOOL_SCHEMAS, ctx, onChunk);
     return {
       content: finalText,
       messages: trail,

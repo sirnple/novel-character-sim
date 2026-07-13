@@ -11,8 +11,7 @@ export const outlineAgent: AgentDef = {
   execute: async (ctx, llm, onChunk) => {
     const sys = renderPrompt("outline-system.md", {});
     const uc = `${ctx.prompt}\n\n## 当前绑定分支\nnovelId=${ctx.novelId}, branchId=${ctx.branchId}\n\n如需前文/角色/时间线，请调用 get_branch_* 工具自取（参数 novelId 与 branchId 同上）。`;
-    const { trail } = await runSubAgentToolLoop(llm, sys, uc, BRANCH_TOOL_SCHEMAS, ctx, onChunk);
-    const finalText = trail.filter(m => m.role === "assistant").pop()?.content || "";
+    const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, BRANCH_TOOL_SCHEMAS, ctx, onChunk);
     return {
       content: finalText,
       messages: trail,

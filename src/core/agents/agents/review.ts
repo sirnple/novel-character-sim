@@ -12,8 +12,8 @@ function makeReviewAgent(dimension: string, guideline: string): AgentDef {
     execute: async (ctx, llm) => {
       const sys = `${guideline}\n\n当前审查的分支为 novelId=${ctx.novelId}, branchId=${ctx.branchId}。如需原文或角色档案，调 get_branch_* 工具自取（参数同上）。`;
       const uc = `附在被审的内容下方，请审校：\n\n${ctx.prompt}\n\n审查完成后用 JSON 返回 findings 与 converged，无需其他文本。`;
-      const { trail } = await runSubAgentToolLoop(llm, sys, uc, BRANCH_TOOL_SCHEMAS, ctx);
-      const collected = trail.filter(m => m.role === "assistant").map(m => m.content).join("\n\n");
+      const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, BRANCH_TOOL_SCHEMAS, ctx);
+      const collected = finalText;
       let findings = [] as { dimension: string; severity: string; description: string; suggestion: string }[];
       let converged = true;
       try {
