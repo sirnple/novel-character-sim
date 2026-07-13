@@ -6,7 +6,31 @@
 
 **Architecture:** 进程内 `intermediate-store.ts`（按 `novelId::branchId` 隔离）提供 outline/prose/findings 存取。新增 7 个工具注册到 init。outline/writer/review 子 agent 调用这些工具写入并返回 hint 给主 agent。chat/route 删自动审查循环、改 system prompt 为"先写后审再改"显式流程。
 
-**Tech Stack:** TypeScript · Next.js 14 App Router · 进程内 Map（不持久化）。
+**Tech Stack:** TypeScript · Next.js 14 App Router · 进程内 Map（不持久化）· Node:assert 单元测试。
+
+## 关键设计决策（Grill 产出）
+
+| # | 决策 | 选择 |
+|---|------|------|
+| Q1 | save_outline 调时自动清同分支 store（prose+findings）| A — store.saveOutline 内置清逻辑 |
+| Q2 | save_findings 按 dimension 覆盖（同维度再调替换旧批）| A — store.saveFindings 实现 |
+| Q3 | get_outline 返回 "大纲未生成" 纯字符串信号 | B |
+| Q4 | 6 个 review_* 主编串行调度 | A — LLM 每次一个 agent |
+| Q5 | outline agent 不给摘要，content 仅 hint："大纲已生成，可用 get_outline 获取" | 不要摘要 |
+| Q6 | 大纲由主编调 get_outline 后流式展示给用户（chat 主线）| A |
+| Q7 | 审查完主编汇报问题数、等用户确认"改"再进 write_prose 修改 | C |
+| Q8 | 主 agent maxSteps=3000 | 3000 |
+| Q9 | system prompt 加"不要重调生成类 agent"规则 | A |
+| Q10 | write_prose 模式切用 `[MODE:rewrite]` / `[MODE:create]` prompt 标签 | A |
+| Q11 | 用户说"算了"不清 store，保留未决态可反悔 | A |
+| Q12 | toolCallId 串行+LLM 唯一 id 够，不动 | A |
+| Q13 | 前端 tool 卡 UI 不动 | A |
+| Q14 | store 内对象数组、工具入参 string | A |
+| Q15 | dimension 覆盖在 store.saveFindings 内实现 | A |
+| Q16 | saveOutline 内部自动清 prose+findings | A |
+| Q17 | 加 `scripts/test-shared-store.ts` 单测脚本 + npm script `test:store` | 新增 |
+| Q18 | 主编审完调 get_findings 取全量汇总给用户 | A |
+| Q19 | 主 agent "可用工具"区加 get_outline/get_prose/get_findings | A |
 
 ---
 
@@ -26,27 +50,23 @@
 
 ---
 
-## Task 1: 校验/补齐 intermediate-store
+## Task 1: 补齐 intermediate-store (dimension 覆盖 + outline reset)
 
 **Files:**
-- Verify: `src/core/agents/intermediate-store.ts`
+- Verify/Modify: `src/core/agents/intermediate-store.ts`
 
-commit a85b0ba 已写了 store draft。先读它确认导出齐全：被调用的接口是 `saveOutline`/`getOutline`/`saveProse`/`getProse`/`saveFindings`/`getFindings`/`clearFindings`。如缺则补。
+commit a85b0ba 已写了 store draft。需要补：
 
-- [ ] **Step 1: 读 intermediate-store.ts 确认**
+- `saveFindings` 按 dimension 覆盖（Q2/Q15 决定）：加入同 dimension 则 filter 旧条目、再 concat 新 batch。
+- `saveOutline` 自动清同分支 prose+findings（Q1/Q16 决定）：第一步清 findings 数组、清 prose 为 undefined，再 set outline。
+
+- [ ] **Step 1: 读 intermediate-store.ts 确认当前实现**
 
 Run: `cat src/core/agents/intermediate-store.ts`
 
-确认导出 `saveOutline`、`getOutline`、`saveProse`、`getProse`、`saveFindings`、`getFindings`、`clearFindings`。若无则补：见 plan 末附录 A。
+- [ ] **Step 2: 补 dimension 覆盖 + outline reset**
 
-- [ ] **Step 2: commit（仅如有改动）**
-
-```bash
-git add src/core/agents/intermediate-store.ts
-git commit -m "fix(store): complete intermediate-store exports"
-```
-
-(若 Step 1 显示无改动，跳过这步。)
+如 saveFindings 仍是纯 concat、补 filter。如 saveOutline 无双重清、补。
 
 ---
 
@@ -254,7 +274,7 @@ export const outlineAgent: AgentDef = {
     const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, TOOLS, ctx, onChunk);
 
     return {
-      content: "大纲已生成（已存储）。writer 可用 get_outline 工具获取。摘要：" + (finalText || "").slice(0, 200) + "...",
+      content: "大纲已生成（已存储）。writer 可用 get_outline 工具获取。",
       messages: trail,
     };
   },
@@ -296,7 +316,7 @@ const TOOLS = [...branchTools, ...intermediateTools].map(t => ({
 
 export const writerAgent: AgentDef = {
   execute: async (ctx, llm, onChunk) => {
-    const isRewrite = ctx.prompt.includes("修改") || ctx.prompt.includes("修复") || ctx.prompt.includes("按审查");
+    const isRewrite = ctx.prompt.includes("[MODE:rewrite]");
 
     const modeBlock = isRewrite
       ? `## 修改模式
