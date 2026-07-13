@@ -61,26 +61,22 @@ export async function POST(request: NextRequest) {
         try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`)); } catch { /* stream closed */ }
       };
       const sendChunk = (text: string) => send({ type: "chunk", content: text });
-      let currentToolCallId = "";
-      let currentToolName = "";
-      const sendToolChunk = (text: string) => {
-        send({ type: "tool_chunk", toolCallId: currentToolCallId, content: text, tool: currentToolName });
-      };
       const sendTool = (tool: string, status: string, toolCallId: string, result?: string, msgs?: any[]) => {
         send({ type: "tool_call", tool, status, toolCallId, result, messages: msgs });
       };
 
       const runAgent = async (agentType: string, prompt: string, toolCallId: string) => {
-        currentToolCallId = toolCallId;
-        currentToolName = agentType;
         sendTool(agentType, "running", toolCallId);
         const agentDef = getAgent(agentType);
         if (!agentDef) throw new Error(`Unknown agent: ${agentType}`);
         const t0 = Date.now();
+        const onChunk = (text: string) => {
+          send({ type: "tool_chunk", toolCallId, content: text, tool: agentType });
+        };
         const result = await agentDef.execute(
           { prompt, novelId, branchId, userId },
           llm,
-          sendToolChunk,
+          onChunk,
         );
         logSession({ ts: new Date().toISOString(), type: "tool_exec", tool: agentType, elapsed: Date.now() - t0, resultPreview: result.content.slice(0, 300) });
         sendTool(agentType, "done", toolCallId, result.content.slice(0, 5000), result.messages);
@@ -176,7 +172,7 @@ export async function POST(request: NextRequest) {
                     sendChunk(`### 审查轮次 ${round + 1}`);
 
                     const results = await Promise.all(
-                      REVIEW_TYPES.map(rt => runAgent(rt, prose, toolId))
+                      REVIEW_TYPES.map(rt => runAgent(rt, prose, `${rt}_${round}_${Date.now().toString(36)}`)) as any[]
                     );
 
                     const allFindings: { dimension: string; severity: string; description: string; suggestion: string }[] = [];
@@ -230,7 +226,7 @@ export async function POST(request: NextRequest) {
                     const fixPrompt = allFindings.map((f, i) =>
                       `修改${i + 1}: ${f.suggestion || f.description}`
                     ).join("\n");
-                    prose = (await runAgent("write_prose", `请对以下正文进行精确修改...`, toolId)).content;
+                    prose = (await runAgent("write_prose", `请对以下正文进行精确修改：\n\n## 当前正文\n${prose}\n\n## 审查发现的问题\n${fixPrompt}\n\n## 要求\n- 只修改上面列出的问题，不改其它\n- 输出完整修改后的正文`, `${toolId}_rewrite_${round}`)).content;
                   }
 
                   conversation.push({
