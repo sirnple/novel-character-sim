@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
       const signal = request.signal;
       const checkAbort = () => { if (signal.aborted) throw new Error("ABORTED"); };
       const send = (data: Record<string, unknown>) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`)); } catch { /* stream closed */ }
       };
       const sendChunk = (text: string) => send({ type: "chunk", content: text });
       let currentToolCallId = "";
@@ -117,6 +117,7 @@ export async function POST(request: NextRequest) {
 
           let hasToolUse = false;
           let fullText = "";
+          let preToolText = "";
           let thinkingTimer: ReturnType<typeof setTimeout> | null = null;
           let hasTextOutput = false;
 
@@ -131,6 +132,7 @@ export async function POST(request: NextRequest) {
                 if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; }
               }
               fullText += event.text;
+              if (!hasToolUse) preToolText = fullText;
               sendChunk(fullText);
             } else if (event.type === "tool_use") {
               if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; }
@@ -138,6 +140,12 @@ export async function POST(request: NextRequest) {
               const toolName = event.name;
               const toolId = event.id;
               const args = event.args as Record<string, any>;
+
+              // Push any preceding text so the LLM sees its own reasoning on next turn
+              if (preToolText) {
+                conversation.push({ role: "assistant", content: preToolText } as AssistantMessage);
+                preToolText = "";
+              }
 
               // Build assistant message with tool_use content block
               conversation.push({
