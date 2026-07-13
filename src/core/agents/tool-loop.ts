@@ -22,17 +22,24 @@ export async function runToolLoop(
   let allText = "";
   while (maxSteps-- > 0) {
     let hasToolUse = false;
+    let preToolText = "";
     const eventStream = llm.chatWithTools(conversation, tools, { temperature: 0.4, maxTokens: 4096 });
 
     for await (const event of eventStream) {
       if (event.type === "text_delta") {
         allText += event.text;
+        if (!hasToolUse) preToolText = allText;
         if (onChunk) onChunk(allText);
       } else if (event.type === "tool_use") {
         hasToolUse = true;
         const toolName = event.name;
         const toolId = event.id;
         const args = event.args as Record<string, any>;
+
+        if (preToolText) {
+          conversation.push({ role: "assistant", content: preToolText } as AssistantMessage);
+          preToolText = "";
+        }
 
         conversation.push({
           role: "assistant",
