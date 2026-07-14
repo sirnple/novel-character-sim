@@ -25,10 +25,10 @@ function key(novelId: string, branchId: string): string {
 }
 
 export function saveOutline(novelId: string, branchId: string, outline: Outline): void {
-  const k = key(novelId, branchId);
-  const s = store.get(k) || {};
-  s.outline = outline;
-  store.set(k, s);
+  // 新一轮续写以大纲为起点——清空旧 prose + findings
+  const s: BranchStore = { outline };
+  store.set(key(novelId, branchId), s);
+  console.log(`[Store] saveOutline ${novelId}/${branchId} -> cleared findings+prose`);
 }
 
 export function getOutline(novelId: string, branchId: string): Outline | undefined {
@@ -38,9 +38,13 @@ export function getOutline(novelId: string, branchId: string): Outline | undefin
 export function saveFindings(novelId: string, branchId: string, findings: ReviewFindings[]): void {
   const k = key(novelId, branchId);
   const s = store.get(k) || {};
-  s.findings = (s.findings || []).concat(findings);
+  const existing = s.findings || [];
+  // 按 dimension 覆盖：同 dimension 的旧条目移除，新批次追加
+  const dims = Array.from(new Set(findings.map(f => f.dimension)));
+  const kept = existing.filter(f => !dims.includes(f.dimension));
+  s.findings = kept.concat(findings);
   store.set(k, s);
-  console.log(`[Store] saveFindings ${novelId}/${branchId} -> ${(s.findings||[]).length} total`);
+  console.log(`[Store] saveFindings ${novelId}/${branchId} dims=[${dims.join(",")}] -> ${s.findings.length} total (${kept.length} kept)`);
 }
 
 export function getFindings(novelId: string, branchId: string): ReviewFindings[] {

@@ -14,10 +14,6 @@ function ensureInit() {
   if (!initialized) { initRegistry(); initialized = true; }
 }
 
-const REVIEW_TYPES = [
-  "review_character", "review_continuity", "review_foreshadowing",
-  "review_style", "review_world", "review_pacing",
-];
 
 export async function POST(request: NextRequest) {
   ensureInit();
@@ -38,19 +34,34 @@ export async function POST(request: NextRequest) {
 - novelId = ${novelId}
 - branchId = ${branchId}（"main" 代表主线，其他为 IF 分支）
 
-## 续写流程
-1. 必要时调 get_branch_text / get_branch_characters 等分支查询工具了解当前分支
-2. 规划大纲: agent(agent_type="generate_outline")，prompt 里写用户要求 + 分支标识
-3. 展示大纲等用户反馈。用户说"改"/"修改"重新调 generate_outline，"写"/"继续"/"确认"进入下一步
-4. 写作: agent(agent_type="write_prose")，prompt 里放大纲 + 分支标识
-5. 子 agent 自行调 get_branch_* 工具取所需信息
+## 标准续写流程（顺序不可跳过）
+
+1. 必要时调 get_branch_text / get_branch_characters 了解当前分支
+2. 大纲：agent(agent_type="generate_outline")，prompt 写用户要求 + 分支
+3. 看大纲：调 get_outline 看到内容、展示给用户。等用户反馈："改"→重调 2、"继续"/"写"/"确认"→下一步
+4. 写正文：agent(agent_type="write_prose")，prompt 以 "[MODE:create]" 开头，后面写用户要求。writer 会自己 get_outline
+5. 审查六维（串行、一次一个 agent）：
+   agent(agent_type="review_character")，prompt "请审查"
+   agent(agent_type="review_continuity")，prompt "请审查"
+   agent(agent_type="review_foreshadowing")，prompt "请审查"
+   agent(agent_type="review_style")，prompt "请审查"
+   agent(agent_type="review_world")，prompt "请审查"
+   agent(agent_type="review_pacing")，prompt "请审查"
+6. 收完六个 hint 后，调 get_findings 取完整审查清单、汇总各维度问题数给用户。**等用户确认**：
+   - 用户说"改"→下一步
+   - 用户说"算了"→跳到 8（不清 store、可反悔）
+7. 改正文：agent(agent_type="write_prose")，prompt 以 "[MODE:rewrite]" 开头。writer 会自己 get_findings
+8. 汇报最终结果给用户
 
 ## 可用工具
-- agent(agent_type, prompt): agent_type 可选 generate_outline, write_prose, review_character, review_continuity, review_foreshadowing, review_style, review_world, review_pacing
-- 分支查询: get_branch_text, get_branch_characters, get_branch_timeline, get_branch_world, get_branch_meta（参数均为 novelId + branchId）
+- agent(agent_type, prompt): 可调用下面任一 agent
+- 分支查询: get_branch_text, get_branch_characters, get_branch_timeline, get_branch_world, get_branch_meta
+- 中间数据读取: get_outline, get_prose, get_findings（save_* 是子 agent 专属，你不调）
+- clear_findings（用户明确说"算了不修改"可调用）
 
 ## 规则
 - 一次一个工具
+- **工具返回是权威的**：看到 hint 如"大纲已存"、"N findings 已存储"，不要因内容短就重调生成类 agent（generate_outline/write_prose/review_*）。如需看本体请调 get_ 工具
 - 中文回复`;
 
   const stream = new ReadableStream({
@@ -106,7 +117,7 @@ export async function POST(request: NextRequest) {
           }),
         ];
 
-        let maxSteps = 15;
+        let maxSteps = 3000;
         while (maxSteps-- > 0) {
           checkAbort();
           const eventStream = llm.chatWithTools(conversation, toolSchemas, { temperature: 0.4, maxTokens: 4096 });
@@ -160,86 +171,11 @@ export async function POST(request: NextRequest) {
                   continue;
                 }
 
-                if (agentType === "write_prose") {
-                  let prose = (await runAgent("write_prose", prompt, toolId)).content;
-                  checkAbort();
-
-                  // Auto review loop (parallel)
-                  let prevCount = Infinity;
-                  let stallCount = 0;
-                  for (let round = 0; round < 5; round++) {
-                    checkAbort();
-                    sendChunk(`### 审查轮次 ${round + 1}`);
-
-                    const results = await Promise.all(
-                      REVIEW_TYPES.map(rt => runAgent(rt, prose, `${rt}_${round}_${Date.now().toString(36)}`)) as any[]
-                    );
-
-                    const allFindings: { dimension: string; severity: string; description: string; suggestion: string }[] = [];
-                    let allConverged = true;
-                    for (let i = 0; i < REVIEW_TYPES.length; i++) {
-                      try {
-                        const parsed = JSON.parse(results[i].content) as { converged: boolean; findings: typeof allFindings };
-                        if (!parsed.converged) allConverged = false;
-                        allFindings.push(...parsed.findings);
-                      } catch {
-                        if (!results[i].content.includes("未发现")) {
-                          allConverged = false;
-                          allFindings.push({ dimension: REVIEW_TYPES[i], severity: "major", description: results[i].content.slice(0, 500), suggestion: "" });
-                        }
-                      }
-                    }
-
-                    const total = allFindings.length;
-                    const dimSummary = REVIEW_TYPES.map(dim => {
-                      const dfs = allFindings.filter(f =>
-                        f.dimension === dim || f.dimension === dim.replace("review_", "")
-                      );
-                      const dname = dim.replace("review_", "");
-                      if (dfs.length === 0) return `- ✓ ${dname}: 0`;
-                      const c = dfs.filter(f => f.severity === "critical").length;
-                      const m = dfs.filter(f => f.severity === "major").length;
-                      const parts = [c > 0 ? `${c}c` : "", m > 0 ? `${m}m` : ""].filter(Boolean).join(",");
-                      return `- ✗ ${dname}: ${dfs.length} (${parts})`;
-                    }).join("\n");
-                    sendChunk(`\n${dimSummary}\n**共${total}个问题**`);
-
-                    if (allConverged || total === 0) {
-                      logSession({ ts: new Date().toISOString(), type: "review_converged", round, totalFindings: total });
-                      sendChunk("✓ 审查通过，无需修改。");
-                      break;
-                    }
-
-                    if (total >= prevCount) {
-                      stallCount++;
-                      if (stallCount >= 2) {
-                        logSession({ ts: new Date().toISOString(), type: "review_stalled", round, total, prevCount, stallCount });
-                        sendChunk(`审查停滞（连续${stallCount}轮未减少），停止迭代。`);
-                        break;
-                      }
-                      sendChunk(`问题数未减少（${total}），再试一轮...`);
-                    } else {
-                      stallCount = 0;
-                    }
-                    prevCount = total;
-
-                    const fixPrompt = allFindings.map((f, i) =>
-                      `修改${i + 1}: ${f.suggestion || f.description}`
-                    ).join("\n");
-                    prose = (await runAgent("write_prose", `请对以下正文进行精确修改：\n\n## 当前正文\n${prose}\n\n## 审查发现的问题\n${fixPrompt}\n\n## 要求\n- 只修改上面列出的问题，不改其它\n- 输出完整修改后的正文`, `${toolId}_rewrite_${round}`)).content;
-                  }
-
-                  conversation.push({
-                    role: "user",
-                    content: [{ type: "tool_result", tool_use_id: toolId, content: `写作结果:\n${prose.slice(0, 5000)}` }],
-                  });
-                } else {
-                  const result = await runAgent(agentType, prompt, toolId);
-                  conversation.push({
-                    role: "user",
-                    content: [{ type: "tool_result", tool_use_id: toolId, content: result.content.slice(0, 5000) }],
-                  });
-                }
+                const result = await runAgent(agentType, prompt, toolId);
+                conversation.push({
+                  role: "user",
+                  content: [{ type: "tool_result", tool_use_id: toolId, content: result.content.slice(0, 5000) }],
+                });
               } else {
                 const result = await runDataTool(toolName, toolId);
                 conversation.push({

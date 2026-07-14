@@ -1,40 +1,41 @@
 import type { AgentDef } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { branchTools } from "./branch-tools";
-import { extractJSON } from "@/lib/utils";
+import { intermediateTools } from "./intermediate-tools";
 
-const BRANCH_TOOL_SCHEMAS = branchTools.map(t => ({
+const TOOLS = [...branchTools, ...intermediateTools].map(t => ({
   name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown>,
 }));
 
-function makeReviewAgent(dimension: string, guideline: string): AgentDef {
+function makeReviewAgent(dimensionName: string, dimensionCode: string, guideline: string): AgentDef {
   return {
     execute: async (ctx, llm) => {
-      const sys = `${guideline}\n\n当前审查的分支为 novelId=${ctx.novelId}, branchId=${ctx.branchId}。如需原文或角色档案，调 get_branch_* 工具自取（参数同上）。`;
-      const uc = `附在被审的内容下方，请审校：\n\n${ctx.prompt}\n\n审查完成后用 JSON 返回 findings 与 converged，无需其他文本。`;
-      const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, BRANCH_TOOL_SCHEMAS, ctx);
-      const collected = finalText;
-      let findings = [] as { dimension: string; severity: string; description: string; suggestion: string }[];
-      let converged = true;
-      try {
-        const parsed = extractJSON<{ findings: any[]; converged: boolean }>(collected || "{}");
-        converged = parsed.converged ?? parsed.findings.length === 0;
-        findings = parsed.findings.map(f => ({
-          dimension, severity: f.severity, description: f.description, suggestion: f.suggestion || "",
-        }));
-      } catch {
-        converged = false;
-        findings = [{ dimension, severity: "major", description: collected.slice(0, 500), suggestion: "" }];
-      }
-      const result = { converged, findings };
-      return { content: JSON.stringify(result), messages: trail };
+      const sys = `${guideline}
+
+## 输出契约（必读）
+1. 调 get_prose 工具取当前正文。
+2. 必要时调 get_branch_text 工具取原文比对（审 character/continuity/world 必读）。
+3. 用 JSON 数组汇总问题：[{severity, description, suggestion}, ...]。无问题返回 []。
+4. **必须调用 save_findings 工具**（dimension="${dimensionCode}"，findings=JSON 数组字符串）。不调 save_findings 视为未完成。`;
+
+      const uc = `${ctx.prompt}\n\n## 当前绑定分支\nnovelId=${ctx.novelId}, branchId=${ctx.branchId}\n\n请审查 get_prose 取到的正文，按维度 "${dimensionName}" 给出 findings。`;
+
+      const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, TOOLS, ctx);
+
+      let count = 0;
+      try { count = JSON.parse(finalText || "[]").length; } catch { count = 0; }
+
+      return {
+        content: `${dimensionName}: ${count} findings，已存储。writer 可用 get_findings 获取。`,
+        messages: trail,
+      };
     },
   };
 }
 
-export const reviewCharacterAgent = makeReviewAgent("角色一致性", "你是角色一致性审查员。对照原文中角色的性格和说话方式，检查生成文字中是否有角色行为/语言偏离设定。");
-export const reviewContinuityAgent = makeReviewAgent("连贯性", "你是连贯性审查员。检查生成文字是否与原文已建立的事实存在逻辑矛盾。");
-export const reviewForeshadowingAgent = makeReviewAgent("伏笔", "你是伏笔追踪审查员。检查伏笔是否被合理推进或回收。");
-export const reviewStyleAgent = makeReviewAgent("风格", "你是风格审查员。检查生成文字是否保持原文文风。");
-export const reviewWorldAgent = makeReviewAgent("世界观", "你是世界观审查员。检查生成文字是否与原文世界观一致。");
-export const reviewPacingAgent = makeReviewAgent("节奏", "你是节奏审查员。检查生成文字的叙事节奏是否合理。");
+export const reviewCharacterAgent = makeReviewAgent("角色一致性", "character", "你是角色一致性审查员。对照原文角色性格/说话方式，检查生成正文是否有偏离。");
+export const reviewContinuityAgent = makeReviewAgent("连贯性", "continuity", "你是连贯性审查员。检查生成正文是否与原文事实矛盾。");
+export const reviewForeshadowingAgent = makeReviewAgent("伏笔", "foreshadowing", "你是伏笔追踪审查员。检查伏笔是否被合理推进或回收。");
+export const reviewStyleAgent = makeReviewAgent("风格", "style", "你是风格审查员。检查正文是否维持原文文风。");
+export const reviewWorldAgent = makeReviewAgent("世界观", "world", "你是世界观审查员。检查正文是否与原文世界观一致。");
+export const reviewPacingAgent = makeReviewAgent("节奏", "pacing", "你是节奏审查员。检查正文叙事节奏是否合理。");
