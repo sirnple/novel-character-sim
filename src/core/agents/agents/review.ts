@@ -1,5 +1,7 @@
 import type { AgentDef } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
+import { saveFindings } from "../intermediate-store";
+import { extractJSON } from "@/lib/utils";
 import { branchTools } from "./branch-tools";
 import { intermediateTools } from "./intermediate-tools";
 
@@ -12,21 +14,28 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string, guideline
     execute: async (ctx, llm) => {
       const sys = `${guideline}
 
-## 输出契约（必读）
+## 输出契约
 1. 调 get_prose 工具取当前正文。
 2. 必要时调 get_branch_text 工具取原文比对（审 character/continuity/world 必读）。
-3. 用 JSON 数组汇总问题：[{severity, description, suggestion}, ...]。无问题返回 []。
-4. **必须调用 save_findings 工具**（dimension="${dimensionCode}"，findings=JSON 数组字符串）。不调 save_findings 视为未完成。`;
+3. 直接输出 JSON 数组汇总问题：[{severity, description, suggestion}, ...]。无问题输出 []。
+4. 你不需要调用 save_findings——你的 JSON 产出会被执行层自动解析并存储。`;
 
-      const uc = `${ctx.prompt}\n\n## 当前绑定分支\nnovelId=${ctx.novelId}, branchId=${ctx.branchId}\n\n请审查 get_prose 取到的正文，按维度 "${dimensionName}" 给出 findings。`;
+      const uc = `${ctx.prompt}\n\n## 当前绑定分支\nnovelId=${ctx.novelId}, branchId=${ctx.branchId}\n\n请审查 get_prose 取到的正文，按维度 "${dimensionName}" 给出 findings。输出应为纯 JSON 数组。`;
 
       const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, TOOLS, ctx);
 
-      let count = 0;
-      try { count = JSON.parse(finalText || "[]").length; } catch { count = 0; }
+      let parsed: any[] = [];
+      try { parsed = extractJSON<any[]>(finalText || "[]"); if (!Array.isArray(parsed)) parsed = []; } catch { parsed = []; }
+
+      saveFindings(ctx.novelId, ctx.branchId, parsed.map(f => ({
+        dimension: dimensionCode,
+        severity: String(f.severity || "minor"),
+        description: String(f.description || ""),
+        suggestion: String(f.suggestion || ""),
+      })));
 
       return {
-        content: `${dimensionName}: ${count} findings，已存储。writer 可用 get_findings 获取。`,
+        content: `${dimensionName}: ${parsed.length} findings，已存储。主 agent 可用 get_findings 获取。`,
         messages: trail,
       };
     },

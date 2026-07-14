@@ -1,5 +1,6 @@
 import type { AgentDef } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
+import { saveProse, getFindings } from "../intermediate-store";
 import { branchTools } from "./branch-tools";
 import { intermediateTools } from "./intermediate-tools";
 
@@ -16,12 +17,12 @@ export const writerAgent: AgentDef = {
 1. 调 get_prose 工具取当前正文（要被改）。
 2. 调 get_findings 工具取审查发现的问题清单。
 3. 基于问题清单精确修改正文：只改列出的问题，不动其它。
-4. 改完**必须调用 save_prose 工具**保存修改后完整正文。`
+4. 改完直接输出完整正文——你不需要调用 save_prose，产出会被执行层自动存储。`
       : `## 创作模式
 1. 调 get_outline 工具取大纲。
 2. 必要时调 get_branch_text / get_branch_characters 补充前文。
 3. 按大纲创作完整正文。
-4. 写完**必须调用 save_prose 工具**保存完整正文。`;
+4. 写完直接输出完整正文——你不需要调用 save_prose，产出会被执行层自动存储。`;
 
     const baseSys = `你是小说执行写手。
 ${modeBlock}
@@ -34,15 +35,23 @@ ${modeBlock}
 
     const sys = `${baseSys}
 
-## 输出契约（必读）
-- 必须最终调用 save_prose 工具存入产出正文，content 参数为完整正文。不调 save_prose 视为未完成。`;
+## 输出契约
+- 直接输出完整正文即可。执行层会把你的最终输出自动保存为 prose。`;
 
     const uc = `${ctx.prompt}\n\n## 当前绑定分支\nnovelId=${ctx.novelId}, branchId=${ctx.branchId}`;
 
     const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, TOOLS, ctx, onChunk);
 
+    if (!finalText || finalText.length < 50) {
+      return {
+        content: "正文生成失败：产出为空或过短。",
+        messages: trail,
+      };
+    }
+    saveProse(ctx.novelId, ctx.branchId, finalText);
+
     return {
-      content: isRewrite ? "正文已按审查意见修改（已存储）。" : "正文已创建（已存储）。",
+      content: isRewrite ? "正文已按审查意见修改（已存储）。主 agent 可用 get_prose 获取。" : "正文已创建（已存储）。主 agent 可用 get_prose 获取。",
       messages: trail,
     };
   },
