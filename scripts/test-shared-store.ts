@@ -10,10 +10,11 @@ const {
   saveFindings, getFindings, clearFindings,
 } = require("../src/core/agents/intermediate-store");
 
-function test(name, fn) {
+function test(name: string, fn: () => void) {
   console.log(`[test] ${name}...`);
   try { fn(); console.log(`  ✓`); } catch (e) {
-    console.log(`  ✗ FAILED: ${e.message}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.log(`  ✗ FAILED: ${msg}`);
     process.exitCode = 1;
   }
 }
@@ -61,10 +62,10 @@ function main() {
     saveFindings(N1, B1, [{ dimension: "char", severity: "critical", description: "新的", suggestion: "改" }]);
     const f = getFindings(N1, B1);
     assert.equal(f.length, 2, "still 2 total (1 char + 1 cont)");
-    const charFind = f.find(x => x.dimension === "char");
+    const charFind = f.find((x: any) => x.dimension === "char");
     assert.equal(charFind?.description, "新的", "char dimension should be replaced");
     assert.equal(charFind?.severity, "critical", "severity updated");
-    const contFind = f.find(x => x.dimension === "cont");
+    const contFind = f.find((x: any) => x.dimension === "cont");
     assert.equal(contFind?.description, "旧的连续", "cont dimension unchanged");
   });
 
