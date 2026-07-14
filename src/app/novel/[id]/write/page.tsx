@@ -205,7 +205,7 @@ export default function WritePage() {
               ) : (
                 <div className="text-center py-12 text-neutral-600 text-sm font-mono">
                   <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  这个分支还没有内容。在助手面板里说"从这里续写"开始创作。
+                  这个分支还没有内容。在助手面板里说&ldquo;从这里续写&rdquo;开始创作。
                 </div>
               )}
               {forkPoint && (
