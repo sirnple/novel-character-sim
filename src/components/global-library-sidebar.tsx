@@ -409,7 +409,7 @@ export default function GlobalLibrarySidebar({
 
       {/* Mobile / tablet drawer — below lg */}
       {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 flex">
+        <div className="lg:hidden fixed inset-0 z-40 flex safe-drawer-pad">
           <button
             type="button"
             className="absolute inset-0 bg-black/60 backdrop-blur-[1px]"

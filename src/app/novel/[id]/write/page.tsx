@@ -211,7 +211,7 @@ export default function WritePage() {
 
       {/* Mobile branch drawer */}
       {branchDrawerOpen && (
-        <div className="lg:hidden fixed inset-0 z-30 flex">
+        <div className="lg:hidden fixed inset-0 z-30 flex safe-drawer-pad">
           <button
             type="button"
             className="absolute inset-0 bg-black/60"

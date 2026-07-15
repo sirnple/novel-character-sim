@@ -25,10 +25,17 @@ if (!layout.includes("export const viewport") && !layout.includes("viewport:")) 
 ok("viewport export present");
 
 const css = read("src/app/globals.css");
-if (!css.includes("safe-area-inset") && !css.includes("100dvh") && !css.includes("app-shell-height")) {
-  fail("globals.css missing safe-area / app-shell-height helpers");
+if (!css.includes("app-shell-height") || !css.includes("100dvh")) {
+  fail("globals.css missing app-shell-height / 100dvh");
 }
-ok("safe-area / shell height styles present");
+if (!css.includes("safe-area-inset") || !css.includes("safe-drawer-pad")) {
+  fail("globals.css missing safe-area on shell or drawers");
+}
+// Body must not pad + 100dvh (double clip)
+if (/body\s*\{[^}]*padding:\s*env\(safe-area/s.test(css)) {
+  fail("body must not apply safe-area padding when shell uses 100dvh + pad");
+}
+ok("safe-area on shell/drawers without body+100dvh double pad");
 
 // 2) Global library: desktop rail + mobile drawer
 const lib = read("src/components/global-library-sidebar.tsx");
@@ -49,34 +56,26 @@ if (!shell.includes("lg:hidden") || !shell.includes("PanelLeft")) {
 }
 ok("app-shell mobile library toggle");
 
-// 3) Agent gate unchanged + mobile overlay
+// 3) Agent gate + single AgentPanel instance
 const novelLayout = read("src/app/novel/[id]/layout.tsx");
 if (!novelLayout.includes("agentAvailable = onWritePage && !!activeBranchId")) {
   fail("agentAvailable gate must remain write-page + activeBranchId");
 }
-if (!novelLayout.includes("lg:hidden fixed") || !novelLayout.includes("AgentPanel")) {
-  fail("agent panel missing mobile full-screen overlay");
+const agentMounts = (novelLayout.match(/<AgentPanel[\s>]/g) || []).length;
+if (agentMounts !== 1) {
+  fail(`expected exactly one <AgentPanel mount, found ${agentMounts}`);
 }
-if (!novelLayout.includes("hidden lg:flex") && !novelLayout.includes("hidden lg:flex shrink-0")) {
-  // accept hidden lg:flex on aside
-  if (!/hidden lg:flex/.test(novelLayout) && !/className="hidden lg:flex/.test(novelLayout)) {
-    if (!novelLayout.includes("hidden lg:flex") && !novelLayout.includes("hidden lg:flex shrink-0 border-l")) {
-      // check alternate
-      if (!novelLayout.includes("className=\"hidden lg:flex")) {
-        if (!novelLayout.includes("hidden lg:flex shrink-0") && !novelLayout.includes("hidden lg:flex")) {
-          // freer check
-          if (!/hidden lg:flex/.test(novelLayout)) {
-            fail("agent desktop rail missing hidden lg:flex");
-          }
-        }
-      }
-    }
-  }
+if (!novelLayout.includes("isLg") || !novelLayout.includes("matchMedia")) {
+  fail("agent layout should branch desktop/mobile chrome via matchMedia (single panel)");
 }
-if (!/hidden lg:flex/.test(novelLayout)) {
-  fail("agent desktop rail missing hidden lg:flex");
+if (!novelLayout.includes("absolute inset-0") && !novelLayout.includes("isLg")) {
+  fail("mobile agent sheet should cover main only (absolute under sub-nav)");
 }
-ok("agent: gate intact + mobile overlay + desktop rail");
+// Auto-open only on desktop
+if (!novelLayout.includes("if (isLg) setShowRightPanel(true)")) {
+  fail("mobile must not auto-open agent full-screen; only isLg auto-open");
+}
+ok("agent: gate + single mount + desktop auto-open only");
 
 // 4) Write branches drawer
 const write = read("src/app/novel/[id]/write/page.tsx");

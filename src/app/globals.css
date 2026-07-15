@@ -58,16 +58,29 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
-    /* iOS notch / home indicator */
-    padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0)
-      env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+    /* padding lives on .app-shell-height so 100dvh + safe-area do not double-clip */
   }
 }
 
-/* Full-height shell that respects mobile browser chrome */
+/*
+ * Shell fills the visual viewport and applies safe-area via box-sizing,
+ * so total outer height stays within 100dvh (no body padding + 100dvh stack).
+ */
 .app-shell-height {
+  box-sizing: border-box;
   height: 100dvh;
   max-height: 100dvh;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+/* Fixed drawers already inside padded shell; keep bottom input clear on notched devices */
+.safe-drawer-pad {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 
