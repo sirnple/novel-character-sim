@@ -1,50 +1,143 @@
-import type { AgentDef } from "../types";
+import type { AgentDef, TrailMessage } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
-import { saveFindings } from "../intermediate-store";
+import { saveFindingsLocked } from "../intermediate-store";
 import { extractJSON } from "@/lib/utils";
+import { renderPrompt } from "@/core/prompts/renderer";
 import { branchTools } from "./branch-tools";
-import { intermediateTools } from "./intermediate-tools";
+import { intermediateReadTools } from "./intermediate-tools";
+import fs from "fs";
+import path from "path";
 
-const TOOLS = [...branchTools, ...intermediateTools].map(t => ({
+// Review: read prose + branch context only; findings saved by execute layer
+const TOOLS = [
+  ...branchTools,
+  ...intermediateReadTools.filter(t => t.name === "get_prose"),
+].map(t => ({
   name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown>,
 }));
 
-function makeReviewAgent(dimensionName: string, dimensionCode: string, guideline: string): AgentDef {
-  return {
-    execute: async (ctx, llm) => {
-      const sys = `${guideline}
+const SEVERITIES = new Set(["critical", "major", "minor"]);
 
-## 输出契约
-1. 调 get_prose 工具取当前正文。
-2. 必要时调 get_branch_text 工具取原文比对（审 character/continuity/world 必读）。
-3. 直接输出 JSON 数组汇总问题：[{severity, description, suggestion}, ...]。无问题输出 []。
-4. 你不需要调用 save_findings——你的 JSON 产出会被执行层自动解析并存储。`;
+/** Parse review-guidelines.md → { character: "…", continuity: "…", … } */
+function loadGuidelines(): Record<string, string> {
+  const p = path.join(process.cwd(), "src", "core", "prompts", "review-guidelines.md");
+  const raw = fs.readFileSync(p, "utf-8");
+  const map: Record<string, string> = {};
+  const re = /^##\s+(\w+)\s*\n([\s\S]*?)(?=^##\s+\w+\s*$|$)/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    map[m[1]] = m[2].trim();
+  }
+  return map;
+}
 
-      const uc = `${ctx.prompt}\n\n## 当前绑定分支\nnovelId=${ctx.novelId}, branchId=${ctx.branchId}\n\n请审查 get_prose 取到的正文，按维度 "${dimensionName}" 给出 findings。输出应为纯 JSON 数组。`;
+let guidelinesCache: Record<string, string> | null = null;
+function guidelineFor(code: string): string {
+  if (!guidelinesCache) guidelinesCache = loadGuidelines();
+  return guidelinesCache[code] || `你是「${code}」维度审查员。检查生成正文在该维度上的问题。`;
+}
 
-      const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, TOOLS, ctx);
+/** Prefer first JSON array in text; also accept { findings: [...] }. Ignore any trailing prose. */
+function parseFindingsArray(raw: string): { items: any[]; jsonSlice: string; ok: boolean } {
+  const text = (raw || "").trim();
+  if (!text) return { items: [], jsonSlice: "[]", ok: true };
 
-      let parsed: any[] = [];
-      try { parsed = extractJSON<any[]>(finalText || "[]"); if (!Array.isArray(parsed)) parsed = []; } catch { parsed = []; }
+  const bracket = text.indexOf("[");
+  const brace = text.indexOf("{");
+  let candidate = text;
+  if (bracket !== -1 && (brace === -1 || bracket < brace)) {
+    candidate = text.slice(bracket);
+  }
 
-      saveFindings(ctx.novelId, ctx.branchId, parsed.map(f => ({
+  try {
+    const parsed = extractJSON<any>(candidate);
+    if (Array.isArray(parsed)) {
+      return { items: parsed, jsonSlice: JSON.stringify(parsed, null, 2), ok: true };
+    }
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.findings)) {
+      return {
+        items: parsed.findings,
+        jsonSlice: JSON.stringify(parsed.findings, null, 2),
+        ok: true,
+      };
+    }
+  } catch { /* fall through */ }
+
+  return { items: [], jsonSlice: "[]", ok: false };
+}
+
+function normalizeFindings(items: any[], dimensionCode: string) {
+  return items
+    .filter(f => f && (f.description || f.suggestion))
+    .map(f => {
+      let severity = String(f.severity || "minor").toLowerCase();
+      if (!SEVERITIES.has(severity)) {
+        if (/严重|致命|critical/i.test(severity)) severity = "critical";
+        else if (/重要|主要|major/i.test(severity)) severity = "major";
+        else severity = "minor";
+      }
+      return {
         dimension: dimensionCode,
-        severity: String(f.severity || "minor"),
-        description: String(f.description || ""),
-        suggestion: String(f.suggestion || ""),
-      })));
+        severity,
+        description: String(f.description || "").trim(),
+        suggestion: String(f.suggestion || "").trim(),
+      };
+    })
+    .filter(f => f.description.length > 0);
+}
+
+/** Replace final assistant turn with pure JSON so UI doesn't show trailing chatter. */
+function cleanTrailJson(trail: TrailMessage[], jsonSlice: string): TrailMessage[] {
+  if (!trail.length) return trail;
+  const out = trail.slice();
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i].role === "assistant") {
+      out[i] = { ...out[i], content: jsonSlice };
+      break;
+    }
+  }
+  return out;
+}
+
+function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef {
+  return {
+    execute: async (ctx, llm, _onChunk, onTrail) => {
+      const guideline = guidelineFor(dimensionCode);
+      const sys = renderPrompt("review-system.md", {
+        guideline,
+        dimensionName,
+        dimensionCode,
+      });
+      const uc = renderPrompt("review-user.md", {
+        prompt: ctx.prompt,
+        novelId: ctx.novelId,
+        branchId: ctx.branchId,
+        dimensionName,
+        dimensionCode,
+      });
+
+      const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, TOOLS, ctx, undefined, onTrail);
+
+      const { items, jsonSlice, ok } = parseFindingsArray(finalText || "");
+      const findings = normalizeFindings(items, dimensionCode);
+      // Parallel-safe: multiple review_* agents may finish at once
+      await saveFindingsLocked(ctx.novelId, ctx.branchId, findings);
+
+      const cleanedTrail = cleanTrailJson(trail, jsonSlice);
 
       return {
-        content: `${dimensionName}: ${parsed.length} findings，已存储。主 agent 可用 get_findings 获取。`,
-        messages: trail,
+        content: ok
+          ? `${dimensionName}: ${findings.length} findings，已存储。主 agent 可用 get_findings 获取。`
+          : `${dimensionName}: JSON 解析失败，已按 0 findings 存储。可重试该审查。`,
+        messages: cleanedTrail,
       };
     },
   };
 }
 
-export const reviewCharacterAgent = makeReviewAgent("角色一致性", "character", "你是角色一致性审查员。对照原文角色性格/说话方式，检查生成正文是否有偏离。");
-export const reviewContinuityAgent = makeReviewAgent("连贯性", "continuity", "你是连贯性审查员。检查生成正文是否与原文事实矛盾。");
-export const reviewForeshadowingAgent = makeReviewAgent("伏笔", "foreshadowing", "你是伏笔追踪审查员。检查伏笔是否被合理推进或回收。");
-export const reviewStyleAgent = makeReviewAgent("风格", "style", "你是风格审查员。检查正文是否维持原文文风。");
-export const reviewWorldAgent = makeReviewAgent("世界观", "world", "你是世界观审查员。检查正文是否与原文世界观一致。");
-export const reviewPacingAgent = makeReviewAgent("节奏", "pacing", "你是节奏审查员。检查正文叙事节奏是否合理。");
+export const reviewCharacterAgent = makeReviewAgent("角色一致性", "character");
+export const reviewContinuityAgent = makeReviewAgent("连贯性", "continuity");
+export const reviewForeshadowingAgent = makeReviewAgent("伏笔", "foreshadowing");
+export const reviewStyleAgent = makeReviewAgent("风格", "style");
+export const reviewWorldAgent = makeReviewAgent("世界观", "world");
+export const reviewPacingAgent = makeReviewAgent("节奏", "pacing");

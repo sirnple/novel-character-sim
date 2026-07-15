@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import path from "path";
-import type { CharacterProfile, StoryInfo, SimulationState, ChapterTimeline, CharacterChapterState } from "@/types";
+import type { CharacterProfile, StoryInfo, SimulationState, ChapterTimeline, CharacterChapterState, StyleLibraryEntry, IdeaLibraryEntry, WritingStyle } from "@/types";
 
 const DB_PATH = path.join(process.cwd(), "data", "novels.db");
 
@@ -221,6 +221,34 @@ function initSchema(db: Database.Database) {
       PRIMARY KEY (id, user_id)
     );
     CREATE INDEX IF NOT EXISTS idx_drafts_novel ON drafts(novel_id);
+
+    CREATE TABLE IF NOT EXISTS style_library (
+      id TEXT NOT NULL,
+      novel_id TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT 'guest',
+      name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      data TEXT NOT NULL DEFAULT '{}',
+      source TEXT NOT NULL DEFAULT 'extracted',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_style_library_novel ON style_library(novel_id, user_id);
+
+    CREATE TABLE IF NOT EXISTS idea_library (
+      id TEXT NOT NULL,
+      novel_id TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT 'guest',
+      title TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '[]',
+      source TEXT NOT NULL DEFAULT 'extracted',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_idea_library_novel ON idea_library(novel_id, user_id);
   `);
 
   // Migrate old tables that may be missing user_id.
@@ -264,6 +292,8 @@ export function deleteNovel(userId: string, id: string): void {
   d.prepare("DELETE FROM novels WHERE id = ? AND user_id = ?").run(id, userId);
   d.prepare("DELETE FROM story_info WHERE novel_id = ? AND user_id = ?").run(id, userId);
   d.prepare("DELETE FROM characters WHERE novel_id = ? AND user_id = ?").run(id, userId);
+  d.prepare("DELETE FROM style_library WHERE novel_id = ? AND user_id = ?").run(id, userId);
+  d.prepare("DELETE FROM idea_library WHERE novel_id = ? AND user_id = ?").run(id, userId);
 }
 
 // ---- Story Info ----
@@ -664,4 +694,179 @@ export function listDrafts(userId: string, novelId: string): DraftRow[] {
 export function deleteDraft(userId: string, id: string): void {
   const d = getDb();
   d.prepare("DELETE FROM drafts WHERE id = ? AND user_id = ?").run(id, userId);
+}
+
+// ---- Style library ----
+
+function rowToStyle(row: any): StyleLibraryEntry {
+  let style: StyleLibraryEntry["style"] = {};
+  try { style = JSON.parse(row.data || "{}"); } catch { /* empty */ }
+  return {
+    id: row.id,
+    novelId: row.novel_id,
+    name: row.name || "",
+    description: row.description || "",
+    style,
+    source: (row.source === "manual" ? "manual" : "extracted") as "extracted" | "manual",
+    createdAt: row.created_at,
+  };
+}
+
+export function listStyles(userId: string, novelId: string): StyleLibraryEntry[] {
+  const d = getDb();
+  const rows = d.prepare(
+    "SELECT * FROM style_library WHERE novel_id = ? AND user_id = ? ORDER BY created_at ASC"
+  ).all(novelId, userId) as any[];
+  return rows.map(rowToStyle);
+}
+
+export function getStyle(userId: string, id: string): StyleLibraryEntry | null {
+  const d = getDb();
+  const row = d.prepare("SELECT * FROM style_library WHERE id = ? AND user_id = ?").get(id, userId) as any;
+  return row ? rowToStyle(row) : null;
+}
+
+export function saveStyle(userId: string, entry: StyleLibraryEntry): void {
+  const d = getDb();
+  d.prepare(
+    `INSERT OR REPLACE INTO style_library (id, novel_id, user_id, name, description, data, source, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+  ).run(
+    entry.id,
+    entry.novelId,
+    userId,
+    entry.name,
+    entry.description || "",
+    JSON.stringify(entry.style || {}),
+    entry.source || "manual",
+  );
+}
+
+export function saveStyles(userId: string, novelId: string, entries: StyleLibraryEntry[]): void {
+  const d = getDb();
+  const insert = d.prepare(
+    `INSERT OR REPLACE INTO style_library (id, novel_id, user_id, name, description, data, source, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+  );
+  const tx = d.transaction((list: StyleLibraryEntry[]) => {
+    for (const e of list) {
+      insert.run(
+        e.id,
+        novelId,
+        userId,
+        e.name,
+        e.description || "",
+        JSON.stringify(e.style || {}),
+        e.source || "extracted",
+      );
+    }
+  });
+  tx(entries);
+}
+
+export function deleteStyle(userId: string, id: string): void {
+  getDb().prepare("DELETE FROM style_library WHERE id = ? AND user_id = ?").run(id, userId);
+}
+
+export function clearStyles(userId: string, novelId: string): void {
+  getDb().prepare("DELETE FROM style_library WHERE novel_id = ? AND user_id = ?").run(novelId, userId);
+}
+
+// ---- Idea library ----
+
+function rowToIdea(row: any): IdeaLibraryEntry {
+  let tags: string[] = [];
+  try { tags = JSON.parse(row.tags || "[]"); } catch { tags = []; }
+  return {
+    id: row.id,
+    novelId: row.novel_id,
+    title: row.title || "",
+    content: row.content || "",
+    tags: Array.isArray(tags) ? tags : [],
+    source: (row.source === "manual" ? "manual" : "extracted") as "extracted" | "manual",
+    createdAt: row.created_at,
+  };
+}
+
+export function listIdeas(userId: string, novelId: string): IdeaLibraryEntry[] {
+  const d = getDb();
+  const rows = d.prepare(
+    "SELECT * FROM idea_library WHERE novel_id = ? AND user_id = ? ORDER BY created_at ASC"
+  ).all(novelId, userId) as any[];
+  return rows.map(rowToIdea);
+}
+
+export function getIdea(userId: string, id: string): IdeaLibraryEntry | null {
+  const d = getDb();
+  const row = d.prepare("SELECT * FROM idea_library WHERE id = ? AND user_id = ?").get(id, userId) as any;
+  return row ? rowToIdea(row) : null;
+}
+
+export function saveIdea(userId: string, entry: IdeaLibraryEntry): void {
+  const d = getDb();
+  d.prepare(
+    `INSERT OR REPLACE INTO idea_library (id, novel_id, user_id, title, content, tags, source, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+  ).run(
+    entry.id,
+    entry.novelId,
+    userId,
+    entry.title,
+    entry.content,
+    JSON.stringify(entry.tags || []),
+    entry.source || "manual",
+  );
+}
+
+export function saveIdeas(userId: string, novelId: string, entries: IdeaLibraryEntry[]): void {
+  const d = getDb();
+  const insert = d.prepare(
+    `INSERT OR REPLACE INTO idea_library (id, novel_id, user_id, title, content, tags, source, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+  );
+  const tx = d.transaction((list: IdeaLibraryEntry[]) => {
+    for (const e of list) {
+      insert.run(
+        e.id,
+        novelId,
+        userId,
+        e.title,
+        e.content,
+        JSON.stringify(e.tags || []),
+        e.source || "extracted",
+      );
+    }
+  });
+  tx(entries);
+}
+
+export function deleteIdea(userId: string, id: string): void {
+  getDb().prepare("DELETE FROM idea_library WHERE id = ? AND user_id = ?").run(id, userId);
+}
+
+export function clearIdeas(userId: string, novelId: string): void {
+  getDb().prepare("DELETE FROM idea_library WHERE novel_id = ? AND user_id = ?").run(novelId, userId);
+}
+
+/** Seed style library from extracted WritingStyle (idempotent: replaces extracted-only batch if empty). */
+export function seedStyleFromWritingStyle(
+  userId: string,
+  novelId: string,
+  writingStyle: WritingStyle | undefined | null,
+): StyleLibraryEntry | null {
+  if (!writingStyle?.styleDescription && !writingStyle?.genre) return null;
+  const existing = listStyles(userId, novelId);
+  if (existing.some(s => s.source === "extracted" && s.name.includes("原著"))) {
+    return existing.find(s => s.source === "extracted") || null;
+  }
+  const entry: StyleLibraryEntry = {
+    id: `style_${novelId}_canon`,
+    novelId,
+    name: writingStyle.genre ? `原著·${writingStyle.genre}` : "原著文风",
+    description: writingStyle.styleDescription || writingStyle.tone || "",
+    style: writingStyle as unknown as StyleLibraryEntry["style"],
+    source: "extracted",
+  };
+  saveStyle(userId, entry);
+  return entry;
 }

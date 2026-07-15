@@ -1,9 +1,11 @@
 "use client";
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useNovel } from "@/lib/novel-context";
+import ScrollEdgeButtons from "@/components/scroll-edge-buttons";
 
 export default function ReadPage() {
   const { novelText, novelTitle, novelId, timeline, branches, activeBranchId } = useNovel();
+  const scrollRef = useRef<HTMLDivElement>(null);
   const readerRef = useRef<HTMLDivElement>(null);
   const [continueOffset, setContinueOffset] = useState<number | null>(null);
   const [continueLabel, setContinueLabel] = useState("");
@@ -70,44 +72,47 @@ export default function ReadPage() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar">
-      {/* Header with branch selector */}
-      <div className="max-w-[800px] mx-auto px-6 pt-4 flex items-center gap-3">
-        <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider">阅读 · {novelTitle}</h2>
-        <div className="flex items-center gap-2">
-          <select
-            value={selectedBranchId}
-            onChange={e => setSelectedBranchId(e.target.value)}
-            disabled={loadingText}
-            className="bg-[#111110] border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-300 font-mono outline-none focus:border-orange-600/50 disabled:opacity-50"
-          >
-            {branches.length === 0
-              ? <option value="main">主线</option>
-              : branches.map(b => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-          </select>
-          {loadingText && <span className="text-[10px] text-orange-500 font-mono animate-pulse">加载中</span>}
+    <div className="flex-1 relative min-h-0 flex flex-col overflow-hidden">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
+        {/* Header with branch selector */}
+        <div className="max-w-[800px] mx-auto px-6 pt-4 flex items-center gap-3">
+          <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider">阅读 · {novelTitle}</h2>
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedBranchId}
+              onChange={e => setSelectedBranchId(e.target.value)}
+              disabled={loadingText}
+              className="bg-[#111110] border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-300 font-mono outline-none focus:border-orange-600/50 disabled:opacity-50"
+            >
+              {branches.length === 0
+                ? <option value="main">主线</option>
+                : branches.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+            </select>
+            {loadingText && <span className="text-[10px] text-orange-500 font-mono animate-pulse">加载中</span>}
+          </div>
         </div>
-      </div>
 
-      {/* Text body */}
-      <div ref={readerRef} onClick={handleClick} className="max-w-[800px] mx-auto p-6">
-        <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
-          {continueOffset != null ? (
-            <>
-              {readingText.slice(0, continueOffset)}
-              <span className="inline-flex items-center gap-1 mx-1">
-                <span className="inline-block w-2 h-4 bg-orange-500 animate-pulse rounded-sm" />
-                <button onClick={openWriter} className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-1.5 py-0.5 rounded font-mono">续写</button>
-              </span>
-              {readingText.slice(continueOffset)}
-            </>
-          ) : (
-            readingText || novelText
-          )}
+        {/* Text body */}
+        <div ref={readerRef} onClick={handleClick} className="max-w-[800px] mx-auto p-6">
+          <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
+            {continueOffset != null ? (
+              <>
+                {readingText.slice(0, continueOffset)}
+                <span className="inline-flex items-center gap-1 mx-1">
+                  <span className="inline-block w-2 h-4 bg-orange-500 animate-pulse rounded-sm" />
+                  <button onClick={openWriter} className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-1.5 py-0.5 rounded font-mono">续写</button>
+                </span>
+                {readingText.slice(continueOffset)}
+              </>
+            ) : (
+              readingText || novelText
+            )}
+          </div>
         </div>
       </div>
+      <ScrollEdgeButtons scrollRef={scrollRef} />
     </div>
   );
 }

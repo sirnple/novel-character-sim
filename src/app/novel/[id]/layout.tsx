@@ -15,7 +15,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
   const [sidebarCollapsed, setSidebarCollapsed] = useState(pathname.endsWith("/write"));
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ library: true, tasks: true, codex: false, review: false });
-  const [panelWidth, setPanelWidth] = useState(360);
+  const [panelWidth, setPanelWidth] = useState(480);
   const [dragging, setDragging] = useState(false);
 
   const startDrag = (e: React.MouseEvent) => {
@@ -24,7 +24,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
     const startX = e.clientX;
     const startW = panelWidth;
     const onMove = (ev: MouseEvent) => {
-      setPanelWidth(Math.max(280, Math.min(600, startW + startX - ev.clientX)));
+      setPanelWidth(Math.max(320, Math.min(720, startW + startX - ev.clientX)));
     };
     const onUp = () => { setDragging(false); document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
     document.addEventListener("mousemove", onMove);

@@ -1,7 +1,7 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
-import { Bot, Send, Loader2, Wrench } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Bot, Send, Loader2, Wrench, HelpCircle } from "lucide-react";
+import Markdown from "@/components/markdown";
 import { useNovel } from "@/lib/novel-context";
 
 const AGENT_TYPES = new Set([
@@ -23,19 +23,32 @@ function buildOutgoingMessages(messages: AgentMessage[], userMsg: AgentMessage):
   let lastAssistantIdx = -1;
   for (const m of messages) {
     if (m.role === "tool" && m.metadata?.toolCallId) {
+      // Skip unanswered questions — user message carries the answer
+      if (m.metadata.status === "awaiting_user") continue;
       const fnName = AGENT_TYPES.has(m.metadata.tool || "") ? "agent" : (m.metadata.tool || "unknown");
-      const tc = { id: m.metadata.toolCallId, type: "function", function: { name: fnName, arguments: "{}" } };
+      const args =
+        m.metadata.tool === "ask_question" && m.metadata.question
+          ? JSON.stringify({ question: m.metadata.question, options: m.metadata.options || [] })
+          : "{}";
+      const tc = { id: m.metadata.toolCallId, type: "function", function: { name: fnName, arguments: args } };
       if (lastAssistantIdx >= 0) {
         out[lastAssistantIdx].tool_calls = [...(out[lastAssistantIdx].tool_calls || []), tc];
       } else {
         out.push({ role: "assistant", content: null, tool_calls: [tc] });
         lastAssistantIdx = out.length - 1;
       }
-      out.push({ role: "tool", content: m.content, tool_call_id: m.metadata.toolCallId });
+      // For answered ask_question, tool result is the user's choice
+      const toolContent =
+        m.metadata.tool === "ask_question" && m.metadata.answer
+          ? `用户回答：${m.metadata.answer}`
+          : m.content;
+      out.push({ role: "tool", content: toolContent, tool_call_id: m.metadata.toolCallId });
     } else if (m.role === "tool") {
       // incomplete tool card without a toolCallId — drop
     } else {
       const role = m.role === "agent" ? "assistant" : m.role;
+      // Skip empty agent placeholders
+      if (role === "assistant" && !m.content?.trim() && !m.metadata) continue;
       out.push({ role, content: m.content });
       if (role === "assistant") lastAssistantIdx = out.length - 1;
     }
@@ -44,12 +57,314 @@ function buildOutgoingMessages(messages: AgentMessage[], userMsg: AgentMessage):
   return out;
 }
 
+interface SubAgentMessage {
+  role: string;
+  content: string;
+  toolName?: string;
+}
+
 interface AgentMessage {
   id: string;
   role: "user" | "agent" | "tool";
   content: string;
-  metadata?: { tool?: string; status?: "running" | "done"; toolCallId?: string; subMessages?: { role: string; content: string }[] };
+  metadata?: {
+    tool?: string;
+    status?: "running" | "done" | "awaiting_user";
+    toolCallId?: string;
+    subMessages?: SubAgentMessage[];
+    /** ask_question */
+    question?: string;
+    options?: string[];
+    answer?: string;
+  };
   timestamp: string;
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  get_outline: "获取大纲",
+  get_prose: "获取正文",
+  get_findings: "获取审查发现",
+  get_branch_text: "获取分支前文",
+  get_branch_characters: "获取角色",
+  get_branch_timeline: "获取时间线",
+  get_branch_world: "获取世界观",
+  get_branch_meta: "获取分支信息",
+  save_outline: "保存大纲",
+  save_prose: "保存正文",
+  save_findings: "保存审查发现",
+  clear_findings: "清空审查发现",
+};
+
+function toolLabel(name?: string) {
+  if (!name) return "tool";
+  return TOOL_LABELS[name] || name;
+}
+
+/** Expand legacy trails that still stringify Anthropic tool blocks as JSON. */
+function normalizeSubMessages(messages: SubAgentMessage[]): SubAgentMessage[] {
+  const out: SubAgentMessage[] = [];
+  for (const sm of messages) {
+    const raw = (sm.content || "").trim();
+    if (
+      (sm.role === "assistant" || sm.role === "user" || sm.role === "tool") &&
+      (raw.startsWith("[") || raw.startsWith("{"))
+    ) {
+      try {
+        const parsed = JSON.parse(raw);
+        const blocks = Array.isArray(parsed) ? parsed : [parsed];
+        if (blocks.length > 0 && blocks[0] && typeof blocks[0] === "object" && "type" in blocks[0]) {
+          for (const b of blocks) {
+            if (b.type === "tool_use") {
+              out.push({
+                role: "tool_call",
+                toolName: String(b.name || "tool"),
+                content: b.input && Object.keys(b.input).length
+                  ? JSON.stringify(b.input, null, 2)
+                  : "(无参数)",
+              });
+            } else if (b.type === "tool_result") {
+              const body = typeof b.content === "string" ? b.content : JSON.stringify(b.content ?? "", null, 2);
+              out.push({ role: "tool_result", toolName: "tool", content: body });
+            } else if (b.type === "text" && b.text) {
+              out.push({ role: sm.role === "user" ? "user" : "assistant", content: String(b.text) });
+            }
+          }
+          continue;
+        }
+      } catch { /* not JSON blocks — fall through */ }
+    }
+    out.push(sm);
+  }
+  return out;
+}
+
+function PrettyBody({ text, className }: { text: string; className?: string }) {
+  const trimmed = text.trim();
+  let pretty = text;
+  if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && trimmed.length > 1) {
+    try {
+      pretty = JSON.stringify(JSON.parse(trimmed), null, 2);
+    } catch { /* keep */ }
+  }
+  return (
+    <pre className={className || "text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto"}>
+      {pretty}
+    </pre>
+  );
+}
+
+const SEV_UI: Record<string, string> = {
+  critical: "bg-red-500/15 text-red-400 border-red-500/30",
+  major: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  minor: "bg-neutral-700/40 text-neutral-400 border-neutral-600/40",
+  致命: "bg-red-500/15 text-red-400 border-red-500/30",
+  重要: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  次要: "bg-neutral-700/40 text-neutral-400 border-neutral-600/40",
+};
+
+/** Render findings: JSON array → cards; otherwise markdown (new readable format). */
+function FindingsDisplay({ text }: { text: string }) {
+  const trimmed = (text || "").trim();
+  if (!trimmed) {
+    return <div className="text-[11px] text-neutral-600 font-mono">（空）</div>;
+  }
+
+  // Legacy: raw JSON array of findings
+  if (trimmed.startsWith("[")) {
+    try {
+      const arr = JSON.parse(trimmed);
+      if (Array.isArray(arr)) {
+        if (arr.length === 0) {
+          return <div className="text-[11px] text-green-600/80 font-mono">暂无问题</div>;
+        }
+        return (
+          <div className="space-y-2 max-h-[280px] overflow-y-auto">
+            {arr.map((f: any, i: number) => {
+              const sev = String(f.severity || "minor");
+              return (
+                <div key={i} className="rounded-lg border border-neutral-800/60 bg-[#0a0a0a] p-2 space-y-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${SEV_UI[sev] || SEV_UI.minor}`}>
+                      {sev}
+                    </span>
+                    {f.dimension && (
+                      <span className="text-[9px] font-mono text-neutral-500">{f.dimension}</span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-neutral-300 leading-relaxed">{String(f.description || "")}</div>
+                  {f.suggestion && (
+                    <div className="text-[10px] text-emerald-500/80 leading-relaxed">
+                      → {String(f.suggestion)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+    } catch { /* fall through to markdown */ }
+  }
+
+  return (
+    <div className="text-[11px] text-neutral-300 leading-relaxed max-h-[280px] overflow-y-auto prose-headings:text-neutral-400 prose-headings:text-xs prose-headings:font-mono prose-headings:mt-2 prose-headings:mb-1">
+      <Markdown>{trimmed}</Markdown>
+    </div>
+  );
+}
+
+function isFindingsTool(name?: string) {
+  return name === "get_findings";
+}
+
+type TranscriptItem =
+  | { kind: "message"; msg: SubAgentMessage; key: string }
+  | { kind: "tool"; call?: SubAgentMessage; result?: SubAgentMessage; key: string };
+
+/** Pair consecutive tool_call + tool_result into one UI unit */
+function groupTranscript(messages: SubAgentMessage[]): TranscriptItem[] {
+  const items: TranscriptItem[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const sm = messages[i];
+    if (sm.role === "tool_call") {
+      const next = messages[i + 1];
+      if (next && (next.role === "tool_result" || next.role === "tool")) {
+        items.push({ kind: "tool", call: sm, result: next, key: `tool-${i}` });
+        i++;
+      } else {
+        items.push({ kind: "tool", call: sm, key: `tool-${i}` });
+      }
+    } else if (sm.role === "tool_result" || sm.role === "tool") {
+      items.push({ kind: "tool", result: sm, key: `tool-${i}` });
+    } else {
+      items.push({ kind: "message", msg: sm, key: `msg-${i}` });
+    }
+  }
+  return items;
+}
+
+/** One collapsed card: tool name · args (if any) · result preview */
+function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAgentMessage }) {
+  const name = call?.toolName || result?.toolName;
+  const noArgs = !call?.content || call.content === "(无参数)" || call.content === "{}";
+  const pending = !!call && !result;
+  const resultLen = result?.content?.length ?? 0;
+
+  return (
+    <div className="flex justify-start">
+      <details className="max-w-[95%] w-full rounded-lg border border-neutral-700/50 bg-neutral-900/40 group">
+        <summary className="cursor-pointer list-none px-2.5 py-1.5 text-[10px] font-mono flex items-center gap-1.5 select-none text-neutral-300">
+          <span className="text-neutral-600 group-open:rotate-90 transition-transform inline-block">▸</span>
+          <Wrench className="w-3 h-3 shrink-0 text-sky-500" />
+          <span className="text-sky-400/90">工具</span>
+          <span className="px-1.5 py-0.5 rounded bg-sky-900/40 text-sky-200 text-[9px]">
+            {toolLabel(name)}
+          </span>
+          {name && TOOL_LABELS[name] && (
+            <span className="text-neutral-600 text-[9px]">{name}</span>
+          )}
+          <span className="ml-auto text-[9px] text-neutral-500 flex items-center gap-1.5">
+            {pending ? (
+              <span className="text-orange-500/80 flex items-center gap-1">
+                <Loader2 className="w-2.5 h-2.5 animate-spin" />执行中
+              </span>
+            ) : (
+              <span className="text-emerald-600/80">{resultLen} 字</span>
+            )}
+            <span className="text-neutral-600">展开</span>
+          </span>
+        </summary>
+        <div className="px-2.5 pb-2 space-y-2 border-t border-neutral-800/50 pt-2">
+          {call && (
+            <div>
+              <div className="text-[9px] text-sky-600/90 font-mono mb-0.5">参数</div>
+              {noArgs ? (
+                <div className="text-[10px] text-neutral-600 font-mono">（无参数）</div>
+              ) : (
+                <PrettyBody
+                  text={call.content}
+                  className="text-[10px] text-sky-200/70 font-mono whitespace-pre-wrap break-all max-h-[120px] overflow-y-auto bg-sky-950/20 rounded p-1.5"
+                />
+              )}
+            </div>
+          )}
+          <div>
+            <div className="text-[9px] text-emerald-600/90 font-mono mb-0.5">返回</div>
+            {pending ? (
+              <div className="text-[10px] text-neutral-600 font-mono flex items-center gap-1">
+                <Loader2 className="w-2.5 h-2.5 animate-spin" />等待结果…
+              </div>
+            ) : result ? (
+              isFindingsTool(name) ? (
+                <div className="bg-emerald-950/15 rounded p-1.5">
+                  <FindingsDisplay text={result.content} />
+                </div>
+              ) : (
+                <PrettyBody
+                  text={result.content}
+                  className="text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[220px] overflow-y-auto bg-emerald-950/15 rounded p-1.5"
+                />
+              )
+            ) : (
+              <div className="text-[10px] text-neutral-600 font-mono">（无返回）</div>
+            )}
+          </div>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+/** Chat-style transcript inside a sub-agent tool card */
+function SubAgentTranscript({ messages }: { messages: SubAgentMessage[] }) {
+  const items = groupTranscript(normalizeSubMessages(messages));
+  return (
+    <div className="mt-1 space-y-2 max-h-[480px] overflow-y-auto bg-[#080808] rounded-lg p-2.5 border border-neutral-800/40">
+      {items.map((item) => {
+        if (item.kind === "tool") {
+          return <ToolPairCard key={item.key} call={item.call} result={item.result} />;
+        }
+
+        const sm = item.msg;
+        if (sm.role === "system") {
+          return (
+            <details key={item.key} className="group">
+              <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400 font-mono list-none flex items-center gap-1.5">
+                <span className="text-neutral-600">▸</span>
+                <span className="uppercase tracking-wide">System</span>
+                <span className="text-neutral-600">({sm.content.length} 字)</span>
+              </summary>
+              <div className="mt-1.5 text-[11px] text-neutral-500 leading-relaxed bg-[#0a0a0a] rounded-lg p-2.5 border border-neutral-800/30 max-h-[200px] overflow-y-auto">
+                <Markdown>{sm.content}</Markdown>
+              </div>
+            </details>
+          );
+        }
+
+        const isUser = sm.role === "user";
+        return (
+          <div key={item.key} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+            <div
+              className={`max-w-[92%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                isUser
+                  ? "bg-orange-600/15 text-orange-100/90 border border-orange-600/25 rounded-br-md"
+                  : "bg-neutral-800/70 text-neutral-200 border border-neutral-700/40 rounded-bl-md"
+              }`}
+            >
+              <div className={`text-[9px] font-mono mb-1 ${isUser ? "text-orange-500/70" : "text-neutral-500"}`}>
+                {isUser ? "任务" : "Agent"}
+              </div>
+              {sm.content ? (
+                <Markdown>{sm.content}</Markdown>
+              ) : (
+                <span className="text-neutral-600 italic">（空）</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 interface AgentPanelProps {
@@ -69,23 +384,19 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const messagesRef = useRef<AgentMessage[]>([]);
   const { setNovel } = useNovel();
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim() || status === "generating") return;
-    const userMsg: AgentMessage = {
-      id: Math.random().toString(36).slice(2),
-      role: "user", content: input.trim(),
-      timestamp: new Date().toISOString(),
-    };
-    setMessages(prev => [...prev, userMsg]);
-    setInput("");
+  const runChat = useCallback(async (history: AgentMessage[], userMsg: AgentMessage) => {
     setStatus("generating");
-
     const abort = new AbortController();
     abortRef.current = abort;
 
@@ -94,7 +405,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: buildOutgoingMessages(messages, userMsg),
+          messages: buildOutgoingMessages(history, userMsg),
           branchId,
           novelId,
         }),
@@ -150,19 +461,109 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
               if (event.tool === "write_prose") {
                 setNovel({ generatedProse: event.content });
               }
+            } else if (event.type === "tool_trail") {
+              // Live sub-agent conversation (system/user/tool/assistant) while still running
+              const trailMsgs: SubAgentMessage[] = event.messages || [];
+              const lastTrail = trailMsgs[trailMsgs.length - 1];
+              // Keep stream buffer only while the latest turn is still an assistant draft;
+              // clear it after tool_call/tool_result so we don't re-append stale text.
+              const streamContent = lastTrail?.role === "assistant" ? (lastTrail.content || "") : "";
+              setMessages(prev => prev.map(m =>
+                m.metadata?.toolCallId === event.toolCallId
+                  ? {
+                      ...m,
+                      content: streamContent,
+                      metadata: {
+                        ...m.metadata,
+                        tool: event.tool || m.metadata?.tool,
+                        status: m.metadata?.status || "running",
+                        toolCallId: event.toolCallId,
+                        subMessages: trailMsgs,
+                      },
+                    }
+                  : m
+              ));
+            } else if (event.type === "ask_question") {
+              currentTextMsgId = null;
+              const question = String(event.question || "");
+              const options = Array.isArray(event.options) ? event.options.map(String) : [];
+              setMessages(prev => {
+                const existing = prev.find(m => m.metadata?.toolCallId === event.toolCallId);
+                const data = {
+                  content: question,
+                  metadata: {
+                    tool: "ask_question" as const,
+                    status: "awaiting_user" as const,
+                    toolCallId: event.toolCallId as string,
+                    question,
+                    options,
+                  },
+                };
+                // Drop empty agent placeholder so the question card is the focus
+                const cleaned = prev.filter(m => !(m.role === "agent" && !m.content?.trim()));
+                if (existing) {
+                  return cleaned.map(m => m.id === existing.id ? { ...m, ...data } : m);
+                }
+                return [...cleaned, {
+                  id: Math.random().toString(36).slice(2),
+                  role: "tool" as const,
+                  ...data,
+                  timestamp: new Date().toISOString(),
+                }];
+              });
             } else if (event.type === "tool_call") {
               if (event.status === "running") {
                 currentTextMsgId = null;
                 setMessages(prev => [...prev, {
                   id: Math.random().toString(36).slice(2), role: "tool", content: "",
-                  metadata: { tool: event.tool, status: "running", toolCallId: event.toolCallId },
+                  metadata: { tool: event.tool, status: "running", toolCallId: event.toolCallId, subMessages: [] },
                   timestamp: new Date().toISOString(),
                 }]);
+              } else if (event.status === "awaiting_user") {
+                currentTextMsgId = null;
+                let question = "";
+                let options: string[] = [];
+                try {
+                  const parsed = JSON.parse(event.result || "{}");
+                  question = String(parsed.question || "");
+                  options = Array.isArray(parsed.options) ? parsed.options.map(String) : [];
+                } catch { /* ignore */ }
+                setMessages(prev => {
+                  const existing = prev.find(m => m.metadata?.toolCallId === event.toolCallId);
+                  const data = {
+                    content: question || event.result || "",
+                    metadata: {
+                      tool: "ask_question",
+                      status: "awaiting_user" as const,
+                      toolCallId: event.toolCallId,
+                      question: question || existing?.metadata?.question,
+                      options: options.length ? options : (existing?.metadata?.options || []),
+                    },
+                  };
+                  if (existing) {
+                    return prev.map(m => m.id === existing.id ? { ...m, ...data } : m);
+                  }
+                  return [...prev, { id: Math.random().toString(36).slice(2), role: "tool", ...data, timestamp: new Date().toISOString() }];
+                });
               } else if (event.status === "done") {
                 currentTextMsgId = null;
                 setMessages(prev => {
                   const existing = prev.find(m => m.metadata?.toolCallId === event.toolCallId);
-                  const data = { content: event.result || "", metadata: { tool: event.tool, status: "done" as const, toolCallId: event.toolCallId, subMessages: event.messages || [] } };
+                  const data = {
+                    content: event.result || "",
+                    metadata: {
+                      tool: event.tool,
+                      status: "done" as const,
+                      toolCallId: event.toolCallId,
+                      // Prefer final messages; keep live trail if done payload omitted them
+                      subMessages: (event.messages && event.messages.length > 0)
+                        ? event.messages
+                        : (existing?.metadata?.subMessages || []),
+                      question: existing?.metadata?.question,
+                      options: existing?.metadata?.options,
+                      answer: existing?.metadata?.answer,
+                    },
+                  };
                   if (existing) {
                     return prev.map(m => m.id === existing.id ? { ...m, ...data } : m);
                   }
@@ -208,6 +609,57 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     }
     abortRef.current = null;
     setStatus("idle");
+  }, [branchId, novelId, setNovel]);
+
+  const handleSend = async (overrideText?: string) => {
+    const text = (overrideText ?? input).trim();
+    if (!text || status === "generating") return;
+    const userMsg: AgentMessage = {
+      id: Math.random().toString(36).slice(2),
+      role: "user",
+      content: text,
+      timestamp: new Date().toISOString(),
+    };
+    // If a question is waiting, treat this reply as the answer
+    const history = messagesRef.current.map(m =>
+      m.metadata?.status === "awaiting_user" && m.metadata.tool === "ask_question"
+        ? {
+            ...m,
+            content: text,
+            metadata: { ...m.metadata, status: "done" as const, answer: text },
+          }
+        : m
+    );
+    setMessages([...history, userMsg]);
+    if (!overrideText) setInput("");
+    await runChat(history, userMsg);
+  };
+
+  /** Answer an ask_question card: mark answered + send as user message */
+  const handleAnswerQuestion = async (msgId: string, answer: string) => {
+    if (!answer.trim() || status === "generating") return;
+    const ans = answer.trim();
+    const history = messagesRef.current.map(m =>
+      m.id === msgId
+        ? {
+            ...m,
+            content: ans,
+            metadata: {
+              ...m.metadata,
+              status: "done" as const,
+              answer: ans,
+            },
+          }
+        : m
+    );
+    const userMsg: AgentMessage = {
+      id: Math.random().toString(36).slice(2),
+      role: "user",
+      content: ans,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages([...history, userMsg]);
+    await runChat(history, userMsg);
   };
 
   const handleStop = () => {
@@ -222,6 +674,11 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     get_novel_context: "获取原文", get_characters: "获取角色",
     get_timeline: "获取时间线", get_codex: "获取创作法典",
     get_world_bible: "获取世界观",
+    get_findings: "审查清单", get_outline: "获取大纲",
+    get_branch_text: "分支前文", get_branch_characters: "角色",
+    clear_findings: "清空审查",
+    ask_question: "向你提问",
+    run_reviews: "六维审查（并行）",
   };
 
   return (
@@ -253,8 +710,84 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
           if (msg.role === "tool") {
             const isRunning = msg.metadata?.status === "running";
             const isDone = msg.metadata?.status === "done";
+            const isAwaiting = msg.metadata?.status === "awaiting_user";
+            const isAsk = msg.metadata?.tool === "ask_question";
             const isReview = msg.metadata?.tool?.startsWith("review_");
             const hasFindings = msg.content && !msg.content.includes('"findings":[]') && !msg.content.includes('"converged":true');
+
+            // Interactive question card
+            if (isAsk) {
+              const question = msg.metadata?.question || msg.content || "请选择";
+              const options = msg.metadata?.options || [];
+              const answer = msg.metadata?.answer;
+              return (
+                <div
+                  key={msg.id}
+                  className={`rounded-lg border p-3 space-y-2.5 ${
+                    isAwaiting
+                      ? "bg-orange-500/[0.06] border-orange-500/30"
+                      : "bg-neutral-800/20 border-neutral-700/50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <HelpCircle className={`w-3.5 h-3.5 ${isAwaiting ? "text-orange-400" : "text-neutral-500"}`} />
+                    <span className={`text-[10px] font-mono uppercase tracking-wider ${isAwaiting ? "text-orange-400" : "text-neutral-500"}`}>
+                      {isAwaiting ? "等待你的选择" : "已回答"}
+                    </span>
+                  </div>
+                  <div className="text-sm text-neutral-200 leading-relaxed">{question}</div>
+                  {isAwaiting ? (
+                    <div className="space-y-2">
+                      {options.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {options.map((opt, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              disabled={status === "generating"}
+                              onClick={() => handleAnswerQuestion(msg.id, opt)}
+                              className="px-2.5 py-1.5 rounded-md text-xs font-mono border border-orange-500/35 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20 hover:border-orange-400/50 disabled:opacity-40 transition-colors"
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-1.5">
+                        <input
+                          id={`ask-free-${msg.id}`}
+                          placeholder={options.length ? "或输入其它回答…" : "输入你的回答…"}
+                          disabled={status === "generating"}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") {
+                              const el = e.target as HTMLInputElement;
+                              if (el.value.trim()) handleAnswerQuestion(msg.id, el.value);
+                            }
+                          }}
+                          className="flex-1 bg-[#111110] border border-neutral-700 rounded px-2.5 py-1.5 text-xs text-neutral-300 font-mono outline-none focus:border-orange-600/50 disabled:opacity-50"
+                        />
+                        <button
+                          type="button"
+                          disabled={status === "generating"}
+                          onClick={() => {
+                            const el = document.getElementById(`ask-free-${msg.id}`) as HTMLInputElement | null;
+                            if (el?.value.trim()) handleAnswerQuestion(msg.id, el.value);
+                          }}
+                          className="px-2.5 py-1.5 rounded bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 text-white text-xs font-mono transition-colors"
+                        >
+                          发送
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-emerald-500/90 font-mono">
+                      你的回答：{answer || msg.content}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
             return (
               <div key={msg.id} className={`${isDone && isReview && !hasFindings ? "py-1" : "bg-neutral-800/20 border border-neutral-700/50 rounded-lg p-2"}`}>
                 <div className="flex items-center gap-2">
@@ -273,44 +806,59 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                     </>
                   )}
                 </div>
-                {/* Streamed content while running */}
-                {isRunning && msg.content && (
-                  <pre className="mt-2 text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content}</pre>
-                )}
-                {/* Done — sequential message trail (system → user → assistant …), Claude-Code-style */}
-                {isDone && msg.metadata?.subMessages && msg.metadata.subMessages.length > 0 && (
-                  <details className="mt-1.5">
-                    <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400 font-mono">
-                      对话记录 ({msg.metadata.subMessages.length} 条消息)
-                    </summary>
-                    <div className="mt-1 space-y-2 max-h-[400px] overflow-y-auto bg-[#080808] rounded p-2">
-                      {msg.metadata.subMessages.map((sm, i) => (
-                        <div key={i} className="space-y-0.5">
-                          <div className="text-[9px] text-neutral-600 font-mono uppercase">
-                            {sm.role === "system" ? "system" : sm.role === "user" ? "user" : "assistant"}
-                          </div>
-                          {sm.role === "system" ? (
-                            <details>
-                              <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400">展开 ({sm.content.length} 字符)</summary>
-                              <div className="mt-1 text-[11px] text-neutral-400 leading-relaxed bg-[#0a0a0a] rounded p-2 border border-neutral-800/30 max-h-[200px] overflow-y-auto prose prose-invert prose-xs max-w-none">
-                                <ReactMarkdown>{sm.content}</ReactMarkdown>
-                              </div>
-                            </details>
-                          ) : (
-                            <div className="text-[11px] text-neutral-300 leading-relaxed bg-[#0a0a0a] rounded p-2 border border-neutral-800/30 max-h-[240px] overflow-y-auto prose prose-invert prose-xs max-w-none">
-                              <ReactMarkdown>{sm.content}</ReactMarkdown>
-                            </div>
-                          )}
+                {/* Live + done chat transcript (streamed via tool_trail; tool_chunk merges into last assistant) */}
+                {(() => {
+                  const base = msg.metadata?.subMessages || [];
+                  let live = base;
+                  if (isRunning && msg.content) {
+                    const last = base[base.length - 1];
+                    if (last?.role === "assistant") {
+                      // Replace provisional / partial assistant with latest stream chunk
+                      if (msg.content !== last.content) {
+                        live = [...base.slice(0, -1), { role: "assistant", content: msg.content }];
+                      }
+                    } else {
+                      live = [...base, { role: "assistant", content: msg.content }];
+                    }
+                  }
+                  if (live.length === 0) {
+                    if (isRunning) {
+                      return (
+                        <div className="mt-1.5 text-[10px] text-neutral-600 font-mono flex items-center gap-1">
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />等待对话…
                         </div>
-                      ))}
-                    </div>
-                  </details>
-                )}
-                {/* Done — final result exhibit when there's no sub-messages */}
+                      );
+                    }
+                    return null;
+                  }
+                  // Compact review pass with no findings: keep one-line header only when done
+                  if (isDone && isReview && !hasFindings && !base.some(s => s.role === "tool_call")) {
+                    return null;
+                  }
+                  return (
+                    <details className="mt-1.5" open>
+                      <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400 font-mono">
+                        对话 ({live.length}){isRunning ? " · 进行中" : ""}
+                      </summary>
+                      <div className="mt-1.5">
+                        <SubAgentTranscript messages={live} />
+                      </div>
+                    </details>
+                  );
+                })()}
+                {/* Done — data tool result (e.g. get_findings) when no sub-agent trail */}
                 {isDone && msg.content && !(isReview && !hasFindings) && (!msg.metadata?.subMessages || msg.metadata.subMessages.length === 0) && (
-                  <details className="mt-1">
-                    <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400 font-mono">输出 ({msg.content.length} 字符)</summary>
-                    <pre className="mt-1 text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto bg-[#080808] rounded p-2">{msg.content.slice(0, 5000)}</pre>
+                  <details className="mt-1.5" open={msg.metadata?.tool === "get_findings"}>
+                    <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400 font-mono">
+                      {msg.metadata?.tool === "get_findings" ? "审查清单" : `输出 (${msg.content.length} 字符)`}
+                    </summary>
+                    <div className="mt-1.5 bg-[#080808] rounded p-2 border border-neutral-800/40">
+                      {msg.metadata?.tool === "get_findings" ? (
+                        <FindingsDisplay text={msg.content} />
+                      ) : (
+                        <pre className="text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto">{msg.content.slice(0, 5000)}</pre>
+                      )}
+                    </div>
                   </details>
                 )}
               </div>
@@ -326,9 +874,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   : "bg-neutral-800/50 text-neutral-300 border border-neutral-700/50"
               }`}>
                 {msg.content ? (
-                  <div className="prose prose-invert prose-xs max-w-none">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
-                  </div>
+                  <Markdown>{msg.content}</Markdown>
                 ) : (
                   <span className="text-neutral-500 italic">思考中...</span>
                 )}
@@ -346,11 +892,15 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleSend()}
-            placeholder="告诉主编你想做什么..."
+            placeholder={
+              messages.some(m => m.metadata?.status === "awaiting_user")
+                ? "也可在上方问题卡片里选择或输入…"
+                : "告诉主编你想做什么..."
+            }
             disabled={status === "generating"}
             className="flex-1 bg-[#111110] border border-neutral-800 rounded px-3 py-1.5 text-xs text-neutral-300 font-mono outline-none focus:border-orange-600/50 disabled:opacity-50"
           />
-          <button onClick={handleSend}
+          <button onClick={() => handleSend()}
             disabled={status === "generating" || !input.trim()}
             className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded text-xs font-mono transition-colors">
             <Send className="w-3 h-3" />

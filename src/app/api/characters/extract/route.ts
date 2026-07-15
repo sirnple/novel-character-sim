@@ -3,8 +3,13 @@ import { parseNovel } from "@/core/parser/novel-parser";
 import { CharacterExtractor } from "@/core/extractor/character-extractor";
 import { StoryExtractor } from "@/core/extractor/story-extractor";
 import { TimelineExtractor } from "@/core/extractor/timeline-extractor";
-import { saveNovel, saveStoryInfo, saveCharacters, saveTimeline, saveChapterStates, getStoryInfo, getCharacters, getTimeline, getChapterStates, saveGenerationLog, ensureMainBranch } from "@/lib/db";
+import {
+  saveNovel, saveStoryInfo, saveCharacters, saveTimeline, saveChapterStates,
+  getStoryInfo, getCharacters, getTimeline, getChapterStates, saveGenerationLog, ensureMainBranch,
+  seedStyleFromWritingStyle, listStyles, listIdeas, clearIdeas, saveIdeas,
+} from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
+import { extractIdeas } from "@/core/extractor/idea-extractor";
 import type { StoryInfo, CharacterProfile, ChapterTimeline, CharacterChapterState } from "@/types";
 
 export async function POST(request: NextRequest) {
@@ -36,7 +41,19 @@ export async function POST(request: NextRequest) {
         console.log(`[Extract] Using cached data for ${novelId}`);
         const cachedTimeline = getTimeline(userId, novelId);
         const cachedLastStates = getChapterStates(userId, novelId);
-        return NextResponse.json({ storyInfo: cachedStory, characters: cachedChars, timeline: cachedTimeline, lastChapterStates: cachedLastStates, fromCache: true });
+        // Ensure style library seeded from story if empty
+        if (listStyles(userId, novelId).length === 0 && cachedStory.writingStyle) {
+          seedStyleFromWritingStyle(userId, novelId, cachedStory.writingStyle);
+        }
+        return NextResponse.json({
+          storyInfo: cachedStory,
+          characters: cachedChars,
+          timeline: cachedTimeline,
+          lastChapterStates: cachedLastStates,
+          styles: listStyles(userId, novelId),
+          ideas: listIdeas(userId, novelId),
+          fromCache: true,
+        });
       }
     }
 
@@ -97,7 +114,43 @@ export async function POST(request: NextRequest) {
       fullOutput: JSON.stringify(timeline),
     });
 
-    return NextResponse.json({ storyInfo, characters, timeline, lastChapterStates, fromCache: false });
+    // Style library: seed from extracted writing style
+    console.log("[Extract] Seeding style library...");
+    seedStyleFromWritingStyle(userId, novelId, storyInfo.writingStyle);
+
+    // Idea bank: LLM extract continuation sparks
+    console.log("[Extract] Extracting idea bank...");
+    let ideas = listIdeas(userId, novelId);
+    if (forceRefresh || ideas.length === 0) {
+      try {
+        const extracted = await extractIdeas(parsed, novelId);
+        if (extracted.length > 0) {
+          if (forceRefresh) clearIdeas(userId, novelId);
+          // Keep manual ideas on soft refresh
+          const manuals = ideas.filter(i => i.source === "manual");
+          if (forceRefresh) {
+            saveIdeas(userId, novelId, [...manuals, ...extracted]);
+          } else {
+            saveIdeas(userId, novelId, extracted);
+          }
+          ideas = listIdeas(userId, novelId);
+        }
+      } catch (e) {
+        console.warn("[Extract] idea bank failed:", (e as Error).message);
+      }
+    }
+
+    const styles = listStyles(userId, novelId);
+
+    return NextResponse.json({
+      storyInfo,
+      characters,
+      timeline,
+      lastChapterStates,
+      styles,
+      ideas,
+      fromCache: false,
+    });
   } catch (error) {
     console.error("Extraction error:", error);
     const message = error instanceof Error ? error.message : "Failed to extract";

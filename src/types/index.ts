@@ -179,6 +179,29 @@ export interface WritingStyle {
   contentRating: ContentRating;
 }
 
+/** One entry in the novel's style library (selectable for writing). */
+export interface StyleLibraryEntry {
+  id: string;
+  novelId: string;
+  name: string;
+  description: string;
+  /** Full style payload (usually WritingStyle-shaped, free-form for manual). */
+  style: Partial<WritingStyle> & Record<string, unknown>;
+  source: "extracted" | "manual";
+  createdAt?: string;
+}
+
+/** One entry in the novel's idea bank (selectable for outline). */
+export interface IdeaLibraryEntry {
+  id: string;
+  novelId: string;
+  title: string;
+  content: string;
+  tags: string[];
+  source: "extracted" | "manual";
+  createdAt?: string;
+}
+
 export interface ContentRating {
   /** e.g., "无", "轻度暧昧", "情色描写", "露骨色情" */
   level: string;

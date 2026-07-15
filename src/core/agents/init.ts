@@ -27,7 +27,7 @@ export function initRegistry(): void {
 
   register({
     name: "agent",
-    description: "调用创作Agent执行任务。先获取必要上下文，再把角色、前文、大纲等信息写入prompt。",
+    description: "调用子 Agent 执行任务。主 agent 只传任务说明；大纲/正文/findings 由子 agent 自行 get_*，不要把正文塞进 prompt。",
     parameters: {
       type: "object",
       properties: {
@@ -38,7 +38,7 @@ export function initRegistry(): void {
         },
         prompt: {
           type: "string",
-          description: "传给Agent的完整任务描述，包含所有上下文（角色、前文、大纲等）",
+          description: "任务说明（用户要求、MODE 标记、或「正文已写完请审查」等）。不要粘贴正文全文；子 agent 会自己取上下文。",
         },
       },
       required: ["agent_type", "prompt"],
@@ -46,7 +46,60 @@ export function initRegistry(): void {
     execute: async (args, ctx, llm, onChunk) => {
       const agentDef = getAgent(args.agent_type as string);
       if (!agentDef) throw new Error(`Unknown agent: ${args.agent_type}`);
+      // Nested agent tool path has no trail sink; chat route calls agents directly with onTrail
       return agentDef.execute({ prompt: args.prompt as string, ...ctx }, llm, onChunk);
+    },
+  });
+
+  // Master-only: pause for user input (handled specially in chat route)
+  register({
+    name: "ask_question",
+    description:
+      "向用户提问并等待回答。需要用户做选择或确认时必须调用（如：确认大纲、是否按审查修改、选续写方向）。调用后本回合结束，等用户回答后再继续。",
+    parameters: {
+      type: "object",
+      properties: {
+        question: {
+          type: "string",
+          description: "要问用户的问题（简洁、可操作）",
+        },
+        options: {
+          type: "array",
+          description: "可选：2–6 个供点击的选项。不传则用户只能自由输入。",
+          items: { type: "string" },
+        },
+      },
+      required: ["question"],
+    },
+    execute: async (args) => {
+      // Real interaction is driven by the chat route + frontend; this is a fallback.
+      const q = String(args.question || "");
+      const opts = Array.isArray(args.options) ? args.options.map(String) : [];
+      return {
+        content: JSON.stringify({ question: q, options: opts, status: "awaiting_user" }),
+        messages: [],
+      };
+    },
+  });
+
+  // Master-only: parallel six-dimension review (handled in chat route with Promise.all)
+  register({
+    name: "run_reviews",
+    description:
+      "并行运行六个审查 agent（角色/连贯/伏笔/风格/世界观/节奏）。正文写完后调用一次即可，不要串行调六个 review_*。可选 prompt 传给每个审查员。",
+    parameters: {
+      type: "object",
+      properties: {
+        prompt: {
+          type: "string",
+          description: "传给各审查 agent 的简短说明，默认「正文已写完，请审查」",
+        },
+      },
+      required: [],
+    },
+    execute: async () => {
+      // Real parallel run is in chat/route; this is a schema placeholder.
+      return { content: "请由 chat 路由执行 run_reviews", messages: [] };
     },
   });
 

@@ -46,7 +46,8 @@ export async function POST(request: NextRequest) {
             characters: context?.characters || [],
           },
           llm,
-          (text) => send({ type: "tool_chunk", toolCallId, content: text })
+          (text) => send({ type: "tool_chunk", toolCallId, content: text }),
+          (messages) => send({ type: "tool_trail", toolCallId, messages, tool: agent_type }),
         );
 
         send({ type: "tool_call", tool: agent_type, status: "done", toolCallId, result: result.content.slice(0, 5000), messages: result.messages });

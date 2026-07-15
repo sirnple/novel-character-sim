@@ -4,7 +4,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { CharacterProfile, SceneDefinition, WritingStyle, SceneOutline, ChapterTimeline, CharacterChapterState } from "@/types";
 import type { ReviewReport } from "@/core/codex/types";
 import { Loader2, Play, Sparkles, RefreshCw, Shield, ScrollText, Check, AlertCircle, Copy, Bot, Save, Send } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import Markdown from "@/components/markdown";
+import ScrollEdgeButtons from "@/components/scroll-edge-buttons";
 import { useNovel } from "@/lib/novel-context";
 
 interface WritingWorkspaceProps {
@@ -645,7 +646,7 @@ export default function WritingWorkspace({
             </button>
           )}
         </div>
-        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg flex flex-col flex-1 overflow-hidden">
+        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg flex flex-col flex-1 overflow-hidden relative">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
             <div className="flex items-center gap-3">
@@ -682,7 +683,7 @@ export default function WritingWorkspace({
           </div>
 
           {/* Reader body */}
-          <div ref={readerRef} onClick={handleReaderClick} className="flex-1 overflow-y-auto custom-scrollbar">
+          <div ref={readerRef} onClick={handleReaderClick} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
             <div className="p-6">
               {!initialFullNovel && !outputText && status !== "generating" ? (
                 <div className="flex items-center justify-center py-20">
@@ -823,6 +824,7 @@ export default function WritingWorkspace({
               </div>
             )}
           </div>
+          <ScrollEdgeButtons scrollRef={readerRef} />
         </div>
         {error && <ErrorBanner error={error} onRetry={startWriting} />}
         {showSaveDialog && (
@@ -934,16 +936,16 @@ export default function WritingWorkspace({
                         <details>
                           <summary className="text-xs text-neutral-500 cursor-pointer hover:text-neutral-400">展开 system prompt ({String(msg.content).length} 字符)</summary>
                           {markdownMode ? (
-                            <div className="mt-2 text-xs text-neutral-400 leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto prose prose-invert prose-xs max-w-none">
-                              <ReactMarkdown>{String(msg.content)}</ReactMarkdown>
+                            <div className="mt-2 text-xs text-neutral-400 leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto">
+                              <Markdown>{String(msg.content)}</Markdown>
                             </div>
                           ) : (
                             <pre className="mt-2 text-xs text-neutral-400 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto">{String(msg.content)}</pre>
                           )}
                         </details>
                       ) : markdownMode ? (
-                        <div className="text-sm text-neutral-300 leading-relaxed bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[500px] overflow-y-auto prose prose-invert prose-sm max-w-none">
-                          <ReactMarkdown>{String(msg.content)}</ReactMarkdown>
+                        <div className="text-sm text-neutral-300 leading-relaxed bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[500px] overflow-y-auto">
+                          <Markdown className="prose-sm">{String(msg.content)}</Markdown>
                         </div>
                       ) : (
                         <pre className="text-sm text-neutral-300 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[500px] overflow-y-auto">{String(msg.content)}</pre>
