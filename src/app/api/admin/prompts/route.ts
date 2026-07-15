@@ -1,23 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listAgentPrompts, getAgentPrompt, updateAgentPrompt, resetAgentPrompt, seedAgentPrompts } from "@/lib/db";
+import {
+  listAgentPrompts,
+  getAgentPrompt,
+  updateAgentPrompt,
+  resetAgentPrompt,
+  seedAgentPrompts,
+  pruneAgentPrompts,
+} from "@/lib/db";
 import { AGENT_REGISTRY } from "@/core/prompts/registry";
 import { getDefaultPrompt } from "@/core/prompts/defaults";
 import { isAdmin } from "@/core/prompts/admin-auth";
 
-let seeded = false;
-
+/** Always upsert registry rows so newly added agents appear without process restart. */
 function ensureSeed() {
-  if (seeded) return;
-  // Seed only zh entries — en is stored as a language variant of the same agent_id
+  const meta = AGENT_REGISTRY.map((a) => ({
+    agentId: a.agentId,
+    name: a.name,
+    description: a.description,
+    category: a.category,
+  }));
+  seedAgentPrompts(meta, "zh");
   seedAgentPrompts(
-    AGENT_REGISTRY.map((a) => ({
+    AGENT_REGISTRY.filter((a) => a.bilingual).map((a) => ({
       agentId: a.agentId,
       name: a.name,
       description: a.description,
       category: a.category,
-    }))
+    })),
+    "en",
   );
-  seeded = true;
+  // Drop obsolete agent rows no longer in registry (e.g. old "writer")
+  pruneAgentPrompts(AGENT_REGISTRY.map((a) => a.agentId));
 }
 
 export async function GET(req: NextRequest) {

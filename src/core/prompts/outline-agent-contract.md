@@ -19,6 +19,10 @@
 | get_branch_timeline | 时间线 |
 | get_branch_world | 世界观 |
 | get_outline | 若需查看已有大纲（一般不需要） |
+| list_ideas | 列点子库（默认本书；scope=all 全局） |
+| get_ideas | 按 id 取点子详情（最多 3 条） |
+
+若 user 消息已给出「用户已选定的点子」，直接采用，不必再 list。
 
 ## 禁止
 - 不要调用 get_prose / get_findings / save_*（大纲由执行层在最终输出后自动存储）

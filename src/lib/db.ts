@@ -1,6 +1,9 @@
 import Database from "better-sqlite3";
 import path from "path";
-import type { CharacterProfile, StoryInfo, SimulationState, ChapterTimeline, CharacterChapterState } from "@/types";
+import type {
+  CharacterProfile, StoryInfo, SimulationState, ChapterTimeline, CharacterChapterState,
+  StyleLibraryEntry, IdeaLibraryEntry, WritingStyle,
+} from "@/types";
 
 const DB_PATH = path.join(process.cwd(), "data", "novels.db");
 
@@ -221,6 +224,38 @@ function initSchema(db: Database.Database) {
       PRIMARY KEY (id, user_id)
     );
     CREATE INDEX IF NOT EXISTS idx_drafts_novel ON drafts(novel_id);
+
+    CREATE TABLE IF NOT EXISTS style_library (
+      id TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT 'guest',
+      name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      data TEXT NOT NULL DEFAULT '{}',
+      source TEXT NOT NULL DEFAULT 'extracted',
+      source_novel_id TEXT NOT NULL DEFAULT '',
+      source_novel_title TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_style_library_user ON style_library(user_id);
+    CREATE INDEX IF NOT EXISTS idx_style_library_source ON style_library(user_id, source_novel_id);
+
+    CREATE TABLE IF NOT EXISTS idea_library (
+      id TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT 'guest',
+      title TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '[]',
+      source TEXT NOT NULL DEFAULT 'extracted',
+      source_novel_id TEXT NOT NULL DEFAULT '',
+      source_novel_title TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_idea_library_user ON idea_library(user_id);
+    CREATE INDEX IF NOT EXISTS idx_idea_library_source ON idea_library(user_id, source_novel_id);
   `);
 
   // Migrate old tables that may be missing user_id.
@@ -473,7 +508,10 @@ export interface AgentPromptRow {
   updated_at: string;
 }
 
-export function seedAgentPrompts(agents: { agentId: string; name: string; description: string; category: string }[]): void {
+export function seedAgentPrompts(
+  agents: { agentId: string; name: string; description: string; category: string }[],
+  language: string = "zh",
+): void {
   const d = getDb();
   const upsert = d.prepare(
     `INSERT INTO agent_prompts (agent_id, language, name, description, category)
@@ -485,7 +523,7 @@ export function seedAgentPrompts(agents: { agentId: string; name: string; descri
   );
   const tx = d.transaction(() => {
     for (const agent of agents) {
-      upsert.run(agent.agentId, "zh", agent.name, agent.description, agent.category);
+      upsert.run(agent.agentId, language, agent.name, agent.description, agent.category);
     }
   });
   tx();
@@ -527,6 +565,18 @@ export function resetAgentPrompt(agentId: string, language: string): void {
     `UPDATE agent_prompts SET system_prompt = NULL, user_prompt_template = NULL, is_modified = 0, updated_at = datetime('now')
      WHERE agent_id = ? AND language = ?`
   ).run(agentId, language);
+}
+
+/** Remove agent_prompts rows whose agent_id is not in the allowlist. */
+export function pruneAgentPrompts(allowedAgentIds: string[]): void {
+  const d = getDb();
+  const allowed = new Set(allowedAgentIds);
+  const rows = d.prepare("SELECT DISTINCT agent_id FROM agent_prompts").all() as { agent_id: string }[];
+  for (const r of rows) {
+    if (!allowed.has(r.agent_id)) {
+      d.prepare("DELETE FROM agent_prompts WHERE agent_id = ?").run(r.agent_id);
+    }
+  }
 }
 
 // ---- Codex Data ----
@@ -664,4 +714,199 @@ export function listDrafts(userId: string, novelId: string): DraftRow[] {
 export function deleteDraft(userId: string, id: string): void {
   const d = getDb();
   d.prepare("DELETE FROM drafts WHERE id = ? AND user_id = ?").run(id, userId);
+}
+
+// ---- Style library (user-global, cross-novel) ----
+
+const EMPTY_STYLE: WritingStyle = {
+  genre: "",
+  styleDescription: "",
+  narrativeTechniques: [],
+  languageFeatures: "",
+  pacingDescription: "",
+  tone: "",
+  examplePassages: [],
+  contentRating: { level: "", description: "", hasExplicitContent: false },
+};
+
+function rowToStyle(row: any): StyleLibraryEntry {
+  let style: WritingStyle = { ...EMPTY_STYLE };
+  try {
+    style = { ...EMPTY_STYLE, ...JSON.parse(row.data || "{}") };
+  } catch { /* keep empty */ }
+  const source = row.source === "manual" ? "manual" : "extracted";
+  const sourceNovelTitle = row.source_novel_title || "";
+  // Extracted styles are labeled by novel title so books stay distinguishable
+  const name =
+    source === "extracted" && sourceNovelTitle.trim()
+      ? sourceNovelTitle.trim()
+      : (row.name || "");
+  return {
+    id: row.id,
+    name,
+    description: row.description || "",
+    style,
+    source,
+    sourceNovelId: row.source_novel_id || "",
+    sourceNovelTitle,
+    createdAt: row.created_at,
+  };
+}
+
+export function listStyles(
+  userId: string,
+  opts?: { sourceNovelId?: string },
+): StyleLibraryEntry[] {
+  const d = getDb();
+  if (opts?.sourceNovelId) {
+    return (d.prepare(
+      "SELECT * FROM style_library WHERE user_id = ? AND source_novel_id = ? ORDER BY created_at ASC"
+    ).all(userId, opts.sourceNovelId) as any[]).map(rowToStyle);
+  }
+  return (d.prepare(
+    "SELECT * FROM style_library WHERE user_id = ? ORDER BY created_at DESC"
+  ).all(userId) as any[]).map(rowToStyle);
+}
+
+export function getStyle(userId: string, id: string): StyleLibraryEntry | null {
+  const row = getDb().prepare(
+    "SELECT * FROM style_library WHERE id = ? AND user_id = ?"
+  ).get(id, userId) as any;
+  return row ? rowToStyle(row) : null;
+}
+
+export function saveStyle(userId: string, entry: StyleLibraryEntry): void {
+  getDb().prepare(
+    `INSERT OR REPLACE INTO style_library
+      (id, user_id, name, description, data, source, source_novel_id, source_novel_title, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+  ).run(
+    entry.id,
+    userId,
+    entry.name,
+    entry.description || "",
+    JSON.stringify(entry.style || EMPTY_STYLE),
+    entry.source || "manual",
+    entry.sourceNovelId || "",
+    entry.sourceNovelTitle || "",
+  );
+}
+
+export function deleteStyle(userId: string, id: string): void {
+  getDb().prepare("DELETE FROM style_library WHERE id = ? AND user_id = ?").run(id, userId);
+}
+
+export function upsertExtractedStyle(
+  userId: string,
+  novelId: string,
+  novelTitle: string,
+  writingStyle: WritingStyle | null | undefined,
+): StyleLibraryEntry | null {
+  if (!writingStyle?.styleDescription && !writingStyle?.genre) return null;
+  const id = `style_${novelId}_canon`;
+  const title = (novelTitle || "").trim() || novelId;
+  const entry: StyleLibraryEntry = {
+    id,
+    // Display name = novel title so styles are distinguishable across books
+    name: title,
+    description: writingStyle.styleDescription || writingStyle.tone || writingStyle.genre || "",
+    style: { ...EMPTY_STYLE, ...writingStyle },
+    source: "extracted",
+    sourceNovelId: novelId,
+    sourceNovelTitle: title,
+  };
+  saveStyle(userId, entry);
+  return entry;
+}
+
+// ---- Idea library (user-global, cross-novel) ----
+
+function rowToIdea(row: any): IdeaLibraryEntry {
+  let tags: string[] = [];
+  try { tags = JSON.parse(row.tags || "[]"); } catch { tags = []; }
+  return {
+    id: row.id,
+    title: row.title || "",
+    content: row.content || "",
+    tags: Array.isArray(tags) ? tags : [],
+    source: row.source === "manual" ? "manual" : "extracted",
+    sourceNovelId: row.source_novel_id || "",
+    sourceNovelTitle: row.source_novel_title || "",
+    createdAt: row.created_at,
+  };
+}
+
+export function listIdeas(
+  userId: string,
+  opts?: { sourceNovelId?: string },
+): IdeaLibraryEntry[] {
+  const d = getDb();
+  if (opts?.sourceNovelId) {
+    return (d.prepare(
+      "SELECT * FROM idea_library WHERE user_id = ? AND source_novel_id = ? ORDER BY created_at ASC"
+    ).all(userId, opts.sourceNovelId) as any[]).map(rowToIdea);
+  }
+  return (d.prepare(
+    "SELECT * FROM idea_library WHERE user_id = ? ORDER BY created_at DESC"
+  ).all(userId) as any[]).map(rowToIdea);
+}
+
+export function getIdea(userId: string, id: string): IdeaLibraryEntry | null {
+  const row = getDb().prepare(
+    "SELECT * FROM idea_library WHERE id = ? AND user_id = ?"
+  ).get(id, userId) as any;
+  return row ? rowToIdea(row) : null;
+}
+
+export function saveIdea(userId: string, entry: IdeaLibraryEntry): void {
+  getDb().prepare(
+    `INSERT OR REPLACE INTO idea_library
+      (id, user_id, title, content, tags, source, source_novel_id, source_novel_title, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+  ).run(
+    entry.id,
+    userId,
+    entry.title,
+    entry.content,
+    JSON.stringify(entry.tags || []),
+    entry.source || "manual",
+    entry.sourceNovelId || "",
+    entry.sourceNovelTitle || "",
+  );
+}
+
+export function saveIdeasBatch(userId: string, entries: IdeaLibraryEntry[]): void {
+  const d = getDb();
+  const insert = d.prepare(
+    `INSERT OR REPLACE INTO idea_library
+      (id, user_id, title, content, tags, source, source_novel_id, source_novel_title, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+  );
+  const tx = d.transaction((list: IdeaLibraryEntry[]) => {
+    for (const e of list) {
+      insert.run(
+        e.id, userId, e.title, e.content,
+        JSON.stringify(e.tags || []), e.source || "extracted",
+        e.sourceNovelId || "", e.sourceNovelTitle || "",
+      );
+    }
+  });
+  tx(entries);
+}
+
+export function deleteIdea(userId: string, id: string): void {
+  getDb().prepare("DELETE FROM idea_library WHERE id = ? AND user_id = ?").run(id, userId);
+}
+
+/** Remove extracted ideas for a novel (keep manual); then insert new batch. */
+export function replaceExtractedIdeas(
+  userId: string,
+  novelId: string,
+  entries: IdeaLibraryEntry[],
+): void {
+  const d = getDb();
+  d.prepare(
+    "DELETE FROM idea_library WHERE user_id = ? AND source_novel_id = ? AND source = 'extracted'"
+  ).run(userId, novelId);
+  saveIdeasBatch(userId, entries);
 }

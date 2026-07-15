@@ -7,7 +7,9 @@ import ScrollEdgeButtons from "@/components/scroll-edge-buttons";
 interface BranchInfo { id: string; name: string; text: string; parent_offset: number; updated_at: string; }
 
 export default function WritePage() {
-  const { novelId, novelTitle, novelText, setNovelText, setNovel, generatedProse, setActiveBranchId } = useNovel();
+  const {
+    novelId, novelTitle, novelText, setNovelText, setNovel, generatedProse, setActiveBranchId,
+  } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [activeBranchId, setLocalBranchId] = useState<string | null>(null);
   const [freeMode, setFreeMode] = useState(false);
@@ -111,8 +113,8 @@ export default function WritePage() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Left: Branch list */}
-      <aside className="w-[220px] shrink-0 border-r border-neutral-800/60 bg-[#0c0c0c] flex flex-col">
+      {/* Left: Branches only (风格/点子在全局侧栏) */}
+      <aside className="w-[200px] shrink-0 border-r border-neutral-800/60 bg-[#0c0c0c] flex flex-col">
         <div className="p-3 border-b border-neutral-800/40">
           <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest flex items-center gap-1.5">
             <GitBranch className="w-3 h-3" /> 分支

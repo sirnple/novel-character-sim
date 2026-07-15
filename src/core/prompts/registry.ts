@@ -1,27 +1,36 @@
 // ============================================================
-// Prompt Registry — manage all LLM agent prompts
+// Prompt Registry — agents manageable in Admin (each has md defaults)
 // ============================================================
 
 export interface AgentPromptMeta {
   agentId: string;
   name: string;
   description: string;
-  category: "extraction" | "simulation" | "writing" | "review";
+  category: "extraction" | "simulation" | "writing" | "review" | "master";
   variables: string[];
   bilingual: boolean;
 }
 
 /**
  * Active agents registered with metadata.
- * Only agents that are actually called at runtime should be listed here.
- * Dead code agents (director, character_agent, recorder, old reviewers) removed.
+ * Must stay in sync with AGENT_PROMPT_FILES in agent-prompt-map.ts.
  */
 export const AGENT_REGISTRY: AgentPromptMeta[] = [
-  // ---- Extraction (6 agents) ----
+  // ---- Master ----
+  {
+    agentId: "master",
+    name: "主编（主 Agent）",
+    description: "调度子 agent、与用户确认流程；不写正文、不审正文",
+    category: "master",
+    variables: ["novelId", "branchId"],
+    bilingual: false,
+  },
+
+  // ---- Extraction ----
   {
     agentId: "character_list",
     name: "角色列表提取 (Pass 1)",
-    description: "从小说中识别所有具名角色，提取名字、别名、角色定位",
+    description: "从小说节选中识别所有具名角色，提取名字、别名、角色定位",
     category: "extraction",
     variables: ["novelContext"],
     bilingual: true,
@@ -53,89 +62,119 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
   {
     agentId: "story_info",
     name: "故事信息提取",
-    description: "提取情节摘要、主线、章节概要、世界观设定、文风特点",
+    description: "提取情节摘要、主线、章节概要、世界观设定（不含文风）",
     category: "extraction",
     variables: ["novelContext"],
     bilingual: true,
   },
   {
     agentId: "timeline",
-    name: "时间线提取",
+    name: "时间线事件提取",
     description: "逐章提取关键事件、涉及角色和事件结果",
     category: "extraction",
     variables: ["chapterTitle", "truncated"],
     bilingual: true,
   },
+  {
+    agentId: "timeline_states",
+    name: "时间线章末状态",
+    description: "提取每章结束时出场角色的状态（alive/location/delta）",
+    category: "extraction",
+    variables: ["chapterTitle", "truncated", "knownNames", "prevStateDesc"],
+    bilingual: true,
+  },
+  {
+    agentId: "style_extract",
+    name: "风格提取",
+    description: "提取文风指纹写入风格库：说明、手法、节奏、范例片段、内容尺度",
+    category: "extraction",
+    variables: ["title", "novelContext"],
+    bilingual: true,
+  },
+  {
+    agentId: "idea_extract",
+    name: "点子提取",
+    description: "从节选抽象出与本书解耦的可迁移续写点子（禁用具体角色名/专有名词）",
+    category: "extraction",
+    variables: ["title", "novelContext"],
+    bilingual: true,
+  },
 
-  // ---- Simulation (1 agent) ----
+  // ---- Outline ----
   {
     agentId: "outline_writer",
-    name: "剧本大纲编写器",
-    description: "在 Writer 创作前编写场景剧本大纲：节拍、情感弧线、结局",
+    name: "大纲 Agent",
+    description: "为续写设计大纲；可选用点子库；最终输出大纲正文",
     category: "simulation",
-    variables: ["continueFromLabel", "continueFromChapter", "chapterSummaries",
-      "charSummaries", "worldTimePeriod", "worldLocation", "worldPowerSystem",
-      "activeForeshadowing", "authorNotes", "previousProse"],
-    bilingual: true,
+    variables: ["prompt", "novelId", "branchId", "selectionInstruction"],
+    bilingual: false,
   },
 
-  // ---- Writing (1 agent, uses full Codex) ----
+  // ---- Writer ----
   {
-    agentId: "writer",
-    name: "小说作家",
-    description: "根据完整创作法典（风格包 + 角色卷宗 + 世界观 + 前文 + 伏笔 + 灵感库）撰写场景叙事。使用 Codex Renderer 组装系统提示词",
+    agentId: "writer_create",
+    name: "写手 · 创作",
+    description: "MODE:create — 根据大纲写正文并 save_prose",
     category: "writing",
-    variables: ["codex (全 7 段创作法典: styleProfiles, characterDossiers, worldBible, narrativeContext, foreshadowingLedger, ideaBank, currentTask)"],
-    bilingual: true,
+    variables: ["prompt", "novelId", "branchId"],
+    bilingual: false,
+  },
+  {
+    agentId: "writer_rewrite",
+    name: "写手 · 改写",
+    description: "MODE:rewrite — 按 findings 改正文并 save_prose",
+    category: "writing",
+    variables: ["prompt", "novelId", "branchId"],
+    bilingual: false,
   },
 
-  // ---- Review (6 agents, run in parallel via Codex review-orchestrator) ----
+  // ---- Review ----
   {
     agentId: "character_consistency_review",
     name: "角色一致性审查",
-    description: "对照角色卷宗检查：说话风格漂移、性格行为偏差、关系动态错误",
+    description: "对照角色设定检查说话风格、性格行为、关系动态",
     category: "review",
-    variables: ["characterDossiers", "generatedProse"],
+    variables: ["prompt", "novelId", "branchId", "dimensionName", "dimensionCode"],
     bilingual: false,
   },
   {
     agentId: "continuity_review",
     name: "连贯性审查",
-    description: "检查逻辑矛盾：因果链断裂、物体凭空出现、已死角色说话、时间线错乱",
+    description: "检查逻辑矛盾、时间线、生死状态",
     category: "review",
-    variables: ["chapterSummaries", "characterStates", "generatedProse"],
+    variables: ["prompt", "novelId", "branchId", "dimensionName", "dimensionCode"],
     bilingual: false,
   },
   {
     agentId: "foreshadowing_review",
     name: "伏笔追踪审查",
-    description: "识别新埋伏笔、标记已回收伏笔、警告到达回收窗口的伏笔",
+    description: "识别新伏笔、推进与回收",
     category: "review",
-    variables: ["foreshadowingLedger", "generatedProse"],
+    variables: ["prompt", "novelId", "branchId", "dimensionName", "dimensionCode"],
     bilingual: false,
   },
   {
     agentId: "style_review",
     name: "风格一致性审查",
-    description: "对照风格指纹检查：句长偏离、AI味表达、句式单调、对话比例异常",
+    description: "对照文风检查句式、AI 味、对话比例",
     category: "review",
-    variables: ["styleProfiles", "generatedProse"],
+    variables: ["prompt", "novelId", "branchId", "dimensionName", "dimensionCode"],
     bilingual: false,
   },
   {
     agentId: "world_review",
     name: "世界观审查",
-    description: "检查力量体系规则是否被打破、社会结构/势力关系是否正确、地点矛盾",
+    description: "检查力量体系、势力、地点是否越界",
     category: "review",
-    variables: ["worldBible", "generatedProse"],
+    variables: ["prompt", "novelId", "branchId", "dimensionName", "dimensionCode"],
     bilingual: false,
   },
   {
     agentId: "pacing_review",
     name: "节奏审查",
-    description: "检查节奏是否符合要求、冲突强度是否匹配故事节点、是否拖沓或仓促",
+    description: "检查节奏与冲突强度是否匹配",
     category: "review",
-    variables: ["currentTask", "generatedProse"],
+    variables: ["prompt", "novelId", "branchId", "dimensionName", "dimensionCode"],
     bilingual: false,
   },
 ];
@@ -146,6 +185,7 @@ export function getAgentMeta(agentId: string): AgentPromptMeta | undefined {
 
 export function getAgentsByCategory(): Record<string, AgentPromptMeta[]> {
   const groups: Record<string, AgentPromptMeta[]> = {
+    master: [],
     extraction: [],
     simulation: [],
     writing: [],

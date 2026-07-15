@@ -2,6 +2,7 @@ import { register } from "./registry";
 import { registerAgent, getAgent } from "./agent-registry";
 import { branchTools } from "./agents/branch-tools";
 import { intermediateTools } from "./agents/intermediate-tools";
+import { libraryTools } from "./agents/library-tools";
 import { outlineAgent } from "./agents/outline";
 import { writerAgent } from "./agents/writer";
 import {
@@ -108,6 +109,10 @@ export function initRegistry(): void {
   }
 
   for (const tool of intermediateTools) {
+    register(tool);
+  }
+
+  for (const tool of libraryTools) {
     register(tool);
   }
 }

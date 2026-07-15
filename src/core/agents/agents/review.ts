@@ -2,11 +2,9 @@ import type { AgentDef, TrailMessage } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { saveFindingsLocked } from "../intermediate-store";
 import { extractJSON } from "@/lib/utils";
-import { renderPrompt } from "@/core/prompts/renderer";
+import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
 import { branchTools } from "./branch-tools";
 import { intermediateReadTools } from "./intermediate-tools";
-import fs from "fs";
-import path from "path";
 
 // Review: read prose + branch context only; findings saved by execute layer
 const TOOLS = [
@@ -17,25 +15,6 @@ const TOOLS = [
 }));
 
 const SEVERITIES = new Set(["critical", "major", "minor"]);
-
-/** Parse review-guidelines.md → { character: "…", continuity: "…", … } */
-function loadGuidelines(): Record<string, string> {
-  const p = path.join(process.cwd(), "src", "core", "prompts", "review-guidelines.md");
-  const raw = fs.readFileSync(p, "utf-8");
-  const map: Record<string, string> = {};
-  const re = /^##\s+(\w+)\s*\n([\s\S]*?)(?=^##\s+\w+\s*$|$)/gm;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(raw)) !== null) {
-    map[m[1]] = m[2].trim();
-  }
-  return map;
-}
-
-let guidelinesCache: Record<string, string> | null = null;
-function guidelineFor(code: string): string {
-  if (!guidelinesCache) guidelinesCache = loadGuidelines();
-  return guidelinesCache[code] || `你是「${code}」维度审查员。检查生成正文在该维度上的问题。`;
-}
 
 /** Prefer first JSON array in text; also accept { findings: [...] }. Ignore any trailing prose. */
 function parseFindingsArray(raw: string): { items: any[]; jsonSlice: string; ok: boolean } {
@@ -99,16 +78,21 @@ function cleanTrailJson(trail: TrailMessage[], jsonSlice: string): TrailMessage[
   return out;
 }
 
+/** Admin agentId for each review dimension */
+const REVIEW_AGENT_IDS: Record<string, string> = {
+  character: "character_consistency_review",
+  continuity: "continuity_review",
+  foreshadowing: "foreshadowing_review",
+  style: "style_review",
+  world: "world_review",
+  pacing: "pacing_review",
+};
+
 function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef {
   return {
     execute: async (ctx, llm, _onChunk, onTrail) => {
-      const guideline = guidelineFor(dimensionCode);
-      const sys = renderPrompt("review-system.md", {
-        guideline,
-        dimensionName,
-        dimensionCode,
-      });
-      const uc = renderPrompt("review-user.md", {
+      const agentId = REVIEW_AGENT_IDS[dimensionCode] || "character_consistency_review";
+      const { system: sys, user: uc } = resolveAgentPrompt(agentId, "zh", {
         prompt: ctx.prompt,
         novelId: ctx.novelId,
         branchId: ctx.branchId,
@@ -128,7 +112,7 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
       return {
         content: ok
           ? `${dimensionName}: ${findings.length} findings，已存储。主 agent 可用 get_findings 获取。`
-          : `${dimensionName}: JSON 解析失败，已按 0 findings 存储。可重试该审查。`,
+          : `${dimensionName}: 输出未能解析为 JSON 数组，已存 0 findings。`,
         messages: cleanedTrail,
       };
     },
@@ -137,7 +121,7 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
 
 export const reviewCharacterAgent = makeReviewAgent("角色一致性", "character");
 export const reviewContinuityAgent = makeReviewAgent("连贯性", "continuity");
-export const reviewForeshadowingAgent = makeReviewAgent("伏笔", "foreshadowing");
-export const reviewStyleAgent = makeReviewAgent("风格", "style");
+export const reviewForeshadowingAgent = makeReviewAgent("伏笔追踪", "foreshadowing");
+export const reviewStyleAgent = makeReviewAgent("风格一致性", "style");
 export const reviewWorldAgent = makeReviewAgent("世界观", "world");
 export const reviewPacingAgent = makeReviewAgent("节奏", "pacing");

@@ -5,7 +5,8 @@ const PROMPTS_DIR = path.join(process.cwd(), "src", "core", "prompts");
 
 /** Load prompt template, cached in memory after first read */
 const cache = new Map<string, string>();
-function loadTemplate(name: string): string {
+
+export function loadPromptFile(name: string): string {
   if (cache.has(name)) return cache.get(name)!;
   const p = path.join(PROMPTS_DIR, name);
   const t = fs.readFileSync(p, "utf-8");
@@ -13,13 +14,16 @@ function loadTemplate(name: string): string {
   return t;
 }
 
+/** Clear md cache (tests / hot-reload after file edit). */
+export function clearPromptFileCache(): void {
+  cache.clear();
+}
+
 /**
- * Render a prompt template with {{variable}} and {{#block}}...{{/block}} syntax.
- * {{var}} replaces with the value.
- * {{#var}}...{{/var}} shows the block only if var is truthy. Inside, {{.}} renders the value itself.
+ * Render an in-memory template string with {{variable}} and {{#block}}...{{/block}}.
  */
-export function renderPrompt(templateName: string, vars: Record<string, any>): string {
-  let t = loadTemplate(templateName);
+export function renderTemplate(template: string, vars: Record<string, any> = {}): string {
+  let t = template;
 
   // Handle block sections: {{#key}}...{{/key}} — shown only if vars[key] is truthy
   t = t.replace(/\{\{#(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g, (_, key, content) => {
@@ -28,7 +32,6 @@ export function renderPrompt(templateName: string, vars: Record<string, any>): s
 
   // Handle {{.}} as the value of the current block variable
   t = t.replace(/\{\{\.\}\}/g, (match, offset) => {
-    // Find which block we're in using exec instead of matchAll
     const before = t.slice(0, offset);
     const re = /\{\{#(\w+)\}\}/g;
     let lastKey = "";
@@ -51,4 +54,11 @@ export function renderPrompt(templateName: string, vars: Record<string, any>): s
   });
 
   return t;
+}
+
+/**
+ * Render a prompt template file with {{variable}} and {{#block}}...{{/block}} syntax.
+ */
+export function renderPrompt(templateName: string, vars: Record<string, any> = {}): string {
+  return renderTemplate(loadPromptFile(templateName), vars);
 }

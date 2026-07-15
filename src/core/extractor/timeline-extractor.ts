@@ -1,6 +1,7 @@
 import type { ChapterTimeline, TimelineEvent, CharacterChapterState, ParsedNovel } from "@/types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { isChinese, generateId } from "@/lib/utils";
+import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
 
 // === Timeline Extractor ===
 // Recursively builds a chapter-by-chapter timeline from the novel.
@@ -155,23 +156,10 @@ export class TimelineExtractor {
       ? chapterText.slice(0, maxLen) + "\n...(后续省略)"
       : chapterText;
 
-    const prompt = this.useChinese
-      ? `梳理下列小说章节中发生的关键事件，按时间顺序列出。
-
-章节: ${chapterTitle}
-内容:
-${truncated}
-
-每个事件包含: title(事件名), description(简要描述), involvedCharacters(参与角色名), outcomes(事件结果), charactersChanged(角色名→其状态变化)。
-仅列出有实质情节推进的事件(3-8个)，忽略纯过渡描写。`
-      : `Extract key events from this chapter in chronological order.
-
-Chapter: ${chapterTitle}
-Content:
-${truncated}
-
-For each event: title, description, involvedCharacters (array), outcomes (array), charactersChanged (object mapping name→delta).
-List only events that advance the plot (3-8). Skip pure transitions.`;
+    const prompt = resolveAgentSystem("timeline", this.useChinese ? "zh" : "en", {
+      chapterTitle,
+      truncated,
+    });
 
     const result = await llm.chatWithTool<{ chapterTitle: string; events: any[] }>(
       [{ role: "user", content: prompt }],
@@ -215,28 +203,12 @@ List only events that advance the plot (3-8). Skip pure transitions.`;
       }
     }
 
-    const prompt = this.useChinese
-      ? `识别以下章节结束时所有角色的状态。
-
-章节: ${chapterTitle}
-内容:
-${truncated}
-
-已知角色名(可能不完整): ${knownNames.join(", ") || "未提供"}
-上一章末状态: ${prevStateDesc}
-
-对每个在本章中出现的角色，给出: name, alive(true/false), location(当前位置), delta(从上一章到本章结束的状态变化，1句话)。
-注意: 如果角色在本章未出现，不要列出。`
-      : `Identify all characters'' state at the end of this chapter.
-
-Chapter: ${chapterTitle}
-Content:
-${truncated}
-
-Known character names: ${knownNames.join(", ") || "none"}
-Previous end-of-chapter states: ${prevStateDesc}
-
-For each character appearing in this chapter: name, alive, location, delta (state change from previous chapter, one sentence).`;
+    const prompt = resolveAgentSystem("timeline_states", this.useChinese ? "zh" : "en", {
+      chapterTitle,
+      truncated,
+      knownNames: knownNames.join(", ") || (this.useChinese ? "未提供" : "none"),
+      prevStateDesc,
+    });
 
     const result = await llm.chatWithTool<{ characterStates: any[] }>(
       [{ role: "user", content: prompt }],

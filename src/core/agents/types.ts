@@ -50,6 +50,12 @@ export interface AgentContext {
   novelId: string;
   branchId: string;
   userId: string;
+  /** Writing style from global library (single-select). */
+  selectedStyleId?: string | null;
+  /** Outline ideas from global library (max 3). */
+  selectedIdeaIds?: string[];
+  /** Outline agent may auto-pick ideas if none selected. */
+  autoPickIdeas?: boolean;
 }
 
 export type StreamEvent =

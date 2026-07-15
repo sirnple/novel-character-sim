@@ -6,7 +6,7 @@ import { getTool, buildToolSchemas } from "@/core/agents/registry";
 import { getAgent } from "@/core/agents/agent-registry";
 import { initRegistry } from "@/core/agents/init";
 import { runReviewsParallel } from "@/core/agents/agents/run-reviews";
-import { renderPrompt } from "@/core/prompts/renderer";
+import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
 import type { LLMMessage, SystemMessage, UserMessage, AssistantMessage, ToolMessage, ToolSchema } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,12 @@ export async function POST(request: NextRequest) {
   const rate = checkRateLimit(userId, "agent_chat", { windowMs: 60_000, maxRequests: 10 });
   if (!rate.allowed) return new Response(JSON.stringify({ error: rateLimitMessage(rate) }), { status: 429, headers: { "Content-Type": "application/json" } });
 
-  const { messages, branchId, novelId } = await request.json();
+  const {
+    messages, branchId, novelId,
+    selectedStyleId = null,
+    selectedIdeaIds = [],
+    autoPickIdeas = true,
+  } = await request.json();
   if (!branchId || !novelId) return new Response(JSON.stringify({ error: "branchId and novelId required" }), { status: 400, headers: { "Content-Type": "application/json" } });
 
   const llm = createLLMProvider();
@@ -38,7 +43,7 @@ export async function POST(request: NextRequest) {
     "get_outline", "get_findings", "clear_findings",
   ]);
   const toolSchemas: ToolSchema[] = buildToolSchemas().filter(t => MASTER_TOOL_ALLOW.has(t.name));
-  const sysPrompt = renderPrompt("master-system.md", { novelId, branchId });
+  const sysPrompt = resolveAgentSystem("master", "zh", { novelId, branchId });
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -64,7 +69,15 @@ export async function POST(request: NextRequest) {
           send({ type: "tool_trail", toolCallId, messages, tool: agentType });
         };
         const result = await agentDef.execute(
-          { prompt, novelId, branchId, userId },
+          {
+            prompt,
+            novelId,
+            branchId,
+            userId,
+            selectedStyleId,
+            selectedIdeaIds: Array.isArray(selectedIdeaIds) ? selectedIdeaIds.slice(0, 3) : [],
+            autoPickIdeas: !!autoPickIdeas,
+          },
           llm,
           onChunk,
           onTrail,

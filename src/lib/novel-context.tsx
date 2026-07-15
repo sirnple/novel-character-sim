@@ -16,6 +16,12 @@ interface NovelState {
   sessionContinueOffset?: number;
   sessionContinueLabel?: string;
   generatedProse?: string;
+  /** Writing: selected style from global library (single) */
+  selectedStyleId?: string | null;
+  /** Outline: selected idea ids (max 3) */
+  selectedIdeaIds?: string[];
+  /** Outline agent may auto-pick ideas if none selected */
+  autoPickIdeas?: boolean;
 }
 
 interface NovelContextType extends NovelState {
@@ -27,6 +33,9 @@ interface NovelContextType extends NovelState {
   setBranches: (b: Branch[]) => void;
   setActiveBranchId: (id: string | undefined) => void;
   setNovelText: (text: string) => void;
+  setSelectedStyleId: (id: string | null) => void;
+  setSelectedIdeaIds: (ids: string[]) => void;
+  setAutoPickIdeas: (v: boolean) => void;
 }
 
 const NovelContext = createContext<NovelContextType | null>(null);
@@ -41,13 +50,24 @@ const DEFAULT: NovelState = {
   lastChapterStates: [],
   branches: [],
   activeBranchId: "main",
+  selectedStyleId: null,
+  selectedIdeaIds: [],
+  autoPickIdeas: true,
 };
 
 export function NovelProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<NovelState>(DEFAULT);
 
   const setNovel = useCallback((data: Partial<NovelState>) => {
-    setState(prev => ({ ...prev, ...data }));
+    setState(prev => {
+      const next = { ...prev, ...data };
+      // Switching novel: clear style selection so sidebar defaults to the new book's style
+      if (data.novelId && data.novelId !== prev.novelId) {
+        next.selectedStyleId = null;
+        next.selectedIdeaIds = [];
+      }
+      return next;
+    });
   }, []);
 
   const clearNovel = useCallback(() => setState(DEFAULT), []);
@@ -76,8 +96,25 @@ export function NovelProvider({ children }: { children: ReactNode }) {
     setState(prev => ({ ...prev, novelText: text }));
   }, []);
 
+  const setSelectedStyleId = useCallback((id: string | null) => {
+    setState(prev => ({ ...prev, selectedStyleId: id }));
+  }, []);
+
+  const setSelectedIdeaIds = useCallback((ids: string[]) => {
+    setState(prev => ({ ...prev, selectedIdeaIds: ids.slice(0, 3) }));
+  }, []);
+
+  const setAutoPickIdeas = useCallback((v: boolean) => {
+    setState(prev => ({ ...prev, autoPickIdeas: v }));
+  }, []);
+
   return (
-    <NovelContext.Provider value={{ ...state, setNovel, clearNovel, setCharacters, setStoryInfo, setTimeline, setBranches, setActiveBranchId, setNovelText }}>
+    <NovelContext.Provider value={{
+      ...state,
+      setNovel, clearNovel, setCharacters, setStoryInfo, setTimeline,
+      setBranches, setActiveBranchId, setNovelText,
+      setSelectedStyleId, setSelectedIdeaIds, setAutoPickIdeas,
+    }}>
       {children}
     </NovelContext.Provider>
   );

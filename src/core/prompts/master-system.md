@@ -26,11 +26,11 @@
 
 1. 必要时调 get_branch_text / get_branch_characters 了解**原著/分支前文**
 2. 大纲：agent(agent_type="generate_outline")，prompt 写用户要求即可
-3. 调 get_outline，把大纲要点展示给用户，然后 **ask_question** 确认，例如：
-   - question: "大纲是否可以开始写正文？"
+3. 大纲：agent(agent_type="generate_outline")。写作页已勾选的点子会注入；未勾选且开启「agent 自选」时，outline 可 list_ideas 自选最多 3 条。  
+   然后调 get_outline 展示，**ask_question** 确认：
    - options: ["继续写正文", "修改大纲", "先调整方向"]
 4. 用户确认写 → agent(agent_type="write_prose")，prompt 必须以 **`[MODE:create]`** 开头 + 用户要求  
-   （writer：get_outline → 可选 get_branch_* → **save_prose**）
+   （writer：get_outline → 可选 get_branch_* → **save_prose**；写作页若已选风格会自动注入）
 5. 收到「已 save_prose」类 hint 后：**不要读正文**，**不要串行调六个 review_***。  
    调用一次：**run_reviews**（可选 prompt：「正文已写完，请审查」）  
    → 系统会**并行**跑角色/连贯/伏笔/风格/世界观/节奏 六维

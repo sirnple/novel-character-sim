@@ -1,9 +1,10 @@
 import type { AgentDef, TrailMessage } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { getProse } from "../intermediate-store";
-import { renderPrompt } from "@/core/prompts/renderer";
+import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
 import { branchTools } from "./branch-tools";
 import { intermediateReadTools, saveProseTool } from "./intermediate-tools";
+import { getStyle } from "@/lib/db";
 import {
   looksLikeFindingsNotProse,
   looksLikeRevisionPlanNotProse,
@@ -87,15 +88,34 @@ export const writerAgent: AgentDef = {
       }
     }
 
-    const sys = isRewrite
-      ? renderPrompt("writer-rewrite-system.md", {})
-      : renderPrompt("writer-create-system.md", {});
+    const agentId = isRewrite ? "writer_rewrite" : "writer_create";
+    const { system: sys, user: baseUser } = resolveAgentPrompt(agentId, "zh", {
+      prompt: ctx.prompt,
+      novelId: ctx.novelId,
+      branchId: ctx.branchId,
+    });
     const tools = isRewrite ? REWRITE_TOOLS : CREATE_TOOLS;
 
-    const uc = renderPrompt(
-      isRewrite ? "writer-rewrite-user.md" : "writer-create-user.md",
-      { prompt: ctx.prompt, novelId: ctx.novelId, branchId: ctx.branchId },
-    );
+    let styleBlock = "";
+    if (ctx.selectedStyleId) {
+      const st = getStyle(ctx.userId, ctx.selectedStyleId);
+      if (st) {
+        const s = st.style;
+        styleBlock =
+          `\n\n## 选用风格：${st.name}\n` +
+          `${st.description || s.styleDescription || ""}\n` +
+          `类型：${s.genre || ""} · 基调：${s.tone || ""}\n` +
+          `语言：${s.languageFeatures || ""}\n` +
+          `节奏：${s.pacingDescription || ""}\n` +
+          `手法：${(s.narrativeTechniques || []).join("、")}\n` +
+          (s.examplePassages?.length
+            ? `范例：\n${s.examplePassages.map(p => `【${p.aspect}】${(p.text || "").slice(0, 300)}`).join("\n")}\n`
+            : "") +
+          `请严格模仿上述文风写作。`;
+      }
+    }
+
+    const uc = baseUser + styleBlock;
 
     const run = (user: string) =>
       runSubAgentToolLoop(

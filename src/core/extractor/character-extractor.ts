@@ -2,6 +2,7 @@ import type { CharacterProfile, ParsedNovel } from "@/types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { buildNovelContext } from "@/core/parser/novel-parser";
 import { generateId, isChinese } from "@/lib/utils";
+import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
 
 // ============================================================
 // Character Extraction Engine
@@ -330,25 +331,10 @@ export class CharacterExtractor {
       }
     };
 
-    const prompt = this.zh
-      ? `分析小说末尾（最新内容）所有角色的当前状态。这是"此刻"的切片，不是全书总结。
-
-最近内容:
-${recentText.slice(0, 12000)}
-
-已知角色名: ${knownNames.join(", ")}
-注意: 只列出在被截断文本中出现的角色。如果不确定角色是否存活，从原文推断。
-
-对每个出现的角色: name, alive(true/false), location(当前位置), delta(从最近情节到当前时刻的状态变化，1句话)`
-      : `Analyze the END-state of all characters in the latest content. This is a "now" snapshot, not a full-book summary.
-
-Recent content:
-${recentText.slice(0, 12000)}
-
-Known character names: ${knownNames.join(", ")}
-Only list characters who appear in the given text. Infer alive/dead from context.
-
-For each: name, alive, location, delta (one-sentence state change from recent events)`;
+    const prompt = resolveAgentSystem("chapter_end_states", this.zh ? "zh" : "en", {
+      recentText: recentText.slice(0, 12000),
+      knownNames: knownNames.join(", "),
+    });
 
     const result = await llm.chatWithTool<{ characterStates: any[] }>(
       [{ role: "user", content: prompt }],
@@ -375,22 +361,12 @@ For each: name, alive, location, delta (one-sentence state change from recent ev
     console.log(`[Extractor] Pass 1: Identifying characters (contextLen=${this.novelContext.length})...`);
     const t0 = Date.now();
 
-    const promptZh = `你是文学分析家。阅读以下小说，识别所有有名有姓的角色。
-
-小说全文：
-${this.novelContext}
-
-对每个角色提供 name（名字）、aliases（别名列表）、role（protagonist/antagonist/supporting/minor）、briefDescription（一句话简介，20字以内）。列出所有角色。`;
-
-    const promptEn = `You are a literary analyst. Identify ALL named characters in this novel.
-
-Novel text:
-${this.novelContext}
-
-Return JSON with name, aliases, role (protagonist/antagonist/supporting/minor), briefDescription (brief!). Include every named character.`;
+    const prompt = resolveAgentSystem("character_list", this.zh ? "zh" : "en", {
+      novelContext: this.novelContext,
+    });
 
     const result = await llm.chatWithTool<{ characters: RawCharacter[] }>(
-      [{ role: "user", content: this.zh ? promptZh : promptEn }],
+      [{ role: "user", content: prompt }],
       CHARACTER_LIST_SCHEMA,
       { temperature: 0.3, maxTokens: 8192 }
     );
@@ -403,47 +379,15 @@ Return JSON with name, aliases, role (protagonist/antagonist/supporting/minor), 
     llm: ReturnType<typeof createLLMProvider>,
     character: RawCharacter
   ): Promise<CharacterDetail> {
-    const promptZh = `深度分析角色"${character.name}"（${character.briefDescription}）。
-
-小说原文：
-${this.novelContext}
-
-角色: ${character.name} (定位: ${character.role})
-
-请基于原文分析以下维度（每项简练，用原文证据支撑）：
-
-1. appearance: 外貌描述（年龄、体型、容貌、着装、气质，2-3句话）
-2. personality: 3-5个性格特征 + 详细描述 + 决策风格（冲动/谨慎？感性/理性？）+ 压力下如何反应
-3. drive: 核心目标 + 动机 + 最大恐惧 + 性格弱点 + 底线 + 秘密（如果有）
-4. behavior: 1-3个行为模式 + 1-2个习惯 + 对权威的态度
-5. worldview: 1-2句世界观
-6. values: 3-5个核心价值观
-7. speakingStyle: 整体描述 + 口头禅 + 句式特点 + 词汇水平 + 情绪表达方式
-8. background: 出身 + 2-3个关键事件 + 整体背景
-
-如果你不确定某个维度（比如小说中没有透露角色的秘密），请根据角色性格合理推断，标注"（推测）"。保持简洁，每个维度不要太长。`;
-
-    const promptEn = `Deep-dive analysis of "${character.name}" (${character.briefDescription}).
-
-NOVEL CONTEXT:
-${this.novelContext}
-
-Character: ${character.name} (Role: ${character.role})
-
-Analyze based on the text:
-1. appearance: summary (age, build, features, attire, presence)
-2. personality: 3-5 traits + description + decision style + under pressure
-3. drive: goal + motivation + fear + weakness + bottom line + secret
-4. behavior: patterns + habits + attitude to authority
-5. worldview
-6. values: 3-5
-7. speakingStyle: description + catchphrases + sentence style + vocabulary + emotional expression
-8. background: origin + 2-3 key events + overall
-
-Be evidence-based. Infer reasonably where the text is silent. Keep it CONCISE.`;
+    const prompt = resolveAgentSystem("character_detail", this.zh ? "zh" : "en", {
+      characterName: character.name,
+      characterBrief: character.briefDescription,
+      characterRole: character.role,
+      novelContext: this.novelContext,
+    });
 
     const result = await llm.chatWithTool<CharacterDetail>(
-      [{ role: "user", content: this.zh ? promptZh : promptEn }],
+      [{ role: "user", content: prompt }],
       CHARACTER_DETAIL_SCHEMA,
       { temperature: 0.5, maxTokens: 8192 }
     );
@@ -455,38 +399,13 @@ Be evidence-based. Infer reasonably where the text is silent. Keep it CONCISE.`;
     llm: ReturnType<typeof createLLMProvider>,
     characterNames: string[]
   ): Promise<RawRelationship[]> {
-    const promptZh = `你是一位文学分析家。请分析以下角色之间的关系网络。
-
-角色列表: ${characterNames.join(", ")}
-
-对每对有重要互动的角色，描述：
-- characterA 和 characterB
-- type: family/friend/enemy/rival/lover/colleague/mentor-student/acquaintance/other
-- description: 关系动态的详细描述
-- history: 两人如何认识、经历过什么关键事件
-- dynamics: 权力动态——谁占主导、谁被动、互相利用还是平等？
-
-小说原文：
-${this.novelContext}
-
-包含所有重要关系，不要遗漏。`;
-
-    const promptEn = `Map relationships between these characters.
-
-Characters: ${characterNames.join(", ")}
-
-For each pair with meaningful interaction:
-- characterA and characterB
-- type: family/friend/enemy/rival/lover/colleague/mentor-student/acquaintance/other
-- description: relationship dynamics
-- history: how they met, key shared events
-- dynamics: power balance — who dominates, equal, mutual dependency?
-
-NOVEL CONTEXT:
-${this.novelContext}`;
+    const prompt = resolveAgentSystem("relationships", this.zh ? "zh" : "en", {
+      characterNames: characterNames.join(", "),
+      novelContext: this.novelContext,
+    });
 
     const result = await llm.chatWithTool<{ relationships: RawRelationship[] }>(
-      [{ role: "user", content: this.zh ? promptZh : promptEn }],
+      [{ role: "user", content: prompt }],
       RELATIONSHIP_SCHEMA,
       { temperature: 0.3, maxTokens: 16384 }
     );

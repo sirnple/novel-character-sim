@@ -163,7 +163,8 @@ export interface StoryInfo {
   worldSetting: WorldSetting;
   backgroundInfo: string;     // General background/context
   themes: string[];           // Themes of the novel
-  writingStyle: WritingStyle;  // Original novel's writing style
+  /** Filled by style extract module (not story extract). May be empty until style is run. */
+  writingStyle: WritingStyle;
 }
 
 export interface WritingStyle {
@@ -178,6 +179,54 @@ export interface WritingStyle {
   /** Original novel's content level for adult/explicit content */
   contentRating: ContentRating;
 }
+
+/** Global style library entry (user-scoped, cross-novel reusable). */
+export interface StyleLibraryEntry {
+  id: string;
+  name: string;
+  description: string;
+  /** Reuses WritingStyle shape when extracted from a novel. */
+  style: WritingStyle;
+  source: "extracted" | "manual";
+  /** Novel this entry was extracted from; empty if manual-only. */
+  sourceNovelId: string;
+  sourceNovelTitle: string;
+  createdAt?: string;
+}
+
+/** Preset idea tags */
+export type IdeaTag =
+  | "设定"
+  | "剧情"
+  | "角色"
+  | "冲突"
+  | "伏笔"
+  | "氛围"
+  | "对白"
+  | string;
+
+/** Global idea bank entry (user-scoped, cross-novel reusable). */
+export interface IdeaLibraryEntry {
+  id: string;
+  title: string;
+  content: string;
+  tags: IdeaTag[];
+  source: "extracted" | "manual";
+  sourceNovelId: string;
+  sourceNovelTitle: string;
+  createdAt?: string;
+}
+
+/** Modular extraction modules user can select. */
+export type ExtractModule = "story" | "characters" | "timeline" | "style" | "ideas";
+
+export const EXTRACT_MODULES: { id: ExtractModule; label: string; hint: string }[] = [
+  { id: "story", label: "故事/世界观", hint: "情节摘要、主线、世界观" },
+  { id: "characters", label: "角色", hint: "角色档案与关系" },
+  { id: "timeline", label: "时间线", hint: "章节事件与末章状态" },
+  { id: "style", label: "风格", hint: "写入全局风格库（原著文风）" },
+  { id: "ideas", label: "点子", hint: "写入全局点子库（续写火花）" },
+];
 
 export interface ContentRating {
   /** e.g., "无", "轻度暧昧", "情色描写", "露骨色情" */

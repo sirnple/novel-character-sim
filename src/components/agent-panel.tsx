@@ -385,7 +385,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<AgentMessage[]>([]);
-  const { setNovel } = useNovel();
+  const { setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas } = useNovel();
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -408,6 +408,9 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
           messages: buildOutgoingMessages(history, userMsg),
           branchId,
           novelId,
+          selectedStyleId: selectedStyleId ?? null,
+          selectedIdeaIds: selectedIdeaIds || [],
+          autoPickIdeas: autoPickIdeas !== false,
         }),
         signal: abort.signal,
       });
@@ -609,7 +612,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     }
     abortRef.current = null;
     setStatus("idle");
-  }, [branchId, novelId, setNovel]);
+  }, [branchId, novelId, setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas]);
 
   const handleSend = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();

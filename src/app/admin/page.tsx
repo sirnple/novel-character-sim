@@ -15,13 +15,15 @@ interface AgentRow {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
+  master: "主编",
   extraction: "提取",
-  simulation: "模拟",
+  simulation: "大纲",
   writing: "写作",
   review: "审查",
 };
 
 const CATEGORY_ICONS: Record<string, string> = {
+  master: "🎯",
   extraction: "🔍",
   simulation: "📋",
   writing: "✍️",
