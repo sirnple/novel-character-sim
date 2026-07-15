@@ -16,12 +16,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
 
-  // Admin keeps its own chrome
+  const onImportClick = useCallback(() => setShowUpload(true), []);
+
+  // Admin keeps its own chrome (after all hooks)
   if (pathname?.startsWith("/admin")) {
     return <>{children}</>;
   }
-
-  const onImportClick = useCallback(() => setShowUpload(true), []);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">

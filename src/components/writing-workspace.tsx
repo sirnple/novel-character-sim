@@ -690,8 +690,8 @@ export default function WritingWorkspace({
                   <div className="text-center">
                     <Bot className="w-12 h-12 mx-auto mb-4 text-neutral-700 opacity-50" />
                     <p className="text-base text-neutral-500 font-mono">大纲已就绪</p>
-                    <p className="text-sm text-neutral-700 mt-2">编辑左侧大纲后点击"开始写作"</p>
-                    <p className="text-xs text-neutral-700 mt-1">也可以点击"AI 生成大纲"让大纲 Agent 自动生成大纲</p>
+                    <p className="text-sm text-neutral-700 mt-2">编辑左侧大纲后点击「开始写作」</p>
+                    <p className="text-xs text-neutral-700 mt-1">也可以点击「AI 生成大纲」让大纲 Agent 自动生成大纲</p>
                   </div>
                 </div>
               ) : (

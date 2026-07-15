@@ -30,9 +30,27 @@ export default function StoryTimeline({ timeline, lastChapterStates }: StoryTime
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(true);
 
-  if (!timeline || timeline.chapters.length === 0) return null;
+  const events =
+    timeline && timeline.chapters.length > 0 ? flattenEvents(timeline) : [];
+  const eventCount = events.length;
 
-  const events = flattenEvents(timeline);
+  useEffect(() => {
+    if (eventCount === 0) return;
+    const updateArrows = () => {
+      const el = scrollRef.current;
+      if (!el) return;
+      setCanLeft(el.scrollLeft > 8);
+      setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
+    };
+    updateArrows();
+    const el = scrollRef.current;
+    if (el) {
+      el.addEventListener("scroll", updateArrows, { passive: true });
+      return () => el.removeEventListener("scroll", updateArrows);
+    }
+  }, [eventCount]);
+
+  if (!timeline || timeline.chapters.length === 0) return null;
   if (events.length === 0) return null;
 
   // 角色配色
@@ -40,22 +58,6 @@ export default function StoryTimeline({ timeline, lastChapterStates }: StoryTime
   const palette = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"];
   const charColors: Record<string, string> = {};
   allChars.forEach((c, i) => { charColors[c] = palette[i % palette.length]; });
-
-  const updateArrows = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    setCanLeft(el.scrollLeft > 8);
-    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
-  };
-
-  useEffect(() => {
-    updateArrows();
-    const el = scrollRef.current;
-    if (el) {
-      el.addEventListener("scroll", updateArrows, { passive: true });
-      return () => el.removeEventListener("scroll", updateArrows);
-    }
-  }, [events.length]);
 
   const scroll = (dir: -1 | 1) => scrollRef.current?.scrollBy({ left: dir * 320, behavior: "smooth" });
 
