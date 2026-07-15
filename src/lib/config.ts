@@ -1,15 +1,9 @@
 import type { AppConfig, LLMProviderType } from "@/types";
+import { runtimeEnv } from "@/lib/runtime-env";
 
-/**
- * Read an env var at RUNTIME (not build-time).
- *
- * IMPORTANT: We use bracket notation `process.env[name]` instead of
- * `process.env.NAME` because Next.js webpack's DefinePlugin inlines
- * the latter at build time.  Bracket notation survives bundling so
- * Railway / Docker runtime variables are picked up correctly.
- */
+/** Runtime env (Railway/Docker). See runtime-env.ts. */
 function env(name: string, fallback: string = ""): string {
-  return (process.env as Record<string, string | undefined>)[name] || fallback;
+  return runtimeEnv(name, fallback);
 }
 
 export function getAppConfig(): AppConfig {

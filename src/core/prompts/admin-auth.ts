@@ -1,16 +1,12 @@
 import { NextRequest } from "next/server";
+import { runtimeEnvOptional } from "@/lib/runtime-env";
 
 /**
- * Read at RUNTIME (bracket notation).
- * process.env.ADMIN_PASSWORD is inlined at Next.js build time if written as
- * process.env.ADMIN_PASSWORD — always use bracket access for Railway/Docker.
- *
- * No default password: if ADMIN_PASSWORD is unset/empty, login always fails.
+ * No default password. Requires ADMIN_PASSWORD at container runtime.
+ * Must use runtimeEnvOptional — not process.env.ADMIN_PASSWORD (build-time empty).
  */
 function adminPassword(): string | null {
-  const v = (process.env as Record<string, string | undefined>)["ADMIN_PASSWORD"];
-  const trimmed = typeof v === "string" ? v.trim() : "";
-  return trimmed.length > 0 ? trimmed : null;
+  return runtimeEnvOptional("ADMIN_PASSWORD");
 }
 
 // Simple in-memory session — resets on server restart
@@ -23,7 +19,9 @@ export type VerifyPasswordResult =
 export function verifyPassword(password: string): VerifyPasswordResult {
   const secret = adminPassword();
   if (!secret) {
-    console.error("[admin-auth] ADMIN_PASSWORD is not set — admin login disabled");
+    console.error(
+      "[admin-auth] ADMIN_PASSWORD is not set at runtime — admin login disabled",
+    );
     return { ok: false, reason: "not_configured" };
   }
   if (!password || password !== secret) {
