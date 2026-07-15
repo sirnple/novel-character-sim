@@ -22,7 +22,14 @@ export default function WritePage() {
   const [showForkDialog, setShowForkDialog] = useState(false);
 
   const activeBranch = branches.find(b => b.id === activeBranchId);
-  const currentText = activeBranchId ? (activeBranch?.text || "") : novelText;
+  const hasSelection = freeMode || activeBranchId === "main" || !!activeBranch;
+  const currentText =
+    freeMode || activeBranchId === "main"
+      ? novelText
+      : activeBranch
+        ? (activeBranch.text || "")
+        : "";
+
   const [queryOffset, setQueryOffset] = useState<string | null>(null);
   const [queryLabel, setQueryLabel] = useState<string | null>(null);
 
@@ -38,6 +45,7 @@ export default function WritePage() {
     }).catch(() => {});
   }, [novelId]);
 
+  // Sync writing target to context only after explicit selection (no silent default to main)
   useEffect(() => {
     if (activeBranchId && activeBranch) {
       setNovel({
@@ -46,14 +54,24 @@ export default function WritePage() {
         sessionContinueLabel: `分支: ${activeBranch.name}`,
       });
       setActiveBranchId(activeBranchId);
+    } else if (activeBranchId === "main" && !freeMode) {
+      setNovel({
+        sessionNovelText: novelText,
+        sessionContinueOffset: novelText.length,
+        sessionContinueLabel: "主线",
+      });
+      setActiveBranchId("main");
     } else if (freeMode) {
       setNovel({
         sessionNovelText: novelText,
         sessionContinueOffset: undefined,
         sessionContinueLabel: "自由创作",
       });
-      setActiveBranchId(undefined);
+      // Agent tools still bind to main line text; id marks "target chosen"
+      setActiveBranchId("main");
     } else if (queryOffset) {
+      setLocalBranchId("main");
+      setFreeMode(false);
       setNovel({
         sessionNovelText: novelText,
         sessionContinueOffset: parseInt(queryOffset),
@@ -61,12 +79,13 @@ export default function WritePage() {
       });
       setActiveBranchId("main");
     } else {
+      // No branch chosen yet — clear so layout hides agent panel
       setNovel({
         sessionNovelText: undefined,
         sessionContinueOffset: undefined,
         sessionContinueLabel: undefined,
       });
-      setActiveBranchId("main");
+      setActiveBranchId(undefined);
     }
   }, [activeBranchId, activeBranch?.text, freeMode, novelText, queryOffset, queryLabel]);
 
@@ -157,13 +176,27 @@ export default function WritePage() {
         <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
           <div className="flex items-center gap-2 text-xs font-mono">
             <BookOpen className="w-3.5 h-3.5 text-orange-500" />
-            <span className="text-neutral-400">{freeMode ? "自由创作" : activeBranch ? activeBranch.name : "主线"}</span>
-            <span className="text-neutral-600">{novelText.length.toLocaleString()} 字</span>
+            <span className="text-neutral-400">
+              {freeMode ? "自由创作" : activeBranch ? activeBranch.name : activeBranchId === "main" ? "主线" : "未选择分支"}
+            </span>
+            {hasSelection && (
+              <span className="text-neutral-600">{(currentText || novelText).length.toLocaleString()} 字</span>
+            )}
           </div>
           <a href={`/novel/${novelId}/read`} className="text-[10px] text-neutral-500 hover:text-neutral-300 font-mono">阅读模式</a>
         </div>
 
-        {freeMode ? (
+        {!hasSelection ? (
+          <div className="flex-1 flex items-center justify-center min-h-0">
+            <div className="text-center px-6">
+              <GitBranch className="w-10 h-10 mx-auto mb-3 text-neutral-700" />
+              <p className="text-sm text-neutral-400 font-mono mb-1">请先选择写作分支</p>
+              <p className="text-xs text-neutral-600 font-mono leading-relaxed">
+                在左侧点选「主线」、某个分支或「自由创作」后，才会打开助手面板。
+              </p>
+            </div>
+          </div>
+        ) : freeMode ? (
           <div ref={readerRef} onClick={handleEditorClick} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
             <div className="max-w-[800px] mx-auto p-6">
               <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
@@ -220,7 +253,7 @@ export default function WritePage() {
             </div>
           </div>
         )}
-        <ScrollEdgeButtons scrollRef={readerRef} />
+        {hasSelection && <ScrollEdgeButtons scrollRef={readerRef} />}
       </div>
 
       {/* Fork dialog */}

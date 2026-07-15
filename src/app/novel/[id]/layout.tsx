@@ -16,9 +16,13 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
     sessionNovelText, sessionContinueOffset, sessionContinueLabel,
     activeBranchId, novelId,
   } = useNovel();
-  const [showRightPanel, setShowRightPanel] = useState(true);
+  const [showRightPanel, setShowRightPanel] = useState(false);
   const [panelWidth, setPanelWidth] = useState(480);
   const [dragging, setDragging] = useState(false);
+
+  const onWritePage = pathname?.endsWith("/write") ?? false;
+  // Agent only after user picked a writing target (branch / main / free)
+  const agentAvailable = onWritePage && !!activeBranchId;
 
   const startDrag = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -50,6 +54,12 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
     }
   }, [id]);
 
+  // Open agent when a branch becomes available; close when leaving write / deselecting
+  useEffect(() => {
+    if (agentAvailable) setShowRightPanel(true);
+    else setShowRightPanel(false);
+  }, [agentAvailable]);
+
   const base = `/novel/${id}`;
   const nav = [
     { href: base, label: "概览", match: pathname === base },
@@ -75,23 +85,29 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
               {n.label}
             </Link>
           ))}
-          <button
-            type="button"
-            onClick={() => setShowRightPanel(!showRightPanel)}
-            className={`ml-auto p-1 rounded transition-colors ${
-              showRightPanel ? "text-orange-400 bg-orange-500/10" : "text-neutral-500 hover:text-neutral-300"
-            }`}
-            title="助手面板"
-          >
-            <PanelRight className="w-4 h-4" />
-          </button>
+          {agentAvailable ? (
+            <button
+              type="button"
+              onClick={() => setShowRightPanel(!showRightPanel)}
+              className={`ml-auto p-1 rounded transition-colors ${
+                showRightPanel ? "text-orange-400 bg-orange-500/10" : "text-neutral-500 hover:text-neutral-300"
+              }`}
+              title="助手面板"
+            >
+              <PanelRight className="w-4 h-4" />
+            </button>
+          ) : (
+            <span className="ml-auto text-[10px] text-neutral-600 font-mono hidden sm:inline">
+              {onWritePage ? "请先选择分支" : ""}
+            </span>
+          )}
         </div>
         <main className="flex-1 overflow-hidden flex flex-col bg-[#0a0a0a] min-h-0">
           {children}
         </main>
       </div>
 
-      {showRightPanel && (
+      {agentAvailable && showRightPanel && (
         <>
           <div
             onMouseDown={startDrag}

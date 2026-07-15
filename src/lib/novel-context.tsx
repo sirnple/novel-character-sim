@@ -11,6 +11,7 @@ interface NovelState {
   timeline: ChapterTimeline | null;
   lastChapterStates: CharacterChapterState[];
   branches: Branch[];
+  /** Empty string = writing target not chosen yet (no agent panel). */
   activeBranchId: string;
   sessionNovelText?: string;
   sessionContinueOffset?: number;
@@ -49,7 +50,7 @@ const DEFAULT: NovelState = {
   timeline: null,
   lastChapterStates: [],
   branches: [],
-  activeBranchId: "main",
+  activeBranchId: "",
   selectedStyleId: null,
   selectedIdeaIds: [],
   autoPickIdeas: true,
@@ -65,6 +66,10 @@ export function NovelProvider({ children }: { children: ReactNode }) {
       if (data.novelId && data.novelId !== prev.novelId) {
         next.selectedStyleId = null;
         next.selectedIdeaIds = [];
+        next.activeBranchId = "";
+        next.sessionNovelText = undefined;
+        next.sessionContinueOffset = undefined;
+        next.sessionContinueLabel = undefined;
       }
       return next;
     });
@@ -89,7 +94,8 @@ export function NovelProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setActiveBranchId = useCallback((id: string | undefined) => {
-    setState(prev => ({ ...prev, activeBranchId: id || "main" }));
+    // Empty / undefined = no branch selected (do not default to "main")
+    setState(prev => ({ ...prev, activeBranchId: id?.trim() || "" }));
   }, []);
 
   const setNovelText = useCallback((text: string) => {
