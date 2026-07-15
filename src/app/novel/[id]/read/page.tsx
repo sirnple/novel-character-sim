@@ -75,8 +75,8 @@ export default function ReadPage() {
     <div className="flex-1 relative min-h-0 flex flex-col overflow-hidden">
       <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
         {/* Header with branch selector */}
-        <div className="max-w-[800px] mx-auto px-6 pt-4 flex items-center gap-3">
-          <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider">阅读 · {novelTitle}</h2>
+        <div className="max-w-[800px] mx-auto px-4 sm:px-6 pt-4 flex flex-wrap items-center gap-2 sm:gap-3">
+          <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider min-w-0 truncate">阅读 · {novelTitle}</h2>
           <div className="flex items-center gap-2">
             <select
               value={selectedBranchId}

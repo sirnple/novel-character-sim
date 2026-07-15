@@ -19,22 +19,22 @@ export default function NovelPage() {
   }, [novelId]);
 
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6">
       <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-neutral-200 font-mono">{novelTitle}</h2>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-neutral-200 font-mono truncate">{novelTitle}</h2>
             <p className="text-xs text-neutral-500 mt-1">
               {novelText.length.toLocaleString()} 字 · {characters.length} 个角色 · {timeline?.totalChapters || 0} 章
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2 sm:gap-3 shrink-0">
             <Link href={`/novel/${novelId}/read`}
-              className="flex items-center gap-2 px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm font-mono rounded-lg transition-colors">
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm font-mono rounded-lg transition-colors">
               <BookOpen className="w-4 h-4" /> 阅读
             </Link>
             <Link href={`/novel/${novelId}/write`}
-              className="flex items-center gap-2 px-4 py-2.5 bg-orange-600 hover:bg-orange-500 text-white text-sm font-mono rounded-lg transition-colors">
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-orange-600 hover:bg-orange-500 text-white text-sm font-mono rounded-lg transition-colors">
               <Play className="w-4 h-4" /> 写作
             </Link>
           </div>

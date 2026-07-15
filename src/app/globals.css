@@ -49,11 +49,27 @@
   * {
     @apply border-border;
   }
+  html,
+  body {
+    height: 100%;
+    max-width: 100vw;
+    overflow: hidden;
+  }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+    /* iOS notch / home indicator */
+    padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0)
+      env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
   }
 }
+
+/* Full-height shell that respects mobile browser chrome */
+.app-shell-height {
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
 
 /* Scrollbar */
 .custom-scrollbar {

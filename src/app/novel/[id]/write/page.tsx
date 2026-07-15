@@ -20,6 +20,8 @@ export default function WritePage() {
   // Click-to-fork state
   const [forkPoint, setForkPoint] = useState<{ offset: number; label: string; context: string } | null>(null);
   const [showForkDialog, setShowForkDialog] = useState(false);
+  /** Mobile: branch list drawer (desktop uses permanent rail) */
+  const [branchDrawerOpen, setBranchDrawerOpen] = useState(false);
 
   const activeBranch = branches.find(b => b.id === activeBranchId);
   const hasSelection = freeMode || activeBranchId === "main" || !!activeBranch;
@@ -130,60 +132,136 @@ export default function WritePage() {
     });
   };
 
+  const selectMain = () => {
+    setLocalBranchId("main");
+    setFreeMode(false);
+    setBranchDrawerOpen(false);
+  };
+  const selectBranch = (id: string) => {
+    setLocalBranchId(id);
+    setFreeMode(false);
+    setBranchDrawerOpen(false);
+  };
+  const selectFree = () => {
+    setFreeMode(true);
+    setLocalBranchId(null);
+    setBranchDrawerOpen(false);
+  };
+
+  const branchList = (
+    <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+      {branches.length === 0 && (
+        <button
+          type="button"
+          onClick={selectMain}
+          className={`w-full text-left px-3 py-2.5 rounded text-xs font-mono transition-colors ${
+            activeBranchId === "main" && !freeMode
+              ? "bg-orange-500/10 border-l-2 border-orange-500 text-neutral-200"
+              : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span>主线</span>
+            <span className="text-[10px] text-neutral-600">{novelText.length.toLocaleString()}字</span>
+          </div>
+        </button>
+      )}
+      {branches.map(b => (
+        <button
+          key={b.id}
+          type="button"
+          onClick={() => selectBranch(b.id)}
+          className={`w-full text-left px-3 py-2.5 rounded text-xs font-mono transition-colors ${
+            activeBranchId === b.id
+              ? "bg-orange-500/10 border-l-2 border-orange-500 text-neutral-200"
+              : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="truncate">{b.name}</span>
+            <span className="text-[10px] text-neutral-600 shrink-0 ml-1">{(b.text || "").length.toLocaleString()}字</span>
+          </div>
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={selectFree}
+        className={`w-full text-left px-3 py-2.5 rounded text-xs font-mono transition-colors ${
+          freeMode
+            ? "bg-blue-500/10 border-l-2 border-blue-500 text-blue-400"
+            : "text-neutral-500 hover:bg-neutral-800/50 hover:text-neutral-400"
+        }`}
+      >
+        <div className="flex items-center gap-1"><Sparkles className="w-3 h-3" /> 自由创作</div>
+      </button>
+    </div>
+  );
+
   return (
-    <div className="flex flex-1 overflow-hidden">
-      {/* Left: Branches only (风格/点子在全局侧栏) */}
-      <aside className="w-[200px] shrink-0 border-r border-neutral-800/60 bg-[#0c0c0c] flex flex-col">
+    <div className="flex flex-1 overflow-hidden min-h-0">
+      {/* Desktop: branch rail */}
+      <aside className="hidden lg:flex w-[200px] shrink-0 border-r border-neutral-800/60 bg-[#0c0c0c] flex-col">
         <div className="p-3 border-b border-neutral-800/40">
           <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest flex items-center gap-1.5">
             <GitBranch className="w-3 h-3" /> 分支
           </h3>
         </div>
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-          {branches.length === 0 && (
-            <button onClick={() => { setLocalBranchId("main"); setFreeMode(false); }}
-              className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors ${
-                activeBranchId === "main" && !freeMode ? "bg-orange-500/10 border-l-2 border-orange-500 text-neutral-200" : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
-              }`}>
-              <div className="flex items-center justify-between">
-                <span>主线</span>
-                <span className="text-[10px] text-neutral-600">{novelText.length.toLocaleString()}字</span>
-              </div>
-            </button>
-          )}
-          {branches.map(b => (
-            <button key={b.id} onClick={() => { setLocalBranchId(b.id); setFreeMode(false); }}
-              className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors ${
-                activeBranchId === b.id ? "bg-orange-500/10 border-l-2 border-orange-500 text-neutral-200" : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
-              }`}>
-              <div className="flex items-center justify-between">
-                <span className="truncate">{b.name}</span>
-                <span className="text-[10px] text-neutral-600 shrink-0 ml-1">{(b.text || "").length.toLocaleString()}字</span>
-              </div>
-            </button>
-          ))}
-          <button onClick={() => { setFreeMode(true); setLocalBranchId(null); }}
-            className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors ${
-              freeMode ? "bg-blue-500/10 border-l-2 border-blue-500 text-blue-400" : "text-neutral-500 hover:bg-neutral-800/50 hover:text-neutral-400"
-            }`}>
-            <div className="flex items-center gap-1"><Sparkles className="w-3 h-3" /> 自由创作</div>
-          </button>
-        </div>
+        {branchList}
       </aside>
+
+      {/* Mobile branch drawer */}
+      {branchDrawerOpen && (
+        <div className="lg:hidden fixed inset-0 z-30 flex">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60"
+            aria-label="关闭分支列表"
+            onClick={() => setBranchDrawerOpen(false)}
+          />
+          <aside className="relative z-10 w-[min(100vw-3rem,220px)] h-full bg-[#0c0c0c] border-r border-neutral-800/60 flex flex-col shadow-2xl">
+            <div className="p-3 border-b border-neutral-800/40 flex items-center justify-between">
+              <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                <GitBranch className="w-3 h-3" /> 分支
+              </h3>
+              <button
+                type="button"
+                onClick={() => setBranchDrawerOpen(false)}
+                className="text-neutral-500 text-xs font-mono px-2 py-1"
+              >
+                关闭
+              </button>
+            </div>
+            {branchList}
+          </aside>
+        </div>
+      )}
 
       {/* Center: Editor */}
       <div className="flex-1 flex flex-col min-w-0 relative">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
-          <div className="flex items-center gap-2 text-xs font-mono">
-            <BookOpen className="w-3.5 h-3.5 text-orange-500" />
-            <span className="text-neutral-400">
+        <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
+          <div className="flex items-center gap-2 text-xs font-mono min-w-0">
+            <button
+              type="button"
+              onClick={() => setBranchDrawerOpen(true)}
+              className="lg:hidden p-1.5 -ml-1 rounded text-orange-400 hover:bg-orange-500/10 shrink-0"
+              title="选择分支"
+              aria-label="打开分支列表"
+            >
+              <GitBranch className="w-4 h-4" />
+            </button>
+            <BookOpen className="w-3.5 h-3.5 text-orange-500 shrink-0 hidden sm:block" />
+            <span className="text-neutral-400 truncate">
               {freeMode ? "自由创作" : activeBranch ? activeBranch.name : activeBranchId === "main" ? "主线" : "未选择分支"}
             </span>
             {hasSelection && (
-              <span className="text-neutral-600">{(currentText || novelText).length.toLocaleString()} 字</span>
+              <span className="text-neutral-600 shrink-0 hidden sm:inline">
+                {(currentText || novelText).length.toLocaleString()} 字
+              </span>
             )}
           </div>
-          <a href={`/novel/${novelId}/read`} className="text-[10px] text-neutral-500 hover:text-neutral-300 font-mono">阅读模式</a>
+          <a href={`/novel/${novelId}/read`} className="text-[10px] text-neutral-500 hover:text-neutral-300 font-mono shrink-0">
+            阅读
+          </a>
         </div>
 
         {!hasSelection ? (
@@ -191,9 +269,16 @@ export default function WritePage() {
             <div className="text-center px-6">
               <GitBranch className="w-10 h-10 mx-auto mb-3 text-neutral-700" />
               <p className="text-sm text-neutral-400 font-mono mb-1">请先选择写作分支</p>
-              <p className="text-xs text-neutral-600 font-mono leading-relaxed">
-                在左侧点选「主线」、某个分支或「自由创作」后，才会打开助手面板。
+              <p className="text-xs text-neutral-600 font-mono leading-relaxed mb-4">
+                点选「主线」、某个分支或「自由创作」后，才会打开助手面板。
               </p>
+              <button
+                type="button"
+                onClick={() => setBranchDrawerOpen(true)}
+                className="lg:hidden inline-flex items-center gap-1.5 px-4 py-2 rounded text-xs font-mono bg-orange-600 hover:bg-orange-500 text-white"
+              >
+                <GitBranch className="w-3.5 h-3.5" /> 选择分支
+              </button>
             </div>
           </div>
         ) : freeMode ? (
