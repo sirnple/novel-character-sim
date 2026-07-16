@@ -97,8 +97,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
             <NovelUpload
-              onParsed={(title, fullText) => {
-                const id = novelFingerprint(fullText);
+              onParsed={(title, fullText, _preview, novelId) => {
+                // Prefer server novelId (authoritative after saveNovel + main branch)
+                const id = novelId || novelFingerprint(fullText);
                 clearNovel();
                 setNovel({
                   novelId: id,
@@ -108,6 +109,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   storyInfo: null,
                   timeline: null,
                   lastChapterStates: [],
+                  activeBranchId: "",
                 });
                 setShowUpload(false);
                 router.push(`/novel/${id}`);

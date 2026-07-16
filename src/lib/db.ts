@@ -389,21 +389,33 @@ export function deleteExpiredSessions(): void {
 
 // ---- Novel CRUD ----
 
+/**
+ * Persist novel import / re-save.
+ * Always keeps main branch aligned when main is missing or still empty.
+ * Never overwrites a main branch that already has content (may include continuations).
+ */
 export function saveNovel(userId: string, id: string, title: string, text: string): void {
   const d = getDb();
   d.prepare(
     `INSERT OR REPLACE INTO novels (id, user_id, title, text, total_length, language, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(id, userId, title, text, text.length, "zh");
-  // Keep main branch in sync when it is missing or still empty (import / re-extract).
-  // Do not touch main if it already has content (may include continuations).
-  const main = getBranchByNovelAndId(d, userId, id, "main");
+  syncMainBranchFromNovel(userId, id, text);
+}
+
+/** Write import text into main only if missing or empty. */
+function syncMainBranchFromNovel(userId: string, novelId: string, text: string): void {
+  if (!(text || "").trim()) return;
+  const d = getDb();
+  const main = getBranchByNovelAndId(d, userId, novelId, "main");
   if (!main) {
-    saveBranch(userId, "main", id, "主线", 0, text);
-  } else if (!(main.text || "").trim() && (text || "").trim()) {
+    saveBranch(userId, "main", novelId, "主线", 0, text);
+    return;
+  }
+  if (!(main.text || "").trim()) {
     d.prepare(
       "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = ? AND user_id = ?"
-    ).run(text, id, "main", userId);
+    ).run(text, novelId, "main", userId);
   }
 }
 
@@ -1070,30 +1082,33 @@ export function listBranches(
 }
 
 /**
- * Ensure main branch exists. If it was created empty (common race:
- * branch row before novel text landed, or re-import only updated novels),
- * heal by copying novels.text into main when main is empty.
+ * Ensure main branch exists **with prose**, if the novel has been imported.
+ *
+ * Important: do NOT create an empty main shell when novels.text is missing.
+ * Empty main rows block later import (old code saw existing branch and skipped fill).
+ * That was the root cause of 续写 get_branch_text →「无前文」after re-import / new guest.
  */
 export function ensureMainBranch(userId: string, novelId: string): void {
-  const d = getDb();
-  const existing = getBranchByNovelAndId(d, userId, novelId, "main");
   const novel = getNovel(userId, novelId);
   const novelText = novel?.text || "";
-  if (existing) {
-    const branchText = existing.text || "";
-    // Heal empty main only — never overwrite branch that already has content
-    // (may include AI continuations beyond the imported novel).
-    if (!branchText.trim() && novelText.trim()) {
-      d.prepare(
-        "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = ? AND user_id = ?"
-      ).run(novelText, novelId, "main", userId);
-      console.log(
-        `[DB] Healed empty main branch from novel text (${novelText.length} chars) novel=${novelId} user=${userId}`,
-      );
-    }
+  if (!novelText.trim()) {
+    // No import yet — leave branches alone (do not insert empty main).
     return;
   }
-  saveBranch(userId, "main", novelId, "主线", 0, novelText);
+  const d = getDb();
+  const existing = getBranchByNovelAndId(d, userId, novelId, "main");
+  if (!existing) {
+    saveBranch(userId, "main", novelId, "主线", 0, novelText);
+    return;
+  }
+  if (!(existing.text || "").trim()) {
+    d.prepare(
+      "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = ? AND user_id = ?"
+    ).run(novelText, novelId, "main", userId);
+    console.log(
+      `[DB] Healed empty main branch from novel text (${novelText.length} chars) novel=${novelId} user=${userId}`,
+    );
+  }
 }
 
 /**

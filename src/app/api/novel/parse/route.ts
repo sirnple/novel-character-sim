@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseNovel } from "@/core/parser/novel-parser";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
-import { saveNovel, ensureMainBranch } from "@/lib/db";
+import { saveNovel, ensureMainBranch, getBranch } from "@/lib/db";
 import { novelFingerprint } from "@/lib/utils";
 import { createLLMProvider } from "@/core/llm/factory";
 import { runWithTokenContext } from "@/lib/token-usage-context";
@@ -134,12 +134,27 @@ export async function POST(request: NextRequest) {
       console.warn("[NovelParse] LLM title extraction failed, using filename:", (e as Error).message);
     }
 
-    // Persist immediately so the novel survives page refresh
+    // Persist novel + main branch together (saveNovel syncs empty/missing main).
+    // Never create main before text exists — empty main shells break 续写 later.
     const novelId = novelFingerprint(novelText);
     saveNovel(userId, novelId, title, novelText);
     ensureMainBranch(userId, novelId);
 
+    // Verify import integrity so silent empty-branch failures surface in logs
+    const main = getBranch(userId, novelId, "main");
+    const mainLen = main?.text?.length || 0;
+    if (mainLen === 0) {
+      console.error(
+        `[NovelParse] Import integrity failed: novel=${novelId} user=${userId} textLen=${novelText.length} mainLen=0`,
+      );
+    } else {
+      console.log(
+        `[NovelParse] Saved novel=${novelId} user=${userId} title="${title}" chars=${novelText.length} main=${mainLen}`,
+      );
+    }
+
     return NextResponse.json({
+      novelId,
       title,
       fullText: novelText,
       totalLength: parsed.totalLength,
