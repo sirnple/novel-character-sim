@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Bot, Send, Loader2, Wrench, HelpCircle } from "lucide-react";
+import { Bot, Send, Loader2, Wrench, HelpCircle, Zap } from "lucide-react";
 import Markdown from "@/components/markdown";
 import { useNovel } from "@/lib/novel-context";
 
@@ -434,10 +434,15 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     refreshFsStatus();
   }, [refreshFsStatus, status]);
 
-  const runChat = useCallback(async (history: AgentMessage[], userMsg: AgentMessage) => {
+  const runChat = useCallback(async (
+    history: AgentMessage[],
+    userMsg: AgentMessage,
+    opts?: { autoPassCheckpoints?: boolean },
+  ) => {
     setStatus("generating");
     const abort = new AbortController();
     abortRef.current = abort;
+    const autoPassCheckpoints = !!opts?.autoPassCheckpoints;
 
     try {
       const res = await fetch("/api/agent/chat", {
@@ -450,6 +455,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
           selectedStyleId: selectedStyleId ?? null,
           selectedIdeaIds: selectedIdeaIds || [],
           autoPickIdeas: autoPickIdeas !== false,
+          autoPassCheckpoints,
         }),
         signal: abort.signal,
       });
@@ -552,6 +558,35 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   timestamp: new Date().toISOString(),
                 }];
               });
+            } else if (event.type === "ask_question_auto") {
+              // 一键续写：审核卡点已自动通过
+              currentTextMsgId = null;
+              const question = String(event.question || "");
+              const options = Array.isArray(event.options) ? event.options.map(String) : [];
+              const answer = String(event.answer || "");
+              setMessages(prev => {
+                const existing = prev.find(m => m.metadata?.toolCallId === event.toolCallId);
+                const data = {
+                  content: answer || question,
+                  metadata: {
+                    tool: "ask_question" as const,
+                    status: "done" as const,
+                    toolCallId: event.toolCallId as string,
+                    question,
+                    options,
+                    answer: answer ? `（一键续写自动通过）${answer}` : "（一键续写自动通过）",
+                  },
+                };
+                if (existing) {
+                  return prev.map(m => m.id === existing.id ? { ...m, ...data } : m);
+                }
+                return [...prev, {
+                  id: Math.random().toString(36).slice(2),
+                  role: "tool" as const,
+                  ...data,
+                  timestamp: new Date().toISOString(),
+                }];
+              });
             } else if (event.type === "tool_call") {
               if (event.status === "running") {
                 currentTextMsgId = null;
@@ -590,6 +625,20 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                 currentTextMsgId = null;
                 setMessages(prev => {
                   const existing = prev.find(m => m.metadata?.toolCallId === event.toolCallId);
+                  // Preserve auto-pass answer if tool result JSON carries it
+                  let answer = existing?.metadata?.answer;
+                  let question = existing?.metadata?.question;
+                  let options = existing?.metadata?.options;
+                  if (event.tool === "ask_question" && event.result) {
+                    try {
+                      const parsed = JSON.parse(event.result);
+                      if (parsed?.autoPassed && parsed?.answer) {
+                        answer = answer || `（一键续写自动通过）${parsed.answer}`;
+                      }
+                      if (parsed?.question) question = question || String(parsed.question);
+                      if (Array.isArray(parsed?.options)) options = options || parsed.options.map(String);
+                    } catch { /* ignore */ }
+                  }
                   const data = {
                     content: event.result || "",
                     metadata: {
@@ -600,9 +649,9 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                       subMessages: (event.messages && event.messages.length > 0)
                         ? event.messages
                         : (existing?.metadata?.subMessages || []),
-                      question: existing?.metadata?.question,
-                      options: existing?.metadata?.options,
-                      answer: existing?.metadata?.answer,
+                      question,
+                      options,
+                      answer,
                     },
                   };
                   if (existing) {
@@ -684,7 +733,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     }
   }, [branchId, novelId, setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas, refreshFsStatus]);
 
-  const handleSend = async (overrideText?: string) => {
+  const handleSend = async (overrideText?: string, opts?: { autoPassCheckpoints?: boolean }) => {
     const text = (overrideText ?? input).trim();
     if (!text || status === "generating") return;
     const userMsg: AgentMessage = {
@@ -705,7 +754,16 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     );
     setMessages([...history, userMsg]);
     if (!overrideText) setInput("");
-    await runChat(history, userMsg);
+    await runChat(history, userMsg, opts);
+  };
+
+  /** 一键续写：全流程自动推进，审核卡点全部自动通过 */
+  const handleOneClickContinue = async () => {
+    if (status === "generating" || !branchId || !novelId) return;
+    const text =
+      "请对本分支进行【一键续写】：按标准流程完成 大纲→大纲审核→写正文→六维审查→接受续写写入分支。" +
+      "所有审核卡点自动通过，不要停下来等我确认。完成后简要汇报。";
+    await handleSend(text, { autoPassCheckpoints: true });
   };
 
   /** Answer an ask_question card: mark answered + send as user message */
@@ -759,16 +817,29 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
   return (
     <div className="flex flex-col h-full bg-card">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 shrink-0">
-        <div className="flex items-center gap-2">
-          <Bot className="w-3.5 h-3.5 text-primary" />
-          <h3 className="text-sm font-semibold text-muted-foreground">主编 Agent</h3>
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 shrink-0 gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Bot className="w-3.5 h-3.5 text-primary shrink-0" />
+          <h3 className="text-sm font-semibold text-muted-foreground truncate">主编 Agent</h3>
         </div>
-        {status === "generating" && (
-          <span className="text-xs text-primary flex items-center gap-1">
-            <Loader2 className="w-2.5 h-2.5 animate-spin" />工作中
-          </span>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {status === "generating" ? (
+            <span className="text-xs text-primary flex items-center gap-1">
+              <Loader2 className="w-2.5 h-2.5 animate-spin" />工作中
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleOneClickContinue()}
+              disabled={!branchId || !novelId}
+              title="大纲→正文→审查→接受；所有审核卡点自动通过"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border border-amber-500/40 bg-amber-500/10 text-amber-200/90 hover:bg-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Zap className="w-3 h-3" />
+              一键续写
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -777,6 +848,17 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
           <div className="text-center py-8 text-fog text-xs">
             <Bot className="w-6 h-6 mx-auto mb-2 opacity-30" />
             我是你的创作助手。告诉我你想做什么——续写、修改大纲、检查 prose。
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => handleOneClickContinue()}
+                disabled={!branchId || !novelId || status === "generating"}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border border-amber-500/40 bg-amber-500/10 text-amber-200/90 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
+              >
+                <Zap className="w-3 h-3" />
+                一键续写（审核自动通过）
+              </button>
+            </div>
           </div>
         )}
 
@@ -855,8 +937,8 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                       </div>
                     </div>
                   ) : (
-                    <div className="text-xs text-emerald-500/90">
-                      你的回答：{answer || msg.content}
+                    <div className={`text-xs ${String(answer || "").includes("一键续写") ? "text-amber-400/90" : "text-emerald-500/90"}`}>
+                      {String(answer || "").includes("一键续写") ? answer : `你的回答：${answer || msg.content}`}
                     </div>
                   )}
                 </div>

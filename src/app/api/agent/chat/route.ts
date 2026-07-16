@@ -7,6 +7,10 @@ import { getAgent } from "@/core/agents/agent-registry";
 import { initRegistry } from "@/core/agents/init";
 import { runReviewsParallel } from "@/core/agents/agents/run-reviews";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
+import {
+  ONE_CLICK_CONTINUE_SYSTEM_APPEND,
+  pickAutoPassAnswer,
+} from "@/core/agents/auto-pass";
 import { runWithTokenContext } from "@/lib/token-usage-context";
 import type { LLMMessage, SystemMessage, UserMessage, AssistantMessage, ToolMessage, ToolSchema } from "@/types";
 
@@ -30,9 +34,12 @@ export async function POST(request: NextRequest) {
     selectedStyleId = null,
     selectedIdeaIds = [],
     autoPickIdeas = true,
+    /** 一键续写：审核卡点（ask_question）自动选推进选项并继续 */
+    autoPassCheckpoints = false,
   } = await request.json();
   if (!branchId || !novelId) return new Response(JSON.stringify({ error: "branchId and novelId required" }), { status: 400, headers: { "Content-Type": "application/json" } });
 
+  const autoPass = !!autoPassCheckpoints;
   const llm = createLLMProvider();
   const encoder = new TextEncoder();
   // 主 agent 只调度与展示摘要；正文由子 agent 自取，不向主 agent 暴露 get_prose / save_*
@@ -45,7 +52,10 @@ export async function POST(request: NextRequest) {
     "get_outline", "get_findings", "clear_findings",
   ]);
   const toolSchemas: ToolSchema[] = buildToolSchemas().filter(t => MASTER_TOOL_ALLOW.has(t.name));
-  const sysPrompt = resolveAgentSystem("master", "zh", { novelId, branchId });
+  const baseSys = resolveAgentSystem("master", "zh", { novelId, branchId });
+  const sysPrompt = autoPass
+    ? `${baseSys}\n\n${ONE_CLICK_CONTINUE_SYSTEM_APPEND}`
+    : baseSys;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -262,6 +272,37 @@ export async function POST(request: NextRequest) {
                 } else if (typeof args.options === "string" && args.options.trim()) {
                   options = args.options.split("|").map((s: string) => s.trim()).filter(Boolean).slice(0, 8);
                 }
+
+                // 一键续写：审核卡点自动通过，不暂停等用户
+                if (autoPass) {
+                  const answer = pickAutoPassAnswer(question, options);
+                  send({
+                    type: "ask_question_auto",
+                    toolCallId: toolId,
+                    tool: "ask_question",
+                    question,
+                    options,
+                    answer,
+                  });
+                  sendTool(
+                    "ask_question",
+                    "done",
+                    toolId,
+                    JSON.stringify({ question, options, answer, autoPassed: true }),
+                  );
+                  conversation.push({
+                    role: "user",
+                    content: [{
+                      type: "tool_result",
+                      tool_use_id: toolId,
+                      content:
+                        `【一键续写·自动通过审核卡点】用户选择：${answer}\n` +
+                        `请立即执行该选项对应的下一步（写正文 / 接受续写等），不要再次 ask_question 确认同一卡点。`,
+                    }],
+                  });
+                  continue;
+                }
+
                 // Pause this turn: frontend shows interactive question; user answer continues next request
                 send({
                   type: "ask_question",
