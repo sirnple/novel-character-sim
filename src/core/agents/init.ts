@@ -4,6 +4,10 @@ import { branchTools } from "./agents/branch-tools";
 import { intermediateTools } from "./agents/intermediate-tools";
 import { libraryTools } from "./agents/library-tools";
 import { foreshadowTools } from "./agents/foreshadow-tools";
+import {
+  acceptContinuation,
+  formatAcceptHint,
+} from "@/core/foreshadowing/accept-continuation";
 import { outlineAgent } from "./agents/outline";
 import { writerAgent } from "./agents/writer";
 import {
@@ -82,6 +86,35 @@ export function initRegistry(): void {
       const opts = Array.isArray(args.options) ? args.options.map(String) : [];
       return {
         content: JSON.stringify({ question: q, options: opts, status: "awaiting_user" }),
+        messages: [],
+      };
+    },
+  });
+
+  // Master: user confirmed accept after findings Q&A
+  register({
+    name: "accept_continuation",
+    description:
+      "用户确认「接受续写」时调用：把当前草稿写入本分支正文，伏笔账本按 realized（实际落实）更新——" +
+      "plan 里没写进正文的不假装回收/新埋。不要在用户只说「修改」时调用。",
+    parameters: {
+      type: "object",
+      properties: {
+        note: {
+          type: "string",
+          description: "可选：简述用户选择（如接受续写）",
+        },
+      },
+      required: [],
+    },
+    execute: async (_args, ctx) => {
+      const result = acceptContinuation({
+        userId: ctx.userId,
+        novelId: ctx.novelId,
+        branchId: ctx.branchId,
+      });
+      return {
+        content: formatAcceptHint(result),
         messages: [],
       };
     },

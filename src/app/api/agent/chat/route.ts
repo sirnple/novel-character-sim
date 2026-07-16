@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
     "agent",
     "ask_question",
     "run_reviews",
+    "accept_continuation",
     "get_branch_text", "get_branch_characters", "get_branch_timeline", "get_branch_world", "get_branch_meta",
     "get_outline", "get_findings", "clear_findings",
   ]);
@@ -298,6 +299,42 @@ export async function POST(request: NextRequest) {
                 conversation.push({
                   role: "user",
                   content: [{ type: "tool_result", tool_use_id: toolId, content: result.content.slice(0, 5000) }],
+                });
+              } else if (toolName === "accept_continuation") {
+                // Special: run accept and notify UI with new branch text
+                sendTool("accept_continuation", "running", toolId);
+                const toolDef = getTool("accept_continuation");
+                let resultContent = "工具未注册";
+                if (toolDef) {
+                  try {
+                    const r = await toolDef.execute(
+                      { ...args, novelId, branchId },
+                      { novelId, branchId, userId },
+                      llm,
+                    );
+                    resultContent = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
+                  } catch (e) {
+                    resultContent = "接受失败: " + (e as Error).message;
+                  }
+                }
+                sendTool("accept_continuation", "done", toolId, resultContent.slice(0, 3000));
+                // Parse branch length from store for UI event
+                try {
+                  const { getBranch } = await import("@/lib/db");
+                  const b = getBranch(userId, novelId, branchId);
+                  if (b?.text) {
+                    send({
+                      type: "continuation_accepted",
+                      branchId,
+                      novelId,
+                      text: b.text,
+                      message: resultContent,
+                    });
+                  }
+                } catch { /* ignore */ }
+                conversation.push({
+                  role: "user",
+                  content: [{ type: "tool_result", tool_use_id: toolId, content: resultContent.slice(0, 4000) }],
                 });
               } else {
                 const result = await runDataTool(toolName, toolId);

@@ -638,6 +638,23 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   timestamp: new Date().toISOString(),
                 }]);
               }
+            } else if (event.type === "continuation_accepted") {
+              const text = String(event.text || "");
+              const bid = String(event.branchId || branchId || "main");
+              if (text) {
+                if (bid === "main") {
+                  setNovelText(text);
+                  setNovel({ novelText: text, generatedProse: undefined });
+                } else {
+                  setNovel({ generatedProse: undefined });
+                }
+                window.dispatchEvent(
+                  new CustomEvent("ncs:branch-updated", {
+                    detail: { novelId: event.novelId || novelId, branchId: bid, text },
+                  }),
+                );
+              }
+              refreshFsStatus();
             }
           } catch {}
         }
@@ -670,12 +687,12 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     }
   }, [branchId, novelId, setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas, refreshFsStatus]);
 
-  const handleAccept = async (allowPartial: boolean) => {
+  /** Shortcut accept (same as master accept_continuation). Always ledger = realized. */
+  const handleAccept = async () => {
     if (!novelId || !branchId || accepting) return;
     setAccepting(true);
     setFsStatus(s => (s ? { ...s, message: undefined } : s));
     try {
-      // Mid-text continue only (read-page 偏移 / fork). Branch end 续写 must not truncate.
       const midContinue =
         typeof sessionContinueOffset === "number" &&
         sessionContinueOffset >= 0 &&
@@ -684,12 +701,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
       const res = await fetch("/api/continuation/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          novelId,
-          branchId,
-          allowPartialForeshadowing: allowPartial,
-          fromOffset,
-        }),
+        body: JSON.stringify({ novelId, branchId, fromOffset }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -703,32 +715,26 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         }));
         return;
       }
-      if (data.branch?.text != null) {
-        // Main: keep novels / novelText in sync; IF branch: only branch text
+      const text = data.branch?.text;
+      if (text != null) {
         if (branchId === "main") {
-          setNovelText(data.branch.text);
-          setNovel({ novelText: data.branch.text, generatedProse: undefined });
+          setNovelText(text);
+          setNovel({ novelText: text, generatedProse: undefined });
         } else {
           setNovel({ generatedProse: undefined });
         }
-        // Notify write page to refresh branch list body
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent("ncs:branch-updated", {
-              detail: { novelId, branchId, text: data.branch.text },
-            }),
-          );
-        }
+        window.dispatchEvent(
+          new CustomEvent("ncs:branch-updated", {
+            detail: { novelId, branchId, text },
+          }),
+        );
       }
       setMessages(prev => [
         ...prev,
         {
           id: Math.random().toString(36).slice(2),
           role: "agent",
-          content:
-            `**已接受续写** 写入分支 \`${branchId}\`。` +
-            `伏笔账本已按 **realized** 更新（pass=${data.realizationPass}，partial=${allowPartial}）。` +
-            `活跃伏笔 ${data.ledger?.active?.length ?? "?"} 条。`,
+          content: data.message || `**已接受续写**（伏笔按实际落实记账）`,
           timestamp: new Date().toISOString(),
         },
       ]);
@@ -816,6 +822,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     clear_findings: "清空审查",
     ask_question: "向你提问",
     run_reviews: "六维审查（并行）",
+    accept_continuation: "接受续写",
   };
 
   return (
@@ -1044,37 +1051,18 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
           {fsStatus?.message && (
             <p className="text-xs text-amber-500/90 leading-snug">{fsStatus.message}</p>
           )}
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              disabled={
-                accepting ||
-                status === "generating" ||
-                !fsStatus?.hasProseDraft ||
-                !fsStatus?.hasRealization ||
-                fsStatus.pass === false
-              }
-              onClick={() => handleAccept(false)}
-              title={!fsStatus?.hasRealization ? "请先跑伏笔审查" : fsStatus.pass === false ? "审查未通过，请改写或用「允许不全落实」" : "写入当前分支并按 realized 更新账本"}
-              className="px-2.5 py-1 rounded text-xs bg-emerald-700 hover:bg-emerald-600 disabled:bg-secondary disabled:text-fog text-white transition-colors"
-            >
-              {accepting ? "写入中…" : "接受续写"}
-            </button>
-            <button
-              type="button"
-              disabled={
-                accepting ||
-                status === "generating" ||
-                !fsStatus?.hasProseDraft ||
-                !fsStatus?.hasRealization
-              }
-              onClick={() => handleAccept(true)}
-              title="正文可不全落实 plan；账本仍按 realized（实际做到的）更新"
-              className="px-2.5 py-1 rounded text-xs border border-neutral-600 text-muted-foreground hover:border-amber-600/50 hover:text-amber-300 disabled:opacity-40 transition-colors"
-            >
-              接受（允许不全落实）
-            </button>
-          </div>
+          <p className="text-[10px] text-fog leading-snug">
+            主流程：审查后在问题卡片选「接受续写…」。下方为快捷按钮；伏笔账本始终按实际落实（realized）记账。
+          </p>
+          <button
+            type="button"
+            disabled={accepting || status === "generating" || !fsStatus?.hasProseDraft}
+            onClick={() => handleAccept()}
+            title="写入当前分支；伏笔未落实部分不按 plan 假装完成"
+            className="px-2.5 py-1 rounded text-xs bg-emerald-700 hover:bg-emerald-600 disabled:bg-secondary disabled:text-fog text-white transition-colors"
+          >
+            {accepting ? "写入中…" : "快捷：接受续写"}
+          </button>
         </div>
       )}
 

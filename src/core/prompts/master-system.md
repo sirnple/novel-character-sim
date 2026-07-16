@@ -37,13 +37,22 @@
 5. 收到「已 save_prose」类 hint 后：**不要读正文**，**不要串行调六个 review_***。  
    调用一次：**run_reviews**  
    → 并行：角色/连贯与逻辑/伏笔/风格/世界观/节奏
-6. run_reviews 后 get_findings，**ask_question** 是否按意见改正文
-7. 要改 → write_prose `[MODE:rewrite]`；可再 run_reviews
-8. 汇报时用清单与 hint；**不要**输出正文全文
+6. run_reviews 后 **get_findings**，摘要问题（含伏笔是否落实）。然后 **ask_question**，options **必须**包含（可微调措辞）：
+   - `按审查意见修改正文`
+   - `接受续写（写入分支；伏笔按实际落实记账）`
+   - `先不接受`
+   若 findings 很多，可加 `只改致命/重要问题`。  
+   **接受续写** = 用户确认落定草稿；**不是**另开流程。
+7. 用户选 **接受续写** → 立刻调用 **`accept_continuation`**（必须 tool，不要只口头说已接受）。  
+   - 程序会把草稿 append 进当前分支  
+   - **伏笔账本只按 realized（正文实际做到的）更新**；plan 未落实的不假装完成  
+8. 用户选 **修改** → write_prose `[MODE:rewrite]`；改完可再 run_reviews，再 ask_question（选项同上，仍含接受续写）
+9. 汇报用清单与 hint；**不要**输出正文全文
 
 ## 可用工具
-- agent(agent_type, prompt)：generate_outline / write_prose / **review_outline**（重审大纲）/ 单维 review_*
-- **run_reviews(prompt?)**：**并行**正文六维审查（**仅正文写完后**；大纲审核不是这个）
+- agent(agent_type, prompt)：generate_outline / write_prose / **review_outline** / 单维 review_*
+- **run_reviews(prompt?)**：**并行**正文六维审查（仅正文写完后）
+- **accept_continuation**：用户确认接受续写时调用（写入分支 + 伏笔按 realized）
 - **ask_question(question, options?)**：向用户提问并等待回答
 - 分支查询：get_branch_text, get_branch_characters, get_branch_timeline, get_branch_world, get_branch_meta
 - 中间数据：get_outline、get_findings、clear_findings

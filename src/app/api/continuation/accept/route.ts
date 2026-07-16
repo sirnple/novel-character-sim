@@ -1,24 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import {
-  appendBranchContent,
-  ensureMainBranch,
-  getBranch,
-  getForeshadowingLedger,
-  saveForeshadowingLedger,
-} from "@/lib/db";
-import {
-  getForeshadowRealization,
-  getProse,
-  saveProse,
-} from "@/core/agents/intermediate-store";
-import { commitRealization } from "@/core/foreshadowing/commit";
+  acceptContinuation,
+  formatAcceptHint,
+} from "@/core/foreshadowing/accept-continuation";
 
 export const dynamic = "force-dynamic";
 
 /**
- * User accepts continuation: write prose into branch + commit foreshadowing realized.
- * Does NOT trust plan alone — requires realization from review_foreshadowing.
+ * User accepts continuation into branch.
+ * Foreshadowing ledger always follows realized (actual), never plan fantasy.
  */
 export async function POST(request: NextRequest) {
   const userId = getUserId(request);
@@ -32,101 +23,37 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const novelId = String(body.novelId || "");
-    const branchId = String(body.branchId || "main");
-    const allowPartial = !!body.allowPartialForeshadowing;
-    const fromOffset =
-      typeof body.fromOffset === "number"
-        ? body.fromOffset
-        : body.fromOffset != null
-          ? Number(body.fromOffset)
-          : undefined;
-    let content = String(body.content || "").trim();
-
-    if (!novelId) {
-      return NextResponse.json({ error: "novelId required" }, { status: 400 });
-    }
-
-    if (!content) {
-      content = (getProse(novelId, branchId) || "").trim();
-    }
-    // Strip accidental full-book paste: if draft starts with a long prefix of branch text, keep only the new tail
-    ensureMainBranch(userId, novelId);
-    const existing = getBranch(userId, novelId, branchId);
-    if (existing?.text && content.length > existing.text.length + 20) {
-      const base = existing.text;
-      if (content.startsWith(base.slice(0, Math.min(500, base.length)))) {
-        // draft re-includes prior branch — take only the delta after base
-        if (content.startsWith(base)) {
-          content = content.slice(base.length).replace(/^\s+/, "");
-        }
-      }
-    }
-    if (!content || content.length < 50) {
-      return NextResponse.json(
-        { error: "没有可接受的正文草稿（请先完成 write_prose）" },
-        { status: 400 },
-      );
-    }
-
-    const realization = getForeshadowRealization(novelId, branchId);
-    if (!realization) {
-      return NextResponse.json(
-        {
-          error:
-            "尚无伏笔审查结算（realization）。请先跑 review_foreshadowing / run_reviews。",
-          code: "NO_REALIZATION",
-        },
-        { status: 400 },
-      );
-    }
-
-    if (!realization.pass && !allowPartial) {
-      return NextResponse.json(
-        {
-          error:
-            "伏笔审查未通过。请 rewrite 后重审，或显式选择「允许不全落实」后再接受。",
-          code: "FORESHADOW_FAIL",
-          pass: false,
-          gaps: realization.gaps,
-          findings: realization.findings,
-        },
-        { status: 409 },
-      );
-    }
-
-    const before = getBranch(userId, novelId, branchId);
-    if (!before && branchId !== "main") {
-      return NextResponse.json({ error: "分支不存在" }, { status: 404 });
-    }
-    if (branchId === "main") ensureMainBranch(userId, novelId);
-
-    appendBranchContent(
+    const result = acceptContinuation({
       userId,
-      novelId,
-      branchId,
-      content,
-      Number.isFinite(fromOffset as number) ? (fromOffset as number) : undefined,
-    );
-    const after = getBranch(userId, novelId, branchId);
+      novelId: String(body.novelId || ""),
+      branchId: String(body.branchId || "main"),
+      content: body.content,
+      fromOffset:
+        typeof body.fromOffset === "number"
+          ? body.fromOffset
+          : body.fromOffset != null
+            ? Number(body.fromOffset)
+            : undefined,
+    });
 
-    const ledger = getForeshadowingLedger(userId, novelId, branchId);
-    const next = commitRealization(ledger, realization);
-    saveForeshadowingLedger(next);
-
-    // Clear draft prose after accept (optional keep for UI — clear to avoid re-accept)
-    saveProse(novelId, branchId, "");
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: result.error, code: result.code },
+        { status: result.code === "NO_DRAFT" ? 400 : 400 },
+      );
+    }
 
     return NextResponse.json({
       success: true,
-      branch: after,
-      ledger: next,
-      allowPartial,
-      applied: {
-        planted: next.active.length - ledger.active.length,
-        // rough; client can diff if needed
+      branch: {
+        id: result.branchId,
+        text: result.branchText,
       },
-      realizationPass: realization.pass,
+      message: formatAcceptHint(result),
+      realizationPass: result.realizationPass,
+      foreshadowNote: result.foreshadowNote,
+      activeCount: result.activeCount,
+      ledgerVersion: result.ledgerVersion,
     });
   } catch (e) {
     console.error("[continuation/accept]", e);
