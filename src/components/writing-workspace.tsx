@@ -698,8 +698,8 @@ export default function WritingWorkspace({
                 <>
                   {/* Full novel text (read-only, scrollable) */}
                   {initialFullNovel && (
-                    <div className="max-w-[48rem] mx-auto">
-                      <div className="surface-paper px-6 sm:px-10 py-8 sm:py-10">
+                    <div className="reader-frame">
+                      <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12 min-h-[50vh]">
                         <div className="prose-novel text-paper-foreground whitespace-pre-wrap">
                           {continuePoint && !outputText && status !== "generating" ? (
                             <>
@@ -729,7 +729,7 @@ export default function WritingWorkspace({
 
                   {/* Continue point label + cancel */}
                   {continuePoint && !outputText && status !== "generating" && (
-                    <div className="max-w-[800px] mx-auto mt-2 flex items-center gap-2 text-xs text-primary">
+                    <div className="reader-frame mt-2 flex items-center gap-2 text-xs text-primary">
                       <span>{continuePoint.label}</span>
                       <button onClick={() => setContinuePoint(null)} className="text-fog hover:text-muted-foreground">取消</button>
                     </div>
@@ -738,13 +738,13 @@ export default function WritingWorkspace({
                   {/* Unsaved generated prose */}
                   {outputText && !saved && (
                     <>
-                      <div className="max-w-[800px] mx-auto my-6 flex items-center gap-3">
+                      <div className="reader-frame my-6 flex items-center gap-3">
                         <div className="flex-1 h-px bg-primary/30" />
                         <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded shrink-0">待保存</span>
                         <div className="flex-1 h-px bg-primary/30" />
                       </div>
-                      <div className="max-w-[48rem] mx-auto">
-                        <div className="surface-paper px-6 sm:px-10 py-8 sm:py-10 border-primary/25">
+                      <div className="reader-frame">
+                        <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12 min-h-[50vh] border-primary/25">
                           <div className="prose-novel text-paper-foreground whitespace-pre-wrap">
                             {outputText}
                           </div>
@@ -755,7 +755,7 @@ export default function WritingWorkspace({
 
                   {/* Annotation cards — show before/after for each review finding */}
                   {annotations.length > 0 && !saved && (
-                    <div className="max-w-[800px] mx-auto mt-8 space-y-3">
+                    <div className="reader-frame mt-8 space-y-3">
                       <div className="flex items-center gap-2 mb-4">
                         <div className="flex-1 h-px bg-neutral-700/50" />
                         <span className="text-xs text-muted-foreground shrink-0">审查修正 ({annotations.length} 处)</span>
@@ -1035,13 +1035,13 @@ export default function WritingWorkspace({
 function ReviewSection({ review }: { review: ReviewReport }) {
   return (
     <div className="border-t border-border/80 p-6">
-      <div className="flex items-center gap-2 mb-4 max-w-[800px] mx-auto">
+      <div className="flex items-center gap-2 mb-4 reader-frame">
         <Shield className="w-4 h-4 text-green-500" />
         <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">审查报告</h4>
         <span className="text-xs text-green-500/80">{review.findings.length} 个发现</span>
         <span className="text-xs text-primary/80">{review.needsHumanReview.length} 待确认</span>
       </div>
-      <div className="space-y-2 max-w-[800px] mx-auto">
+      <div className="space-y-2 reader-frame">
         {review.findings.length === 0 ? <p className="text-sm text-green-500/70">全部通过，无问题。</p> : (
           review.findings.filter(f => f.severity !== "minor" || review.findings.length <= 8).map((f, i) => (
             <div key={i} className={`p-3 rounded border text-xs ${f.severity === "critical" ? "border-red-500/30 bg-red-500/5" : f.severity === "major" ? "border-yellow-500/30 bg-yellow-500/5" : "border-border bg-secondary/20"}`}>
@@ -1062,10 +1062,10 @@ function ReviewSection({ review }: { review: ReviewReport }) {
 function PromptSection({ label, systemPrompt, userPrompt }: { label: string; systemPrompt: string; userPrompt: string }) {
   return (
     <div className="border-t border-border/80 p-6">
-      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3 max-w-[800px] mx-auto">
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3 reader-frame">
         {label} <span className="text-fog font-normal">({(systemPrompt.length + userPrompt.length).toLocaleString()} chars)</span>
       </h4>
-      <div className="max-w-[800px] mx-auto space-y-3">
+      <div className="reader-frame space-y-3">
         <details open><summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground/90">System Prompt</summary><pre className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed bg-background rounded p-4 border border-border/50 max-h-[400px] overflow-y-auto custom-scrollbar">{systemPrompt}</pre></details>
         {userPrompt && <details><summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground/90">User Prompt</summary><pre className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed bg-background rounded p-4 border border-border/50 max-h-[200px] overflow-y-auto custom-scrollbar">{userPrompt}</pre></details>}
       </div>

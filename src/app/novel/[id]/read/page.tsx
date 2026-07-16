@@ -68,8 +68,8 @@ export default function ReadPage() {
   return (
     <div className="flex-1 relative min-h-0 flex flex-col overflow-hidden bg-background">
       <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-        {/* Chrome: title + branch */}
-        <div className="max-w-[48rem] mx-auto px-4 sm:px-6 pt-5 pb-3 flex flex-wrap items-center gap-3">
+        {/* Chrome: title + branch — full width of main column */}
+        <div className="reader-frame pt-4 sm:pt-5 pb-3 flex flex-wrap items-center gap-3">
           <h2 className="text-base font-semibold text-foreground min-w-0 truncate">
             阅读 · {novelTitle}
           </h2>
@@ -90,12 +90,12 @@ export default function ReadPage() {
           </div>
         </div>
 
-        {/* Paper body */}
-        <div className="max-w-[48rem] mx-auto px-4 sm:px-6 pb-16">
+        {/* Paper fills the main content area */}
+        <div className="reader-frame pb-12 sm:pb-16">
           <div
             ref={readerRef}
             onClick={handleClick}
-            className="surface-paper px-6 sm:px-10 py-8 sm:py-10 cursor-text"
+            className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12 cursor-text min-h-[60vh]"
           >
             <div className="prose-novel whitespace-pre-wrap">
               {continueOffset != null ? (

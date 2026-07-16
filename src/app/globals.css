@@ -70,13 +70,26 @@
 }
 
 @layer components {
+  /*
+   * Reading stage: fill the main column on desktop (not a phone-width strip).
+   * Only caps on ultra-wide so lines don't become endless.
+   */
+  .reader-frame {
+    width: 100%;
+    max-width: min(100%, 88rem); /* ~1408px */
+    margin-inline: auto;
+    @apply px-3 sm:px-5 lg:px-6 xl:px-8;
+  }
+
   /* Dual-layer signature: warm paper for long-form novel text */
   .surface-paper {
-    @apply bg-paper text-paper-foreground rounded-xl shadow-paper border border-paper-line/80;
+    @apply bg-paper text-paper-foreground rounded-xl shadow-paper border border-paper-line/80 w-full;
   }
 
   .prose-novel {
-    @apply font-prose text-[17px] sm:text-lg leading-[1.9] tracking-wide;
+    @apply font-prose text-[17px] sm:text-lg lg:text-[1.2rem] leading-[1.9] tracking-normal;
+    /* Comfortable Chinese measure without forcing a narrow column */
+    max-width: none;
   }
 
   .prose-novel p + p {

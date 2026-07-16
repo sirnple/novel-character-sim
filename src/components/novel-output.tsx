@@ -77,7 +77,7 @@ export default function NovelOutput({ title, content, isComplete }: NovelOutputP
         </div>
       </div>
 
-      <div className="surface-paper px-6 sm:px-8 py-7 sm:py-9">
+      <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12">
         <div className="prose-novel">
           {content.split("\n\n").map((paragraph, i) => (
             <p key={i} className="mb-4 last:mb-0 whitespace-pre-wrap">

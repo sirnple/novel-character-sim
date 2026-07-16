@@ -283,8 +283,8 @@ export default function WritePage() {
           </div>
         ) : freeMode ? (
           <div ref={readerRef} onClick={handleEditorClick} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-            <div className="max-w-[48rem] mx-auto px-4 sm:px-6 py-6">
-              <div className="surface-paper px-6 sm:px-10 py-8 sm:py-10">
+            <div className="reader-frame py-4 sm:py-6">
+              <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12 min-h-[50vh]">
                 <div className="prose-novel text-paper-foreground whitespace-pre-wrap">
                   {novelText}
                   {generatedProse && (
@@ -296,9 +296,9 @@ export default function WritePage() {
           </div>
         ) : (
           <div ref={readerRef} onClick={handleEditorClick} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-            <div className="max-w-[48rem] mx-auto px-4 sm:px-6 py-6">
+            <div className="reader-frame py-4 sm:py-6">
               {currentText ? (
-                <div className="surface-paper px-6 sm:px-10 py-8 sm:py-10">
+                <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12 min-h-[50vh]">
                   <div className="prose-novel text-paper-foreground whitespace-pre-wrap">
                     {forkPoint ? (
                       <>
@@ -329,7 +329,7 @@ export default function WritePage() {
                   </div>
                 </div>
               ) : generatedProse ? (
-                <div className="surface-paper px-6 sm:px-10 py-8 sm:py-10">
+                <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12 min-h-[50vh]">
                   <div className="prose-novel text-primary/90 whitespace-pre-wrap">
                     {generatedProse}
                   </div>
