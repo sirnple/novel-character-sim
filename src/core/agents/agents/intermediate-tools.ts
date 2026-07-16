@@ -2,6 +2,7 @@ import type { ToolDefinition } from "../types";
 import {
   saveOutline, getOutline, saveProse, getProse,
   saveFindings, getFindings, clearFindings, formatFindingsReadable,
+  resolveStoreIds, debugStoreKeys,
 } from "../intermediate-store";
 import {
   validateProseContent,
@@ -20,18 +21,22 @@ export const intermediateReadTools: ToolDefinition[] = [
     name: "get_outline",
     description: "获取已经存好的大纲正文。writer 写正文前必须先 get_outline 拿到轮廓。",
     parameters: { type: "object", properties: {}, required: [] },
-    execute: async (_args, ctx) => {
-      const novelId = String((ctx as any).novelId || "");
-      const branchId = String((ctx as any).branchId || "main");
+    execute: async (args, ctx) => {
+      const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
       if (!novelId) {
         return { content: "大纲未生成（缺少 novelId）", messages: [] };
       }
       const o = getOutline(novelId, branchId);
       if (!o || (typeof o === "string" && o.trim().length < 20)) {
-        console.warn(`[Store] get_outline miss ${novelId}/${branchId}`);
+        console.warn(
+          `[Store] get_outline miss ${novelId}::${branchId}; keys=[${debugStoreKeys().join(", ")}]`,
+        );
         return {
           content:
-            "大纲未生成。请先调用 generate_outline；若刚生成过，确认 branchId 与写作页一致。",
+            `大纲未生成（key=${novelId}::${branchId}）。请先 generate_outline 并成功 save_outline。` +
+            (debugStoreKeys().length
+              ? ` 当前 store 有：${debugStoreKeys().join(", ")}`
+              : " 当前 store 为空。"),
           messages: [],
         };
       }
@@ -42,9 +47,8 @@ export const intermediateReadTools: ToolDefinition[] = [
     name: "get_prose",
     description: "获取要被审/改的当前小说正文（叙事文本，不是审查清单）。仅供 review_* 与修改模式 writer 使用。",
     parameters: { type: "object", properties: {}, required: [] },
-    execute: async (_args, ctx) => {
-      const novelId = (ctx as any).novelId as string;
-      const branchId = (ctx as any).branchId as string;
+    execute: async (args, ctx) => {
+      const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
       const p = getProse(novelId, branchId);
       if (!p) return { content: "正文未生成", messages: [] };
       return {
@@ -57,9 +61,8 @@ export const intermediateReadTools: ToolDefinition[] = [
     name: "get_findings",
     description: "获取审查问题清单（人类可读摘要，不是小说正文）。writer 修改模式用它对照要改的点。",
     parameters: { type: "object", properties: {}, required: [] },
-    execute: async (_args, ctx) => {
-      const novelId = (ctx as any).novelId as string;
-      const branchId = (ctx as any).branchId as string;
+    execute: async (args, ctx) => {
+      const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
       const findings = getFindings(novelId, branchId);
       return {
         content: `【审查问题清单 · 共 ${findings.length} 条 · 不是正文】\n\n${formatFindingsReadable(findings)}`,
@@ -85,8 +88,7 @@ export const saveProseTool: ToolDefinition = {
     required: ["content"],
   },
   execute: async (args, ctx) => {
-    const novelId = (ctx as any).novelId as string;
-    const branchId = (ctx as any).branchId as string;
+    const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
     const raw = String(args.content ?? "");
     const previous = getProse(novelId, branchId);
     // Only enforce relative length when overwriting existing valid prose (rewrite path)
@@ -124,8 +126,10 @@ export const intermediateTools: ToolDefinition[] = [
       required: ["content"],
     },
     execute: async (args, ctx) => {
-      const novelId = (ctx as any).novelId as string;
-      const branchId = (ctx as any).branchId as string;
+      const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
+      if (!novelId) {
+        return { content: "大纲保存失败：缺少 novelId", messages: [] };
+      }
       const raw = String(args.content ?? "").trim();
       if (raw.length < 50) {
         return {
@@ -137,7 +141,7 @@ export const intermediateTools: ToolDefinition[] = [
       const preview = raw.slice(0, 180).replace(/\s+/g, " ");
       return {
         content:
-          `${SAVE_OUTLINE_OK}（${raw.length} 字）。` +
+          `${SAVE_OUTLINE_OK}（${raw.length} 字，key=${novelId}::${branchId}）。` +
           `摘要：${preview}${raw.length > 180 ? "…" : ""}。` +
           `后续可用 get_outline 读取全文。`,
         messages: [],
@@ -166,8 +170,7 @@ export const intermediateTools: ToolDefinition[] = [
       required: ["dimension", "findings"],
     },
     execute: async (args, ctx) => {
-      const novelId = (ctx as any).novelId as string;
-      const branchId = (ctx as any).branchId as string;
+      const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
       const dim = String(args.dimension || "other");
       let parsed: any[] = [];
       const raw = args.findings;
@@ -206,9 +209,8 @@ export const intermediateTools: ToolDefinition[] = [
     name: "clear_findings",
     description: "清空已存 findings。修改完成下次重审前可调一次。",
     parameters: { type: "object", properties: {}, required: [] },
-    execute: async (_args, ctx) => {
-      const novelId = (ctx as any).novelId as string;
-      const branchId = (ctx as any).branchId as string;
+    execute: async (args, ctx) => {
+      const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
       clearFindings(novelId, branchId);
       return { content: "已清空 findings。", messages: [] };
     },

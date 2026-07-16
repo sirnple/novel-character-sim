@@ -122,7 +122,21 @@ export async function runToolLoop(
         let resultContent = "工具未注册或返回空";
         if (toolDef) {
           try {
-            const r = await toolDef.execute({ ...args, novelId: ctx.novelId, branchId: ctx.branchId }, ctx, llm);
+            // Always inject route-level ids so tools never write under undefined::*
+            const r = await toolDef.execute(
+              {
+                ...args,
+                novelId: ctx.novelId || args.novelId,
+                branchId: ctx.branchId || args.branchId || "main",
+              },
+              {
+                ...ctx,
+                novelId: ctx.novelId || (args.novelId as string) || "",
+                branchId: ctx.branchId || (args.branchId as string) || "main",
+                userId: ctx.userId,
+              },
+              llm,
+            );
             resultContent = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
             // 正文/前文类工具需要足够长的窗口，避免审查/改写只看到截断片段
             const limit =

@@ -65,17 +65,53 @@ interface BranchStore {
   foreshadowRealization?: ForeshadowingRealization;
 }
 
-const store = new Map<string, BranchStore>();
-
 /**
- * Per-branch mutex for concurrent review agents (Promise.all).
- * saveFindings is a sync RMW; without a lock, two agents can still race if anything
- * awaits between get and set. Serializing mutations per novelId::branchId is enough.
+ * MUST live on globalThis — Next/webpack HMR and split chunks can load this
+ * module twice; a module-level Map then means save_outline writes Map A and
+ * get_outline reads Map B ("大纲未生成").
  */
-const writeTails = new Map<string, Promise<unknown>>();
+type GlobalAgentStore = {
+  store: Map<string, BranchStore>;
+  writeTails: Map<string, Promise<unknown>>;
+};
+
+function globalAgentStore(): GlobalAgentStore {
+  const g = globalThis as typeof globalThis & { __ncsAgentSessionStore?: GlobalAgentStore };
+  if (!g.__ncsAgentSessionStore) {
+    g.__ncsAgentSessionStore = {
+      store: new Map(),
+      writeTails: new Map(),
+    };
+  }
+  return g.__ncsAgentSessionStore;
+}
+
+function storeMap() {
+  return globalAgentStore().store;
+}
+
+function writeTailsMap() {
+  return globalAgentStore().writeTails;
+}
+
+/** Normalize ids so save/get always hit the same key. */
+export function resolveStoreIds(
+  args?: { novelId?: string; branchId?: string } | null,
+  ctx?: { novelId?: string; branchId?: string } | null,
+): { novelId: string; branchId: string } {
+  const novelId = String(args?.novelId || ctx?.novelId || "").trim();
+  let branchId = String(args?.branchId || ctx?.branchId || "main").trim();
+  if (!branchId || branchId === "undefined" || branchId === "null") branchId = "main";
+  return { novelId, branchId };
+}
 
 function key(novelId: string, branchId: string): string {
-  return `${novelId}::${branchId}`;
+  const ids = resolveStoreIds({ novelId, branchId });
+  return `${ids.novelId}::${ids.branchId}`;
+}
+
+export function debugStoreKeys(): string[] {
+  return Array.from(storeMap().keys());
 }
 
 /** Run fn exclusively for this branch (queued). */
@@ -85,12 +121,12 @@ export async function withBranchLock<T>(
   fn: () => T | Promise<T>,
 ): Promise<T> {
   const k = key(novelId, branchId);
+  const writeTails = writeTailsMap();
   const prev = writeTails.get(k) || Promise.resolve();
   let release!: () => void;
   const held = new Promise<void>((r) => {
     release = r;
   });
-  // Next callers await `held` completing (after we release)
   writeTails.set(
     k,
     prev.then(() => held).catch(() => held),
@@ -105,20 +141,20 @@ export async function withBranchLock<T>(
 
 /** Start a new outline round: wipe session drafts (prose/findings/plan/realization). */
 export function beginOutlineRound(novelId: string, branchId: string): void {
-  store.set(key(novelId, branchId), {});
-  console.log(`[Store] beginOutlineRound ${novelId}/${branchId}`);
+  const k = key(novelId, branchId);
+  storeMap().set(k, {});
+  console.log(`[Store] beginOutlineRound ${k}`);
 }
 
 export function saveOutline(novelId: string, branchId: string, outline: Outline): void {
-  // Only set outline; keep plan if agent saved plan first (order-independent)
-  // Clear prose/findings/realization so a new outline doesn't leave old draft hanging
   const k = key(novelId, branchId);
+  const store = storeMap();
   const prev = store.get(k) || {};
   store.set(k, {
     outline,
     foreshadowPlan: prev.foreshadowPlan,
   });
-  console.log(`[Store] saveOutline ${novelId}/${branchId} len=${String(outline || "").length}`);
+  console.log(`[Store] saveOutline ${k} len=${String(outline || "").length} keys=${debugStoreKeys().length}`);
 }
 
 export function saveForeshadowPlan(
@@ -127,11 +163,12 @@ export function saveForeshadowPlan(
   plan: ForeshadowingPlan,
 ): void {
   const k = key(novelId, branchId);
+  const store = storeMap();
   const s = store.get(k) || {};
   s.foreshadowPlan = plan;
   store.set(k, s);
   console.log(
-    `[Store] saveForeshadowPlan ${novelId}/${branchId} plant=${plan.plant?.length || 0} reveal=${plan.reveal?.length || 0}`,
+    `[Store] saveForeshadowPlan ${k} plant=${plan.plant?.length || 0} reveal=${plan.reveal?.length || 0}`,
   );
 }
 
@@ -139,7 +176,7 @@ export function getForeshadowPlan(
   novelId: string,
   branchId: string,
 ): ForeshadowingPlan | undefined {
-  return store.get(key(novelId, branchId))?.foreshadowPlan;
+  return storeMap().get(key(novelId, branchId))?.foreshadowPlan;
 }
 
 export function saveForeshadowRealization(
@@ -148,23 +185,27 @@ export function saveForeshadowRealization(
   realization: ForeshadowingRealization,
 ): void {
   const k = key(novelId, branchId);
+  const store = storeMap();
   const s = store.get(k) || {};
   s.foreshadowRealization = realization;
   store.set(k, s);
-  console.log(
-    `[Store] saveForeshadowRealization ${novelId}/${branchId} pass=${realization.pass}`,
-  );
+  console.log(`[Store] saveForeshadowRealization ${k} pass=${realization.pass}`);
 }
 
 export function getForeshadowRealization(
   novelId: string,
   branchId: string,
 ): ForeshadowingRealization | undefined {
-  return store.get(key(novelId, branchId))?.foreshadowRealization;
+  return storeMap().get(key(novelId, branchId))?.foreshadowRealization;
 }
 
 export function getOutline(novelId: string, branchId: string): Outline | undefined {
-  return store.get(key(novelId, branchId))?.outline;
+  const k = key(novelId, branchId);
+  const o = storeMap().get(k)?.outline;
+  if (!o) {
+    console.warn(`[Store] getOutline miss ${k}; have=[${debugStoreKeys().join(", ")}]`);
+  }
+  return o;
 }
 
 /**
@@ -175,14 +216,16 @@ export function getOutline(novelId: string, branchId: string): Outline | undefin
  */
 export function saveFindings(novelId: string, branchId: string, findings: ReviewFindings[]): void {
   const k = key(novelId, branchId);
+  const store = storeMap();
   const s = store.get(k) || {};
   const existing = s.findings || [];
-  // 按 dimension 覆盖：同 dimension 的旧条目移除，新批次追加
-  const dims = Array.from(new Set(findings.map(f => f.dimension)));
-  const kept = existing.filter(f => !dims.includes(f.dimension));
+  const dims = Array.from(new Set(findings.map((f) => f.dimension)));
+  const kept = existing.filter((f) => !dims.includes(f.dimension));
   s.findings = kept.concat(findings);
   store.set(k, s);
-  console.log(`[Store] saveFindings ${novelId}/${branchId} dims=[${dims.join(",")}] -> ${s.findings.length} total (${kept.length} kept)`);
+  console.log(
+    `[Store] saveFindings ${k} dims=[${dims.join(",")}] -> ${s.findings.length} total (${kept.length} kept)`,
+  );
 }
 
 /** Parallel-safe: serialize saveFindings for this branch. */
@@ -197,11 +240,12 @@ export async function saveFindingsLocked(
 }
 
 export function getFindings(novelId: string, branchId: string): ReviewFindings[] {
-  return store.get(key(novelId, branchId))?.findings || [];
+  return storeMap().get(key(novelId, branchId))?.findings || [];
 }
 
 export function clearFindings(novelId: string, branchId: string): void {
   const k = key(novelId, branchId);
+  const store = storeMap();
   const s = store.get(k);
   if (s) {
     s.findings = [];
@@ -217,10 +261,11 @@ export async function clearFindingsLocked(novelId: string, branchId: string): Pr
 
 export function saveProse(novelId: string, branchId: string, prose: string): void {
   const k = key(novelId, branchId);
+  const store = storeMap();
   const s = store.get(k) || {};
   s.prose = prose;
   store.set(k, s);
-  console.log(`[Store] saveProse ${novelId}/${branchId} len=${prose.length}`);
+  console.log(`[Store] saveProse ${k} len=${prose.length}`);
 }
 
 export async function saveProseLocked(
@@ -234,10 +279,10 @@ export async function saveProseLocked(
 }
 
 export function getProse(novelId: string, branchId: string): string | undefined {
-  return store.get(key(novelId, branchId))?.prose;
+  return storeMap().get(key(novelId, branchId))?.prose;
 }
 
 /** 测试用清空 */
 export function _resetStore(): void {
-  store.clear();
+  storeMap().clear();
 }
