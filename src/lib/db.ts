@@ -390,9 +390,30 @@ export function deleteExpiredSessions(): void {
 // ---- Novel CRUD ----
 
 /**
- * Persist novel import / re-save.
- * Always keeps main branch aligned when main is missing or still empty.
- * Never overwrites a main branch that already has content (may include continuations).
+ * Import a novel: one write to novels + one write to main branch. Same text.
+ * This is the only path upload/parse should use — no empty shells, no heal steps.
+ */
+export function importNovel(
+  userId: string,
+  novelId: string,
+  title: string,
+  text: string,
+): void {
+  const d = getDb();
+  d.prepare(
+    `INSERT OR REPLACE INTO novels (id, user_id, title, text, total_length, language, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+  ).run(novelId, userId, title, text, text.length, "zh");
+  // Main working copy starts as the full imported text
+  d.prepare(
+    `INSERT OR REPLACE INTO branches (id, novel_id, user_id, name, parent_offset, text, updated_at)
+     VALUES ('main', ?, ?, '主线', 0, ?, datetime('now'))`
+  ).run(novelId, userId, text);
+}
+
+/**
+ * Update novels row. Creates main only when missing/empty — does not wipe
+ * continuations already on main. Uploads should use importNovel instead.
  */
 export function saveNovel(userId: string, id: string, title: string, text: string): void {
   const d = getDb();
@@ -400,22 +421,13 @@ export function saveNovel(userId: string, id: string, title: string, text: strin
     `INSERT OR REPLACE INTO novels (id, user_id, title, text, total_length, language, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(id, userId, title, text, text.length, "zh");
-  syncMainBranchFromNovel(userId, id, text);
-}
-
-/** Write import text into main only if missing or empty. */
-function syncMainBranchFromNovel(userId: string, novelId: string, text: string): void {
-  if (!(text || "").trim()) return;
-  const d = getDb();
-  const main = getBranchByNovelAndId(d, userId, novelId, "main");
+  const main = getBranchByNovelAndId(d, userId, id, "main");
   if (!main) {
-    saveBranch(userId, "main", novelId, "主线", 0, text);
-    return;
-  }
-  if (!(main.text || "").trim()) {
+    saveBranch(userId, "main", id, "主线", 0, text);
+  } else if (!(main.text || "").trim() && text.trim()) {
     d.prepare(
-      "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = ? AND user_id = ?"
-    ).run(text, novelId, "main", userId);
+      "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = 'main' AND user_id = ?"
+    ).run(text, id, userId);
   }
 }
 
@@ -1081,62 +1093,25 @@ export function listBranches(
   ).all(novelId, userId) as BranchRow[];
 }
 
-/**
- * Ensure main branch exists **with prose**, if the novel has been imported.
- *
- * Important: do NOT create an empty main shell when novels.text is missing.
- * Empty main rows block later import (old code saw existing branch and skipped fill).
- * That was the root cause of 续写 get_branch_text →「无前文」after re-import / new guest.
- */
+/** Lazy: if novel exists but main missing, create main from novel text. No empty shells. */
 export function ensureMainBranch(userId: string, novelId: string): void {
+  if (getBranch(userId, novelId, "main")) return;
   const novel = getNovel(userId, novelId);
-  const novelText = novel?.text || "";
-  if (!novelText.trim()) {
-    // No import yet — leave branches alone (do not insert empty main).
-    return;
-  }
-  const d = getDb();
-  const existing = getBranchByNovelAndId(d, userId, novelId, "main");
-  if (!existing) {
-    saveBranch(userId, "main", novelId, "主线", 0, novelText);
-    return;
-  }
-  if (!(existing.text || "").trim()) {
-    d.prepare(
-      "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = ? AND user_id = ?"
-    ).run(novelText, novelId, "main", userId);
-    console.log(
-      `[DB] Healed empty main branch from novel text (${novelText.length} chars) novel=${novelId} user=${userId}`,
-    );
-  }
+  if (!novel?.text?.trim()) return;
+  saveBranch(userId, "main", novelId, "主线", 0, novel.text);
 }
 
-/**
- * Resolve readable branch prose for agents/UI.
- * Prefer branch.text; if empty, fall back to novels.text (import source).
- */
+/** Branch working text for agents/UI. */
 export function getBranchProse(
   userId: string,
   novelId: string,
   branchId: string,
 ): { text: string; source: "branch" | "novel" | "empty"; branch: BranchRow | null } {
-  ensureMainBranch(userId, novelId);
+  if (branchId === "main") ensureMainBranch(userId, novelId);
   const branch = getBranch(userId, novelId, branchId);
-  if (!branch) {
-    return { text: "", source: "empty", branch: null };
-  }
-  const branchText = branch.text || "";
-  if (branchText.trim()) {
-    return { text: branchText, source: "branch", branch };
-  }
-  // Empty non-main branches stay empty; only main can fall back to novel import
-  if (branchId === "main") {
-    const novel = getNovel(userId, novelId);
-    const novelText = novel?.text || "";
-    if (novelText.trim()) {
-      return { text: novelText, source: "novel", branch };
-    }
-  }
+  if (!branch) return { text: "", source: "empty", branch: null };
+  const text = branch.text || "";
+  if (text.trim()) return { text, source: "branch", branch };
   return { text: "", source: "empty", branch };
 }
 

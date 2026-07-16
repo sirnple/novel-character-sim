@@ -21,18 +21,10 @@ export const branchTools: ToolDefinition[] = [
       const novelId = (ctx.novelId || args.novelId || "") as string;
       const branchId = (ctx.branchId || args.branchId || "main") as string;
       if (!novelId) return { content: "缺少 novelId", messages: [] };
-      const { text, source, branch } = getBranchProse(userId, novelId, branchId);
+      const { text, branch } = getBranchProse(userId, novelId, branchId);
       if (!branch) return { content: "分支不存在", messages: [] };
       const tail = text.slice(-TEXT_TAIL);
-      if (!tail) return { content: "无前文", messages: [] };
-      // Source hint helps debug empty-branch / novel-fallback cases without polluting prose much
-      if (source === "novel") {
-        return {
-          content: `【说明：分支正文为空，已回退到导入的小说原文尾部】\n${tail}`,
-          messages: [],
-        };
-      }
-      return { content: tail, messages: [] };
+      return { content: tail || "无前文", messages: [] };
     },
   },
   {
@@ -107,7 +99,7 @@ export const branchTools: ToolDefinition[] = [
       const userId = ctx.userId || "guest";
       const novelId = (ctx.novelId || args.novelId || "") as string;
       const branchId = (ctx.branchId || args.branchId || "main") as string;
-      const { text, source, branch } = getBranchProse(userId, novelId, branchId);
+      const { text, branch } = getBranchProse(userId, novelId, branchId);
       if (!branch) return { content: "分支不存在", messages: [] };
       return {
         content: JSON.stringify({
@@ -115,7 +107,6 @@ export const branchTools: ToolDefinition[] = [
           parent_offset: branch.parent_offset,
           novel_id: branch.novel_id,
           total_chars: text.length,
-          text_source: source,
         }, null, 2),
         messages: [],
       };

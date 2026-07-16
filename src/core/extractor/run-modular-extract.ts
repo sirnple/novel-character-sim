@@ -11,7 +11,7 @@ import { extractIdeas } from "@/core/extractor/idea-extractor";
 import {
   saveNovel, saveStoryInfo, saveCharacters, saveTimeline, saveChapterStates,
   getStoryInfo, getCharacters, getTimeline, getChapterStates, getNovel,
-  saveGenerationLog, ensureMainBranch,
+  saveGenerationLog,
   upsertExtractedStyle, replaceExtractedIdeas, listStyles, listIdeas,
 } from "@/lib/db";
 import { runWithTokenContext } from "@/lib/token-usage-context";
@@ -76,8 +76,8 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
     parsed.title ||
     "未命名小说";
   parsed.title = title;
+  // Keep source text; do not wipe main if it already has continuations
   saveNovel(userId, novelId, title, text);
-  ensureMainBranch(userId, novelId);
 
   const result: ModularExtractResult = { ran: [], skipped: [] };
 
