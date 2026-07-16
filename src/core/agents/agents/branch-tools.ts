@@ -3,6 +3,31 @@ import { getBranchProse, getCharacters, getTimeline, getStoryInfo } from "@/lib/
 
 const TEXT_TAIL = 30000;
 
+/** Rough genre → logic strictness for review agents (prompt hint only). */
+function inferLogicStrictnessHint(genre: string, themes?: string[]): string {
+  const g = `${genre} ${(themes || []).join(" ")}`.toLowerCase();
+  const has = (...keys: string[]) => keys.some((k) => g.includes(k));
+  if (
+    has(
+      "玄幻", "仙侠", "奇幻", "修真", "修仙", "魔法", "异能", "无限", "穿越",
+      "系统", "克苏鲁", "神话", "科幻", "末世", "超自然", "fantasy", "xianxia",
+      "wuxia", "isekai", "litrpg",
+    )
+  ) {
+    return "松（规则内）：允许超自然，但须符合本书已建立的规则；梦/幻境跨入现实需有本书内桥接，否则仍报。";
+  }
+  if (has("言情", "甜宠", "霸总", "恋爱", "romance", "轻小说")) {
+    return "中：情感可夸张；身份/空间/生死/梦与现实/知情权仍须自洽。";
+  }
+  if (has("历史", "现实", "纪实", "社会", "严肃", "realistic", "historical")) {
+    return "严：默认物理与社会常理；梦≠现实；无因知情/复活一律重报。";
+  }
+  if (genre.trim()) {
+    return `未精确归类（genre="${genre}"）：默认中档；若正文已建立幻想规则则按规则内自洽审查。`;
+  }
+  return "类型未知：默认中档；对「梦境/幻觉实体进入现实」无铺垫时倾向 major。";
+}
+
 export const branchTools: ToolDefinition[] = [
   {
     name: "get_branch_text",
@@ -68,7 +93,8 @@ export const branchTools: ToolDefinition[] = [
   },
   {
     name: "get_branch_world",
-    description: "获取该小说的世界观设定（来自 storyInfo.worldSetting）。",
+    description:
+      "获取小说类型(genre)、主题、世界观与文风摘要。连贯/逻辑审查与世界观审查必调用，用于按类型调节审查松紧。",
     parameters: {
       type: "object",
       properties: {
@@ -81,7 +107,24 @@ export const branchTools: ToolDefinition[] = [
       const userId = ctx.userId || "guest";
       const novelId = (ctx.novelId || args.novelId || "") as string;
       const info = getStoryInfo(userId, novelId);
-      return { content: JSON.stringify((info as any)?.worldSetting || {}, null, 2), messages: [] };
+      const style = (info as any)?.writingStyle || {};
+      return {
+        content: JSON.stringify(
+          {
+            genre: style.genre || "",
+            tone: style.tone || "",
+            themes: (info as any)?.themes || [],
+            contentRating: style.contentRating || "",
+            worldSetting: (info as any)?.worldSetting || {},
+            plotSummary: String((info as any)?.plotSummary || "").slice(0, 800),
+            /** 给审查员的松紧提示（仍须结合正文已建立规则） */
+            logicStrictnessHint: inferLogicStrictnessHint(style.genre || "", (info as any)?.themes),
+          },
+          null,
+          2,
+        ),
+        messages: [],
+      };
     },
   },
   {

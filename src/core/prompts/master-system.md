@@ -33,7 +33,7 @@
    （writer：get_outline → 可选 get_branch_* → **save_prose**；写作页若已选风格会自动注入）
 5. 收到「已 save_prose」类 hint 后：**不要读正文**，**不要串行调六个 review_***。  
    调用一次：**run_reviews**（可选 prompt：「正文已写完，请审查」）  
-   → 系统会**并行**跑角色/连贯/伏笔/风格/世界观/节奏 六维
+   → 系统会**并行**跑角色/连贯与逻辑/伏笔/风格/世界观/节奏 六维
 6. run_reviews 返回后，调 get_findings，汇总问题数与要点，然后 **ask_question** 确认，例如：
    - options: ["按审查意见修改", "算了不改", "只改致命/重要问题"]
 7. 用户要改 → agent(agent_type="write_prose")，prompt 必须以 **`[MODE:rewrite]`** 开头  

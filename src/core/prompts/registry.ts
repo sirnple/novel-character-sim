@@ -139,8 +139,8 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
   },
   {
     agentId: "continuity_review",
-    name: "连贯性审查",
-    description: "检查逻辑矛盾、时间线、生死状态",
+    name: "连贯与逻辑审查",
+    description: "事实/时间线 + 本体逻辑（梦与现实等）；按小说类型调节松紧",
     category: "review",
     variables: ["prompt", "novelId", "branchId", "dimensionName", "dimensionCode"],
     bilingual: false,

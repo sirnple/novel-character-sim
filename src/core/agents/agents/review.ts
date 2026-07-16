@@ -11,6 +11,7 @@ import { branchTools } from "./branch-tools";
 import { intermediateReadTools } from "./intermediate-tools";
 import { foreshadowTools } from "./foreshadow-tools";
 import type { ForeshadowingRealization } from "@/core/foreshadowing/types";
+import { getStoryInfo } from "@/lib/db";
 
 // Review: read prose + branch context only; findings saved by execute layer
 const TOOLS = [
@@ -186,13 +187,25 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
   return {
     execute: async (ctx, llm, _onChunk, onTrail) => {
       const agentId = REVIEW_AGENT_IDS[dimensionCode] || "character_consistency_review";
-      const { system: sys, user: uc } = resolveAgentPrompt(agentId, "zh", {
+      let genreHint = "";
+      if (dimensionCode === "continuity" || dimensionCode === "world") {
+        const info = getStoryInfo(ctx.userId, ctx.novelId);
+        const genre = info?.writingStyle?.genre || "";
+        const themes = info?.themes?.join("、") || "";
+        genreHint =
+          `\n\n## 本书类型（系统注入，须用于调节逻辑松紧）\n` +
+          `- genre: ${genre || "（未提取，默认中档）"}\n` +
+          `- themes: ${themes || "—"}\n` +
+          `- 请再调用 get_branch_world 核对；松档仍要抓「无桥接的跨层」（如梦中角色无交代出现在现实）。\n`;
+      }
+      const { system: sys, user: baseUc } = resolveAgentPrompt(agentId, "zh", {
         prompt: ctx.prompt,
         novelId: ctx.novelId,
         branchId: ctx.branchId,
         dimensionName,
         dimensionCode,
       });
+      const uc = baseUc + genreHint;
 
       const isFs = dimensionCode === "foreshadowing";
       const tools = isFs ? FORESHADOW_TOOLS : TOOLS;
@@ -241,7 +254,7 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
 }
 
 export const reviewCharacterAgent = makeReviewAgent("角色一致性", "character");
-export const reviewContinuityAgent = makeReviewAgent("连贯性", "continuity");
+export const reviewContinuityAgent = makeReviewAgent("连贯与逻辑", "continuity");
 export const reviewForeshadowingAgent = makeReviewAgent("伏笔追踪", "foreshadowing");
 export const reviewStyleAgent = makeReviewAgent("风格一致性", "style");
 export const reviewWorldAgent = makeReviewAgent("世界观", "world");

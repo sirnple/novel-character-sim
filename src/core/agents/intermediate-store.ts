@@ -15,7 +15,7 @@ export interface ReviewFindings {
 
 const DIM_LABELS: Record<string, string> = {
   character: "角色一致性",
-  continuity: "连贯性",
+  continuity: "连贯与逻辑",
   foreshadowing: "伏笔",
   style: "风格",
   world: "世界观",

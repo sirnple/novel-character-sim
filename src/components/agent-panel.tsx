@@ -763,7 +763,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
 
   const toolNames: Record<string, string> = {
     generate_outline: "大纲 Agent", write_prose: "Writer Agent",
-    review_character: "角色审查", review_continuity: "连贯性审查",
+    review_character: "角色审查", review_continuity: "连贯与逻辑审查",
     review_foreshadowing: "伏笔审查", review_style: "风格审查",
     review_world: "世界观审查", review_pacing: "节奏审查",
     get_novel_context: "获取原文", get_characters: "获取角色",
