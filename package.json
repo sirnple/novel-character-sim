@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "npm run test:store",
+    "test": "npx tsx scripts/run-tests.ts",
     "test:store": "npx tsx scripts/test-shared-store.ts",
     "prepare": "husky"
   },
