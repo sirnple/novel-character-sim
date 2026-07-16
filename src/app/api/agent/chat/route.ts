@@ -7,6 +7,7 @@ import { getAgent } from "@/core/agents/agent-registry";
 import { initRegistry } from "@/core/agents/init";
 import { runReviewsParallel } from "@/core/agents/agents/run-reviews";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
+import { runWithTokenContext } from "@/lib/token-usage-context";
 import type { LLMMessage, SystemMessage, UserMessage, AssistantMessage, ToolMessage, ToolSchema } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,9 @@ export async function POST(request: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      await runWithTokenContext(
+        { userId, novelId, branchId, agentId: "master", category: "agent" },
+        async () => {
       const signal = request.signal;
       const checkAbort = () => { if (signal.aborted) throw new Error("ABORTED"); };
       const send = (data: Record<string, unknown>) => {
@@ -279,6 +283,8 @@ export async function POST(request: NextRequest) {
         }
       }
       controller.close();
+        },
+      );
     },
   });
 

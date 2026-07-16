@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { LLMProvider, LLMMessage, ToolSchema } from "@/types";
 import type { StreamEvent } from "@/core/agents/types";
 import { extractJSON } from "@/lib/utils";
+import { recordTokenUsage, usageFromClaude } from "@/lib/token-meter";
 
 export class ClaudeProvider implements LLMProvider {
   private client: Anthropic;
@@ -36,6 +37,14 @@ export class ClaudeProvider implements LLMProvider {
     if (!textBlock || textBlock.type !== "text") {
       throw new Error("Claude returned no text response");
     }
+    const model = options?.model || this.defaultModel;
+    recordTokenUsage({
+      model,
+      operation: "chat",
+      usage: usageFromClaude(response.usage),
+      messages,
+      outputText: textBlock.text,
+    });
     return textBlock.text;
   }
 
@@ -79,6 +88,14 @@ export class ClaudeProvider implements LLMProvider {
     }
 
     const rawText = textBlock.text;
+    const model = options?.model || this.defaultModel;
+    recordTokenUsage({
+      model,
+      operation: `chatWithTool:${toolSchema.name}`,
+      usage: usageFromClaude(response.usage),
+      messages,
+      outputText: rawText,
+    });
     return extractJSON<T>(rawText);
   }
 
@@ -105,13 +122,28 @@ export class ClaudeProvider implements LLMProvider {
     });
 
     let fullText = "";
+    let finalUsage: any = null;
     for await (const event of stream) {
+      if (event.type === "message_delta" && (event as any).usage) {
+        finalUsage = (event as any).usage;
+      }
+      if (event.type === "message_start" && (event as any).message?.usage) {
+        finalUsage = { ...(finalUsage || {}), ...(event as any).message.usage };
+      }
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
         fullText += event.delta.text;
         onChunk(fullText);
       }
     }
 
+    const model = options?.model || this.defaultModel;
+    recordTokenUsage({
+      model,
+      operation: "chatStream",
+      usage: usageFromClaude(finalUsage),
+      messages,
+      outputText: fullText,
+    });
     return fullText;
   }
 
@@ -147,9 +179,18 @@ export class ClaudeProvider implements LLMProvider {
     let currentToolId = "";
     let currentToolName = "";
     let currentToolArgs = "";
+    let outText = "";
+    let finalUsage: any = null;
 
     for await (const event of stream) {
+      if (event.type === "message_delta" && (event as any).usage) {
+        finalUsage = { ...(finalUsage || {}), ...(event as any).usage };
+      }
+      if (event.type === "message_start" && (event as any).message?.usage) {
+        finalUsage = { ...(finalUsage || {}), ...(event as any).message.usage };
+      }
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        outText += event.delta.text;
         yield { type: "text_delta", text: event.delta.text };
       } else if (event.type === "content_block_start" && event.content_block.type === "tool_use") {
         currentToolId = event.content_block.id;
@@ -172,6 +213,14 @@ export class ClaudeProvider implements LLMProvider {
       }
     }
 
+    const model = options?.model || this.defaultModel;
+    recordTokenUsage({
+      model,
+      operation: "chatWithTools",
+      usage: usageFromClaude(finalUsage),
+      messages,
+      outputText: outText + currentToolArgs,
+    });
     yield { type: "done" };
   }
 }

@@ -164,6 +164,28 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_gen_logs_user ON generation_logs(user_id);
     CREATE INDEX IF NOT EXISTS idx_gen_logs_novel ON generation_logs(novel_id);
     CREATE INDEX IF NOT EXISTS idx_gen_logs_category ON generation_logs(category);
+
+    CREATE TABLE IF NOT EXISTS token_usage (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      novel_id TEXT NOT NULL DEFAULT '',
+      branch_id TEXT NOT NULL DEFAULT '',
+      agent_id TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT '',
+      model TEXT NOT NULL DEFAULT '',
+      operation TEXT NOT NULL DEFAULT '',
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      estimated INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage(created_at);
+    CREATE INDEX IF NOT EXISTS idx_token_usage_user ON token_usage(user_id);
+    CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_token_usage_novel ON token_usage(novel_id);
+    CREATE INDEX IF NOT EXISTS idx_token_usage_branch ON token_usage(branch_id);
+
     CREATE TABLE IF NOT EXISTS timelines (
       novel_id TEXT NOT NULL,
       user_id TEXT NOT NULL DEFAULT 'guest',
@@ -581,6 +603,250 @@ function rowToGenLog(row: any): GenLogEntry {
   };
 }
 
+// ---- Token usage (admin analytics) ----
+
+export interface TokenUsageEntry {
+  id: string;
+  userId: string;
+  novelId: string;
+  branchId: string;
+  agentId: string;
+  category: string;
+  model: string;
+  operation: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimated: boolean;
+  createdAt: string;
+}
+
+export function saveTokenUsage(entry: {
+  id: string;
+  userId?: string;
+  novelId?: string;
+  branchId?: string;
+  agentId?: string;
+  category?: string;
+  model?: string;
+  operation?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  estimated?: boolean;
+}): void {
+  const prompt = entry.promptTokens || 0;
+  const completion = entry.completionTokens || 0;
+  const total = entry.totalTokens || prompt + completion;
+  getDb()
+    .prepare(
+      `INSERT INTO token_usage
+        (id, user_id, novel_id, branch_id, agent_id, category, model, operation,
+         prompt_tokens, completion_tokens, total_tokens, estimated, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    )
+    .run(
+      entry.id,
+      entry.userId || "",
+      entry.novelId || "",
+      entry.branchId || "",
+      entry.agentId || "",
+      entry.category || "",
+      entry.model || "",
+      entry.operation || "",
+      prompt,
+      completion,
+      total,
+      entry.estimated ? 1 : 0,
+    );
+}
+
+export interface TokenUsageFilters {
+  userId?: string;
+  novelId?: string;
+  branchId?: string;
+  agentId?: string;
+  since?: string; // ISO or sqlite datetime
+  until?: string;
+  limit?: number;
+}
+
+export function listTokenUsage(filters: TokenUsageFilters = {}): TokenUsageEntry[] {
+  const clauses: string[] = [];
+  const params: any[] = [];
+  if (filters.userId) {
+    clauses.push("user_id = ?");
+    params.push(filters.userId);
+  }
+  if (filters.novelId) {
+    clauses.push("novel_id = ?");
+    params.push(filters.novelId);
+  }
+  if (filters.branchId) {
+    clauses.push("branch_id = ?");
+    params.push(filters.branchId);
+  }
+  if (filters.agentId) {
+    clauses.push("agent_id = ?");
+    params.push(filters.agentId);
+  }
+  if (filters.since) {
+    clauses.push("created_at >= ?");
+    params.push(filters.since);
+  }
+  if (filters.until) {
+    clauses.push("created_at <= ?");
+    params.push(filters.until);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const limit = Math.min(Math.max(filters.limit || 200, 1), 2000);
+  params.push(limit);
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM token_usage ${where} ORDER BY created_at DESC LIMIT ?`
+    )
+    .all(...params) as any[];
+  return rows.map(rowToTokenUsage);
+}
+
+export interface TokenUsageAggregate {
+  key: string;
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCalls: number;
+}
+
+export function aggregateTokenUsage(
+  groupBy: "agent_id" | "user_id" | "novel_id" | "branch_id" | "model" | "day",
+  filters: TokenUsageFilters = {},
+): TokenUsageAggregate[] {
+  const col =
+    groupBy === "day"
+      ? "substr(created_at, 1, 10)"
+      : groupBy;
+  const clauses: string[] = [];
+  const params: any[] = [];
+  if (filters.userId) {
+    clauses.push("user_id = ?");
+    params.push(filters.userId);
+  }
+  if (filters.novelId) {
+    clauses.push("novel_id = ?");
+    params.push(filters.novelId);
+  }
+  if (filters.branchId) {
+    clauses.push("branch_id = ?");
+    params.push(filters.branchId);
+  }
+  if (filters.agentId) {
+    clauses.push("agent_id = ?");
+    params.push(filters.agentId);
+  }
+  if (filters.since) {
+    clauses.push("created_at >= ?");
+    params.push(filters.since);
+  }
+  if (filters.until) {
+    clauses.push("created_at <= ?");
+    params.push(filters.until);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const rows = getDb()
+    .prepare(
+      `SELECT ${col} AS key,
+              COUNT(*) AS calls,
+              COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+              COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+              COALESCE(SUM(total_tokens), 0) AS total_tokens,
+              COALESCE(SUM(estimated), 0) AS estimated_calls
+       FROM token_usage
+       ${where}
+       GROUP BY ${col}
+       ORDER BY total_tokens DESC`
+    )
+    .all(...params) as any[];
+  return rows.map((r) => ({
+    key: r.key == null || r.key === "" ? "(empty)" : String(r.key),
+    calls: r.calls || 0,
+    promptTokens: r.prompt_tokens || 0,
+    completionTokens: r.completion_tokens || 0,
+    totalTokens: r.total_tokens || 0,
+    estimatedCalls: r.estimated_calls || 0,
+  }));
+}
+
+export function tokenUsageSummary(filters: TokenUsageFilters = {}): {
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCalls: number;
+} {
+  const clauses: string[] = [];
+  const params: any[] = [];
+  if (filters.userId) {
+    clauses.push("user_id = ?");
+    params.push(filters.userId);
+  }
+  if (filters.novelId) {
+    clauses.push("novel_id = ?");
+    params.push(filters.novelId);
+  }
+  if (filters.branchId) {
+    clauses.push("branch_id = ?");
+    params.push(filters.branchId);
+  }
+  if (filters.agentId) {
+    clauses.push("agent_id = ?");
+    params.push(filters.agentId);
+  }
+  if (filters.since) {
+    clauses.push("created_at >= ?");
+    params.push(filters.since);
+  }
+  if (filters.until) {
+    clauses.push("created_at <= ?");
+    params.push(filters.until);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS calls,
+              COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+              COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+              COALESCE(SUM(total_tokens), 0) AS total_tokens,
+              COALESCE(SUM(estimated), 0) AS estimated_calls
+       FROM token_usage ${where}`
+    )
+    .get(...params) as any;
+  return {
+    calls: row?.calls || 0,
+    promptTokens: row?.prompt_tokens || 0,
+    completionTokens: row?.completion_tokens || 0,
+    totalTokens: row?.total_tokens || 0,
+    estimatedCalls: row?.estimated_calls || 0,
+  };
+}
+
+function rowToTokenUsage(row: any): TokenUsageEntry {
+  return {
+    id: row.id,
+    userId: row.user_id || "",
+    novelId: row.novel_id || "",
+    branchId: row.branch_id || "",
+    agentId: row.agent_id || "",
+    category: row.category || "",
+    model: row.model || "",
+    operation: row.operation || "",
+    promptTokens: row.prompt_tokens || 0,
+    completionTokens: row.completion_tokens || 0,
+    totalTokens: row.total_tokens || 0,
+    estimated: !!row.estimated,
+    createdAt: row.created_at,
+  };
+}
 
 // ---- Timeline ----
 

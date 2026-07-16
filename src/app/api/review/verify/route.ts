@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createLLMProvider } from "@/core/llm/factory";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { saveGenerationLog } from "@/lib/db";
+import { runWithTokenContext } from "@/lib/token-usage-context";
 
 // 这是一个独立的 agent，职责是按条验证审查意见是否有效
 // 输入：草稿原文 + 审查结果（issues 列表）+ 时间线/角色状态（用于核实）
@@ -44,13 +45,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "draft and issues required" }, { status: 400 });
     }
 
-    const llm = createLLMProvider();
+    return await runWithTokenContext(
+      { userId, agentId: "review_verify", category: "review" },
+      async () => {
+        const llm = createLLMProvider();
 
-    const issuesDesc = issues.map((iss: any, i: number) =>
-      `意见${i + 1} [${iss.category}/${iss.severity}] ${iss.location}: ${iss.description} | 建议: ${iss.suggestion}${iss.snippet ? ` | 原文片段: "${iss.snippet}"` : ""}`
-    ).join("\n");
+        const issuesDesc = issues.map((iss: any, i: number) =>
+          `意见${i + 1} [${iss.category}/${iss.severity}] ${iss.location}: ${iss.description} | 建议: ${iss.suggestion}${iss.snippet ? ` | 原文片段: "${iss.snippet}"` : ""}`
+        ).join("\n");
 
-    const prompt = `你是独立的事实核查员。你的工作不是审查小说，而是验证别人提出的审查意见是否真的站得住脚。
+        const prompt = `你是独立的事实核查员。你的工作不是审查小说，而是验证别人提出的审查意见是否真的站得住脚。
 
 ## 小说草稿（审查对象）
 ${draft.slice(0, 8000)}
@@ -74,26 +78,28 @@ ${issuesDesc.slice(0, 5000)}
 给出每条意见的验证结论：valid(true/false)、reason(验证理由，1-2句)。
 如果意见有效但修改建议不够好，可以提供更好的建议(overrideSuggestion)。
 
-不要无脑全盘肯定或否定，每条都认真核查。`;
+不要用脑全盘肯定或否定，每条都认真核查。`;
 
-    const result = await llm.chatWithTool<{
-      verified: { issueIndex: number; valid: boolean; reason: string; overrideSuggestion?: string }[];
-    }>(
-      [{ role: "user", content: prompt }],
-      VERIFY_SCHEMA,
-      { temperature: 0.1, maxTokens: 8192 }
+        const result = await llm.chatWithTool<{
+          verified: { issueIndex: number; valid: boolean; reason: string; overrideSuggestion?: string }[];
+        }>(
+          [{ role: "user", content: prompt }],
+          VERIFY_SCHEMA,
+          { temperature: 0.1, maxTokens: 8192 },
+        );
+
+        saveGenerationLog({
+          id: crypto.randomUUID(),
+          userId,
+          category: "review",
+          label: "审查验证",
+          inputSummary: issues?.length + "条意见待验证",
+          outputPreview: (result.verified || []).map((v: any) => `#${v.issueIndex}=${v.valid}`).join(", "),
+          fullOutput: JSON.stringify(result.verified),
+        });
+        return NextResponse.json({ verified: result.verified || [] });
+      },
     );
-
-    saveGenerationLog({
-      id: crypto.randomUUID(),
-      userId,
-      category: "review",
-      label: "审查验证",
-      inputSummary: issues?.length + "条意见待验证",
-      outputPreview: (result.verified || []).map((v: any) => `#${v.issueIndex}=${v.valid}`).join(", "),
-      fullOutput: JSON.stringify(result.verified),
-    });
-    return NextResponse.json({ verified: result.verified || [] });
   } catch (error) {
     console.error("Verify error:", error);
     return NextResponse.json({ error: "Verification failed" }, { status: 500 });

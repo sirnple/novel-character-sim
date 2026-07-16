@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runFullReview } from "@/core/codex/review-orchestrator";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { saveGenerationLog } from "@/lib/db";
+import { runWithTokenContext } from "@/lib/token-usage-context";
 import type { WritersCodex } from "@/core/codex/types";
 
 export async function POST(request: NextRequest) {
@@ -25,11 +26,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Codex is required" }, { status: 400 });
     }
 
-    const result = await runFullReview({
-      generatedProse: draft,
-      codex: codex as WritersCodex,
-      chapterNumber: chapterNumber || 1,
-    });
+    const result = await runWithTokenContext(
+      { userId, agentId: "review_suite", category: "review" },
+      () =>
+        runFullReview({
+          generatedProse: draft,
+          codex: codex as WritersCodex,
+          chapterNumber: chapterNumber || 1,
+        }),
+    );
 
     saveGenerationLog({
       id: crypto.randomUUID(),

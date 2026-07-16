@@ -3,6 +3,7 @@ import type { LLMProvider, LLMMessage, ToolSchema } from "@/types";
 import type { StreamEvent } from "@/core/agents/types";
 import { extractJSON } from "@/lib/utils";
 import { logSession } from "@/lib/session-log";
+import { recordTokenUsage, usageFromOpenAI } from "@/lib/token-meter";
 
 function len(m: LLMMessage): number {
   const c = m.content;
@@ -67,6 +68,13 @@ export class OpenAIProvider implements LLMProvider {
     console.log(
       `[LLM:chat] model=${model} elapsed=${elapsed}ms outputLen=${output.length}`
     );
+    recordTokenUsage({
+      model,
+      operation: "chat",
+      usage: usageFromOpenAI(response.usage),
+      messages,
+      outputText: output,
+    });
 
     return output;
   }
@@ -109,6 +117,13 @@ export class OpenAIProvider implements LLMProvider {
     console.log(
       `[LLM:chatWithTool] model=${model} tool=${toolSchema.name} elapsed=${elapsed}ms outputLen=${rawText.length}`
     );
+    recordTokenUsage({
+      model,
+      operation: `chatWithTool:${toolSchema.name}`,
+      usage: usageFromOpenAI(response.usage),
+      messages: [{ content: toolPrompt }],
+      outputText: rawText,
+    });
 
     try {
       return extractJSON<T>(rawText);
@@ -137,11 +152,14 @@ export class OpenAIProvider implements LLMProvider {
       max_tokens: options?.maxTokens || 4096,
       temperature: options?.temperature ?? 0.7,
       stream: true,
+      stream_options: { include_usage: true },
       messages: toOpenAIMessages(messages),
     } as any);
 
     let fullText = "";
+    let streamUsage: any = null;
     for await (const chunk of response) {
+      if ((chunk as any).usage) streamUsage = (chunk as any).usage;
       const delta = (chunk as any).choices[0]?.delta?.content;
       if (delta) {
         fullText += delta;
@@ -153,6 +171,13 @@ export class OpenAIProvider implements LLMProvider {
     console.log(
       `[LLM:chatStream] model=${model} elapsed=${elapsed}ms outputLen=${fullText.length}`
     );
+    recordTokenUsage({
+      model,
+      operation: "chatStream",
+      usage: usageFromOpenAI(streamUsage),
+      messages,
+      outputText: fullText,
+    });
 
     return fullText;
   }
@@ -190,6 +215,7 @@ export class OpenAIProvider implements LLMProvider {
         messages: convertedMessages,
         tools: openaiTools,
         stream: true,
+        stream_options: { include_usage: true },
       } as any);
     } catch (e) {
       logSession({
@@ -212,13 +238,17 @@ export class OpenAIProvider implements LLMProvider {
     let currentToolName = "";
     let currentToolArgs = "";
     let outputLen = 0;
+    let streamUsage: any = null;
+    let outText = "";
 
     for await (const chunk of stream) {
+      if ((chunk as any).usage) streamUsage = (chunk as any).usage;
       const delta = (chunk as any).choices[0]?.delta;
       if (!delta) continue;
 
       if (delta.content) {
         outputLen += delta.content.length;
+        outText += delta.content;
         yield { type: "text_delta", text: delta.content };
       }
 
@@ -251,6 +281,13 @@ export class OpenAIProvider implements LLMProvider {
 
     const elapsed = Date.now() - t0;
     console.log(`[LLM:chatWithTools] model=${model} elapsed=${elapsed}ms outputLen=${outputLen}`);
+    recordTokenUsage({
+      model,
+      operation: "chatWithTools",
+      usage: usageFromOpenAI(streamUsage),
+      messages: convertedMessages,
+      outputText: outText + (currentToolArgs || ""),
+    });
     yield { type: "done" };
   }
 }

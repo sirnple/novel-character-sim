@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLLMProvider } from "@/core/llm/factory";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
+import { runWithTokenContext } from "@/lib/token-usage-context";
 
 const CHAT_SCHEMA = {
   name: "character_chat_response",
@@ -31,10 +32,14 @@ export async function POST(request: NextRequest) {
     }
 
     const llm = createLLMProvider();
-    const result = await llm.chatWithTool<{ dialogue: string }>(
-      [{ role: "system", content: systemPrompt }, ...messages],
-      CHAT_SCHEMA,
-      { temperature: 0.9, maxTokens: 800 }
+    const result = await runWithTokenContext(
+      { userId, agentId: "character_chat", category: "chat" },
+      () =>
+        llm.chatWithTool<{ dialogue: string }>(
+          [{ role: "system", content: systemPrompt }, ...messages],
+          CHAT_SCHEMA,
+          { temperature: 0.9, maxTokens: 800 },
+        ),
     );
 
     return NextResponse.json({ reply: result.dialogue });

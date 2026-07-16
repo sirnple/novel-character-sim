@@ -14,6 +14,7 @@ import {
   saveGenerationLog, ensureMainBranch,
   upsertExtractedStyle, replaceExtractedIdeas, listStyles, listIdeas,
 } from "@/lib/db";
+import { runWithTokenContext } from "@/lib/token-usage-context";
 import type { ExtractModule, StoryInfo, CharacterProfile, ChapterTimeline, CharacterChapterState, StyleLibraryEntry, IdeaLibraryEntry } from "@/types";
 
 const ALL: ExtractModule[] = ["story", "characters", "timeline", "style", "ideas"];
@@ -38,6 +39,16 @@ export interface ModularExtractResult {
 }
 
 export async function runModularExtract(input: ModularExtractInput): Promise<ModularExtractResult> {
+  const { userId } = input;
+  const novelId = input.novelId || "default";
+
+  return runWithTokenContext(
+    { userId, novelId, category: "extract", agentId: "extract" },
+    () => runModularExtractInner(input),
+  );
+}
+
+async function runModularExtractInner(input: ModularExtractInput): Promise<ModularExtractResult> {
   const { userId } = input;
   const novelId = input.novelId || "default";
   const forceRefresh = !!input.forceRefresh;
@@ -82,7 +93,9 @@ export async function runModularExtract(input: ModularExtractInput): Promise<Mod
       result.skipped.push({ module: "story", reason: "已有缓存" });
     } else {
       console.log("[Extract] story...");
-      const storyInfo = await new StoryExtractor(parsed).extract();
+      const storyInfo = await runWithTokenContext({ agentId: "extract_story" }, () =>
+        new StoryExtractor(parsed).extract(),
+      );
       saveStoryInfo(userId, novelId, storyInfo);
       saveGenerationLog({
         id: crypto.randomUUID(), userId, novelId, category: "extract", label: "故事信息提取",
@@ -104,7 +117,9 @@ export async function runModularExtract(input: ModularExtractInput): Promise<Mod
       result.skipped.push({ module: "characters", reason: "已有缓存" });
     } else {
       console.log("[Extract] characters...");
-      const characters = await new CharacterExtractor(parsed).extractAll();
+      const characters = await runWithTokenContext({ agentId: "extract_characters" }, () =>
+        new CharacterExtractor(parsed).extractAll(),
+      );
       saveCharacters(userId, novelId, characters);
       saveGenerationLog({
         id: crypto.randomUUID(), userId, novelId, category: "extract", label: "角色提取",
@@ -128,7 +143,9 @@ export async function runModularExtract(input: ModularExtractInput): Promise<Mod
     } else {
       console.log("[Extract] timeline...");
       const names = (result.characters || getCharacters(userId, novelId)).map(c => c.name);
-      const timeline = await new TimelineExtractor(parsed, names).extract();
+      const timeline = await runWithTokenContext({ agentId: "extract_timeline" }, () =>
+        new TimelineExtractor(parsed, names).extract(),
+      );
       saveTimeline(userId, novelId, timeline);
       const lastChapterStates = timeline.chapters.length > 0
         ? timeline.chapters[timeline.chapters.length - 1].characterStates
@@ -153,7 +170,9 @@ export async function runModularExtract(input: ModularExtractInput): Promise<Mod
     console.log("[Extract] style...");
     let writingStyle = result.storyInfo?.writingStyle;
     try {
-      writingStyle = await extractWritingStyle(parsed);
+      writingStyle = await runWithTokenContext({ agentId: "extract_style" }, () =>
+        extractWritingStyle(parsed),
+      );
       if (result.storyInfo) {
         result.storyInfo = { ...result.storyInfo, writingStyle };
         saveStoryInfo(userId, novelId, result.storyInfo);
@@ -170,7 +189,9 @@ export async function runModularExtract(input: ModularExtractInput): Promise<Mod
     console.log("[Extract] ideas...");
     const novel = getNovel(userId, novelId);
     const title = novel?.title || parsed.title;
-    const ideas = await extractIdeas(parsed, novelId, title);
+    const ideas = await runWithTokenContext({ agentId: "extract_ideas" }, () =>
+      extractIdeas(parsed, novelId, title),
+    );
     if (ideas.length > 0) replaceExtractedIdeas(userId, novelId, ideas);
     result.ran.push("ideas");
   }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createLLMProvider } from "@/core/llm/factory";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { saveGenerationLog } from "@/lib/db";
+import { runWithTokenContext } from "@/lib/token-usage-context";
 import type { CharacterProfile, StoryInfo } from "@/types";
 import { isChinese } from "@/lib/utils";
 
@@ -22,6 +23,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Characters required" }, { status: 400 });
     }
 
+    return await runWithTokenContext(
+      { userId, agentId: "scene_recommend", category: "scene" },
+      async () => {
     const llm = createLLMProvider();
     const zh = isChinese(characters[0]?.name || "") || (storyInfo?.plotSummary && isChinese(storyInfo.plotSummary));
 
@@ -110,6 +114,8 @@ Return a JSON array.`;
       fullOutput: JSON.stringify(response.scenes),
     });
     return NextResponse.json({ recommendations: response.scenes || [] });
+      },
+    );
   } catch (error) {
     console.error("Scene recommendation error:", error);
     return NextResponse.json({ error: "Failed to generate recommendations" }, { status: 500 });

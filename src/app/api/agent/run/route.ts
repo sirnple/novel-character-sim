@@ -3,6 +3,7 @@ import { createLLMProvider } from "@/core/llm/factory";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { getAgent } from "@/core/agents/agent-registry";
 import { initRegistry } from "@/core/agents/init";
+import { runWithTokenContext } from "@/lib/token-usage-context";
 
 export const dynamic = "force-dynamic";
 
@@ -25,36 +26,52 @@ export async function POST(request: NextRequest) {
     return new Response(JSON.stringify({ error: `Unknown agent: ${agent_type}` }), { status: 400, headers: { "Content-Type": "application/json" } });
   }
 
+  const novelId = String(context?.novelId || "");
+  const branchId = String(context?.branchId || "");
   const llm = createLLMProvider();
   const encoder = new TextEncoder();
   const toolCallId = Math.random().toString(36).slice(2);
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (data: Record<string, unknown>) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-      };
+      await runWithTokenContext(
+        {
+          userId: context?.userId || userId,
+          novelId,
+          branchId,
+          agentId: agent_type,
+          category: "agent",
+        },
+        async () => {
+          const send = (data: Record<string, unknown>) => {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          };
 
-      try {
-        send({ type: "tool_call", tool: agent_type, status: "running", toolCallId });
+          try {
+            send({ type: "tool_call", tool: agent_type, status: "running", toolCallId });
 
-        const result = await agentDef.execute(
-          {
-            prompt,
-            ...(context || {}),
-            novelText: context?.novelText || "",
-            characters: context?.characters || [],
-          },
-          llm,
-          (text) => send({ type: "tool_chunk", toolCallId, content: text }),
-          (messages) => send({ type: "tool_trail", toolCallId, messages, tool: agent_type }),
-        );
+            const result = await agentDef.execute(
+              {
+                prompt,
+                ...(context || {}),
+                userId: context?.userId || userId,
+                novelId,
+                branchId,
+                novelText: context?.novelText || "",
+                characters: context?.characters || [],
+              },
+              llm,
+              (text) => send({ type: "tool_chunk", toolCallId, content: text }),
+              (messages) => send({ type: "tool_trail", toolCallId, messages, tool: agent_type }),
+            );
 
-        send({ type: "tool_call", tool: agent_type, status: "done", toolCallId, result: result.content.slice(0, 5000), messages: result.messages });
-      } catch (e) {
-        send({ type: "error", message: (e as Error).message });
-      }
-      controller.close();
+            send({ type: "tool_call", tool: agent_type, status: "done", toolCallId, result: result.content.slice(0, 5000), messages: result.messages });
+          } catch (e) {
+            send({ type: "error", message: (e as Error).message });
+          }
+          controller.close();
+        },
+      );
     },
   });
 
