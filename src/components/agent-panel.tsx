@@ -391,7 +391,6 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     loading?: boolean;
     message?: string;
   } | null>(null);
-  const [accepting, setAccepting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<AgentMessage[]>([]);
@@ -401,8 +400,6 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     selectedIdeaIds,
     autoPickIdeas,
     setNovelText,
-    sessionContinueOffset,
-    sessionContinueLabel,
   } = useNovel();
 
   const refreshFsStatus = useCallback(async () => {
@@ -687,72 +684,6 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     }
   }, [branchId, novelId, setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas, refreshFsStatus]);
 
-  /** Shortcut accept (same as master accept_continuation). Always ledger = realized. */
-  const handleAccept = async () => {
-    if (!novelId || !branchId || accepting) return;
-    setAccepting(true);
-    setFsStatus(s => (s ? { ...s, message: undefined } : s));
-    try {
-      const midContinue =
-        typeof sessionContinueOffset === "number" &&
-        sessionContinueOffset >= 0 &&
-        /偏移|续写点/.test(sessionContinueLabel || "");
-      const fromOffset = midContinue ? sessionContinueOffset : undefined;
-      const res = await fetch("/api/continuation/accept", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novelId, branchId, fromOffset }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setFsStatus(s => ({
-          hasProseDraft: s?.hasProseDraft ?? false,
-          proseLength: s?.proseLength ?? 0,
-          pass: s?.pass ?? null,
-          hasRealization: s?.hasRealization ?? false,
-          activeCount: s?.activeCount ?? 0,
-          message: data.error || "接受失败",
-        }));
-        return;
-      }
-      const text = data.branch?.text;
-      if (text != null) {
-        if (branchId === "main") {
-          setNovelText(text);
-          setNovel({ novelText: text, generatedProse: undefined });
-        } else {
-          setNovel({ generatedProse: undefined });
-        }
-        window.dispatchEvent(
-          new CustomEvent("ncs:branch-updated", {
-            detail: { novelId, branchId, text },
-          }),
-        );
-      }
-      setMessages(prev => [
-        ...prev,
-        {
-          id: Math.random().toString(36).slice(2),
-          role: "agent",
-          content: data.message || `**已接受续写**（伏笔按实际落实记账）`,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-      await refreshFsStatus();
-    } catch (e) {
-      setFsStatus(s => ({
-        hasProseDraft: s?.hasProseDraft ?? false,
-        proseLength: s?.proseLength ?? 0,
-        pass: s?.pass ?? null,
-        hasRealization: s?.hasRealization ?? false,
-        activeCount: s?.activeCount ?? 0,
-        message: (e as Error).message,
-      }));
-    } finally {
-      setAccepting(false);
-    }
-  };
-
   const handleSend = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     if (!text || status === "generating") return;
@@ -1029,39 +960,19 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Accept continuation — not save_prose */}
-      {branchId && novelId && (
-        <div className="px-3 py-2 border-t border-border/60 bg-background shrink-0 space-y-1.5">
-          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>
-              伏笔账本 active={fsStatus?.activeCount ?? "—"}
-              {fsStatus?.hasRealization
-                ? ` · 审查 ${fsStatus.pass ? "pass" : "fail"}`
-                : " · 未审"}
-              {fsStatus?.hasProseDraft ? ` · 草稿 ${fsStatus.proseLength} 字` : " · 无草稿"}
-            </span>
-            <button
-              type="button"
-              onClick={() => refreshFsStatus()}
-              className="text-fog hover:text-muted-foreground"
-            >
-              刷新
-            </button>
-          </div>
-          {fsStatus?.message && (
-            <p className="text-xs text-amber-500/90 leading-snug">{fsStatus.message}</p>
-          )}
-          <p className="text-[10px] text-fog leading-snug">
-            主流程：审查后在问题卡片选「接受续写…」。下方为快捷按钮；伏笔账本始终按实际落实（realized）记账。
-          </p>
-          <button
-            type="button"
-            disabled={accepting || status === "generating" || !fsStatus?.hasProseDraft}
-            onClick={() => handleAccept()}
-            title="写入当前分支；伏笔未落实部分不按 plan 假装完成"
-            className="px-2.5 py-1 rounded text-xs bg-emerald-700 hover:bg-emerald-600 disabled:bg-secondary disabled:text-fog text-white transition-colors"
-          >
-            {accepting ? "写入中…" : "快捷：接受续写"}
+      {/* Status only — accept via ask_question + master accept_continuation */}
+      {branchId && novelId && (fsStatus?.hasProseDraft || fsStatus?.hasRealization) && (
+        <div className="px-3 py-1.5 border-t border-border/60 bg-background/80 shrink-0 flex items-center justify-between gap-2 text-[10px] text-fog">
+          <span>
+            {fsStatus?.hasProseDraft ? `草稿 ${fsStatus.proseLength} 字` : "无草稿"}
+            {fsStatus?.hasRealization
+              ? ` · 伏笔 ${fsStatus.pass ? "pass" : "未全落实"}`
+              : ""}
+            {` · active=${fsStatus?.activeCount ?? "—"}`}
+            {" · 接受请在审查后的选项里选择"}
+          </span>
+          <button type="button" onClick={() => refreshFsStatus()} className="hover:text-muted-foreground shrink-0">
+            刷新
           </button>
         </div>
       )}
