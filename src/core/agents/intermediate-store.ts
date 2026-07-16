@@ -103,12 +103,22 @@ export async function withBranchLock<T>(
   }
 }
 
+/** Start a new outline round: wipe session drafts (prose/findings/plan/realization). */
+export function beginOutlineRound(novelId: string, branchId: string): void {
+  store.set(key(novelId, branchId), {});
+  console.log(`[Store] beginOutlineRound ${novelId}/${branchId}`);
+}
+
 export function saveOutline(novelId: string, branchId: string, outline: Outline): void {
-  // 新一轮续写以大纲为起点——清空 prose / findings / plan / realization
-  // （plan 由 outline execute 在随后 saveForeshadowPlan 写回）
-  const s: BranchStore = { outline };
-  store.set(key(novelId, branchId), s);
-  console.log(`[Store] saveOutline ${novelId}/${branchId} -> cleared findings+prose+plan+realization`);
+  // Only set outline; keep plan if agent saved plan first (order-independent)
+  // Clear prose/findings/realization so a new outline doesn't leave old draft hanging
+  const k = key(novelId, branchId);
+  const prev = store.get(k) || {};
+  store.set(k, {
+    outline,
+    foreshadowPlan: prev.foreshadowPlan,
+  });
+  console.log(`[Store] saveOutline ${novelId}/${branchId} len=${String(outline || "").length}`);
 }
 
 export function saveForeshadowPlan(

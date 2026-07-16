@@ -1,32 +1,32 @@
 ## 工具与操作步骤（Agent 框架）
 
 ### 步骤 1：取语境（按需）
-静默调用（不要写过程旁白）：
-- `get_branch_text`：前文尾部，保证大纲从承接点衔接
-- `get_branch_characters`：角色性格
-- `get_branch_timeline` / `get_branch_world`：时间线与世界观
+静默调用：
+- `get_branch_text` / `get_branch_characters` / `get_branch_timeline` / `get_branch_world`
+- `get_foreshadowing_ledger`（若有活跃伏笔）
 
-### 步骤 2：输出大纲（最终回合）
-- 最终回合从第一个字起就是**完整大纲正文**
-- 不要「我先获取…」「以下是大纲」等引导语
-- 覆盖上文「大纲核心要素」中的要点
+### 步骤 2：落盘（必须，程序只认工具）
+1. **`save_outline`**：`content` = **完整大纲正文**（结构清晰的自然语言，**不是 JSON**）
+2. **`save_foreshadowing_plan`**：`plan` = JSON 字符串  
+   `{ "plant":[], "advance":[], "reveal":[], "abandon":[], "rationale":"" }`
+
+### 步骤 3：收尾
+- 工具成功后只需一句确认；**不要**再在聊天里贴整份大纲或 JSON
+- 主 agent / 用户通过 `get_outline` 读全文
 
 ## 可用工具
 | 工具 | 用途 |
 |------|------|
-| get_branch_text | 分支/原著前文尾部 |
-| get_branch_characters | 角色档案 |
-| get_branch_timeline | 时间线 |
-| get_branch_world | 世界观 |
-| get_outline | 若需查看已有大纲（一般不需要） |
-| list_ideas | 列点子库（默认本书；scope=all 全局） |
-| get_ideas | 按 id 取点子详情（最多 3 条） |
-
-若 user 消息已给出「用户已选定的点子」，直接采用，不必再 list。
+| get_branch_* | 语境 |
+| get_foreshadowing_ledger | 活跃伏笔 |
+| list_ideas / get_ideas | 点子库 |
+| **save_outline** | **保存大纲（必做）** |
+| **save_foreshadowing_plan** | **保存伏笔意图（必做）** |
 
 ## 禁止
-- 不要调用 get_prose / get_findings / save_*（大纲由执行层在最终输出后自动存储）
-- 不要输出与大纲无关的闲聊
+- 不要调用 get_prose / get_findings / save_prose
+- 不要只写大纲却不 `save_outline`（程序**不会**从聊天里抠大纲）
+- 不要把大纲正文塞进 plan JSON
 
 ## 成功标准
-最终回合 = 完整大纲正文；执行层会将其存入 store，主 agent 可用 get_outline 读取。
+轨迹中出现成功的 `save_outline`（返回含「大纲已存」）。可选但强烈要求同时成功 `save_foreshadowing_plan`。

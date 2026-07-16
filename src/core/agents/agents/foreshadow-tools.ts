@@ -4,9 +4,14 @@ import {
   getForeshadowRealization,
   saveForeshadowPlan,
   saveForeshadowRealization,
+  saveFindings,
+  formatFindingsReadable,
 } from "../intermediate-store";
 import { getForeshadowingLedger } from "@/lib/db";
 import { formatLedgerForPrompt, type ForeshadowingPlan, type ForeshadowingRealization } from "@/core/foreshadowing/types";
+
+export const SAVE_FS_PLAN_OK = "伏笔 plan 已存";
+export const SAVE_FS_REALIZATION_OK = "realization 已存";
 
 export const foreshadowTools: ToolDefinition[] = [
   {
@@ -38,13 +43,14 @@ export const foreshadowTools: ToolDefinition[] = [
   },
   {
     name: "save_foreshadowing_plan",
-    description: "大纲专用：保存本轮伏笔 plan（plant/advance/reveal/abandon）。不写持久账本。",
+    description:
+      "大纲专用：保存本轮伏笔 plan（唯一真相，会话 store）。必须调用。不写持久账本。",
     parameters: {
       type: "object",
       properties: {
         plan: {
           type: "string",
-          description: "JSON 字符串：{ plant, advance, reveal, abandon, rationale }",
+          description: "JSON：{ plant, advance, reveal, abandon, rationale }",
         },
       },
       required: ["plan"],
@@ -55,7 +61,7 @@ export const foreshadowTools: ToolDefinition[] = [
       try {
         body = typeof raw === "string" ? JSON.parse(raw) : raw;
       } catch {
-        return { content: "plan JSON 解析失败", messages: [] };
+        return { content: "plan JSON 解析失败，请重试 save_foreshadowing_plan", messages: [] };
       }
       const plan: ForeshadowingPlan = {
         novelId: ctx.novelId,
@@ -69,10 +75,17 @@ export const foreshadowTools: ToolDefinition[] = [
         rationale: body.rationale || "",
       };
       saveForeshadowPlan(ctx.novelId, ctx.branchId, plan);
-      return {
-        content: `伏笔 plan 已存 plant=${plan.plant.length} reveal=${plan.reveal.length}（未写持久账本）`,
-        messages: [],
-      };
+      const lines = [
+        `${SAVE_FS_PLAN_OK}（未写持久账本）`,
+        `- 拟新埋 plant: ${plan.plant.length}`,
+        `- 拟推进 advance: ${plan.advance.length}`,
+        `- 拟回收 reveal: ${plan.reveal.length}`,
+        `- 拟废弃 abandon: ${plan.abandon.length}`,
+      ];
+      if (plan.plant[0]?.description) {
+        lines.push(`- 例：${String(plan.plant[0].description).slice(0, 80)}`);
+      }
+      return { content: lines.join("\n"), messages: [] };
     },
   },
   {
@@ -88,7 +101,7 @@ export const foreshadowTools: ToolDefinition[] = [
   {
     name: "save_foreshadowing_realization",
     description:
-      "伏笔审查专用：保存 realized 结算（pass、findings、realized、gaps）。不写持久账本；Accept 时才 commit。",
+      "伏笔审查专用：保存 realized 结算（唯一真相）。必须调用。不写持久账本；Accept 时 commit。",
     parameters: {
       type: "object",
       properties: {
@@ -107,14 +120,20 @@ export const foreshadowTools: ToolDefinition[] = [
             ? JSON.parse(args.realization)
             : args.realization;
       } catch {
-        return { content: "realization JSON 解析失败", messages: [] };
+        return { content: "realization JSON 解析失败，请重试", messages: [] };
       }
+      const findingsRaw = Array.isArray(body.findings) ? body.findings : [];
       const realization: ForeshadowingRealization = {
         novelId: ctx.novelId,
         branchId: ctx.branchId,
         reviewedAt: new Date().toISOString(),
         pass: !!body.pass,
-        findings: Array.isArray(body.findings) ? body.findings : [],
+        findings: findingsRaw.map((f: any) => ({
+          severity: f.severity || "minor",
+          code: f.code,
+          description: String(f.description || ""),
+          suggestion: f.suggestion ? String(f.suggestion) : undefined,
+        })),
         realized: body.realized || {
           planted: [],
           advanced: [],
@@ -124,10 +143,26 @@ export const foreshadowTools: ToolDefinition[] = [
         gaps: body.gaps || { planNotRealized: [], realizedNotInPlan: [] },
       };
       saveForeshadowRealization(ctx.novelId, ctx.branchId, realization);
-      return {
-        content: `realization 已存 pass=${realization.pass}（未写持久账本；用户 Accept 后才落定）`,
-        messages: [],
-      };
+      const findings = realization.findings
+        .filter((f) => f.description)
+        .map((f) => ({
+          dimension: "foreshadowing",
+          severity: String(f.severity || "minor"),
+          description: f.description,
+          suggestion: f.suggestion || "",
+        }));
+      saveFindings(ctx.novelId, ctx.branchId, findings);
+      const r = realization.realized;
+      const lines = [
+        `${SAVE_FS_REALIZATION_OK} pass=${realization.pass}（未写持久账本；Accept 后落定）`,
+        `- findings: ${findings.length}`,
+        `- realized plant/advance/reveal: ${r.planted?.length || 0}/${r.advanced?.length || 0}/${r.revealed?.length || 0}`,
+        `- gaps plan未落实: ${realization.gaps.planNotRealized?.length || 0}`,
+      ];
+      if (findings.length) {
+        lines.push("", formatFindingsReadable(findings));
+      }
+      return { content: lines.join("\n"), messages: [] };
     },
   },
 ];

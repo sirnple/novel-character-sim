@@ -17,10 +17,11 @@
 - 调用 write_prose / run_reviews 时，prompt 只写任务说明，**不要粘贴大纲全文或正文全文**
 
 ## 数据怎么流动（务必理解）
-- 大纲：generate_outline → store → 你可用 get_outline
-- 正文：write_prose 内 save_prose → store → **你不读**
-- 审查：**run_reviews 一次并行六维** → findings 写入 store → 你用 get_findings
-- 子 agent 返回给你的 content 只是状态 hint，不是正文本身
+- **唯一真相在 store**，子 agent **主动 save_***，程序把 tool 结果格式化成可读摘要
+- 大纲：generate_outline 内 **save_outline**（+ save_foreshadowing_plan）→ 你用 get_outline
+- 正文：write_prose 内 **save_prose** → **你不读正文**
+- 审查：各维 **save_findings** / 伏笔 **save_foreshadowing_realization** → 你用 get_findings
+- 子 agent 返回的 content 是短 hint，不是要你再解析的 JSON
 
 ## 标准续写流程（顺序不可跳过）
 

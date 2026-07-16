@@ -1,16 +1,17 @@
-import type { AgentDef } from "../types";
+import type { AgentDef, TrailMessage } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
-import { saveFindingsLocked, getOutline } from "../intermediate-store";
-import { extractJSON } from "@/lib/utils";
+import { getFindings, getOutline } from "../intermediate-store";
 import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
 import { branchTools } from "./branch-tools";
-import { intermediateReadTools } from "./intermediate-tools";
+import { intermediateReadTools, intermediateTools, SAVE_FINDINGS_OK } from "./intermediate-tools";
 import { foreshadowTools } from "./foreshadow-tools";
 import { getStoryInfo } from "@/lib/db";
+import { toolSaveSucceeded } from "../save-verify";
 
 const TOOLS = [
   ...branchTools,
   ...intermediateReadTools.filter((t) => t.name === "get_outline"),
+  ...intermediateTools.filter((t) => t.name === "save_findings"),
   ...foreshadowTools.filter((t) => t.name === "get_foreshadowing_ledger"),
 ].map((t) => ({
   name: t.name,
@@ -29,32 +30,8 @@ export interface OutlineReviewResult {
   summary: string;
 }
 
-function parseOutlineReview(raw: string): { pass: boolean; items: any[]; ok: boolean } {
-  try {
-    const parsed = extractJSON<any>(raw || "");
-    if (Array.isArray(parsed)) {
-      const items = parsed;
-      const pass = !items.some(
-        (f) => f.severity === "critical" || f.severity === "major",
-      );
-      return { pass, items, ok: true };
-    }
-    if (parsed && typeof parsed === "object") {
-      const items = Array.isArray(parsed.findings) ? parsed.findings : [];
-      const pass =
-        parsed.pass !== undefined
-          ? !!parsed.pass
-          : !items.some(
-              (f: any) => f.severity === "critical" || f.severity === "major",
-            );
-      return { pass, items, ok: true };
-    }
-  } catch { /* fallthrough */ }
-  return { pass: false, items: [], ok: false };
-}
-
 /**
- * Run outline review (LLM). Used after generate_outline and as agent review_outline.
+ * Run outline review via agent tools (save_findings). Used as agent review_outline.
  */
 export async function runOutlineReview(
   ctx: { prompt?: string; novelId: string; branchId: string; userId: string },
@@ -63,11 +40,7 @@ export async function runOutlineReview(
 ): Promise<OutlineReviewResult> {
   const outline = getOutline(ctx.novelId, ctx.branchId);
   if (!outline || String(outline).length < 30) {
-    return {
-      pass: true,
-      findings: [],
-      summary: "无大纲可审",
-    };
+    return { pass: true, findings: [], summary: "无大纲可审（请先 generate_outline / save_outline）" };
   }
 
   const info = getStoryInfo(ctx.userId, ctx.novelId);
@@ -79,51 +52,66 @@ export async function runOutlineReview(
   });
   const uc =
     baseUser +
-    `\n\n## 本书类型（系统注入）\ngenre: ${genre || "（未知，默认中档）"}\nthemes: ${(info?.themes || []).join("、") || "—"}\n` +
-    `请 get_outline + get_branch_world + get_branch_text 后审查。`;
+    `\n\n## 本书类型\ngenre: ${genre || "（未知）"}\nthemes: ${(info?.themes || []).join("、") || "—"}\n` +
+    `\n## 落盘（必须）\n` +
+    `取证后调用 save_findings：dimension="outline"，findings=JSON 数组字符串（无问题 "[]"）。\n` +
+    `不要在聊天贴完整 JSON。程序只认 save_findings。\n`;
 
-  const { finalText, trail } = await runSubAgentToolLoop(
-    llm,
-    sys,
-    uc,
-    TOOLS,
-    ctx as any,
-    undefined,
-    onTrail,
-  );
+  const run = (user: string) =>
+    runSubAgentToolLoop(llm, sys, user, TOOLS, ctx as any, undefined, onTrail, {
+      maxTokens: 4096,
+      temperature: 0.2,
+    });
 
-  const { pass, items, ok } = parseOutlineReview(finalText || "");
-  const findings = (ok ? items : [{
-    severity: "major",
-    description: "大纲审核输出无法解析，请重跑 review_outline",
-    suggestion: "重新生成或手动检查大纲与前文衔接",
-  }]).map((f: any) => ({
-    dimension: "outline",
-    severity: String(f.severity || "minor"),
-    description: String(f.description || "").trim(),
-    suggestion: String(f.suggestion || "").trim(),
-  })).filter((f: any) => f.description);
+  let { trail } = await run(uc);
+  let saved = toolSaveSucceeded(trail, "save_findings", SAVE_FINDINGS_OK);
+  if (!saved.ok) {
+    const second = await run(
+      uc +
+        `\n\n## 系统纠错\n请立刻 save_findings，dimension=outline，findings 为 JSON 数组。`,
+    );
+    trail = trail.concat(
+      { role: "assistant", content: "（系统：请 save_findings）" } as TrailMessage,
+      ...second.trail.filter((m) => m.role !== "system"),
+    );
+    saved = toolSaveSucceeded(trail, "save_findings", SAVE_FINDINGS_OK);
+  }
 
-  await saveFindingsLocked(ctx.novelId, ctx.branchId, findings);
+  const findings = getFindings(ctx.novelId, ctx.branchId).filter((f) => f.dimension === "outline");
+  if (!saved.ok) {
+    return {
+      pass: false,
+      findings: [
+        {
+          dimension: "outline",
+          severity: "major",
+          description: "大纲审核未成功 save_findings",
+          suggestion: "重跑 review_outline",
+        },
+      ],
+      summary: "大纲审核失败：未 save_findings",
+    };
+  }
 
-  const lines = findings.slice(0, 8).map(
-    (f, i) => `${i + 1}. 【${f.severity}】${f.description}${f.suggestion ? ` → ${f.suggestion}` : ""}`,
-  );
+  const pass = !findings.some((f) => f.severity === "critical" || f.severity === "major");
+  const lines = findings
+    .slice(0, 8)
+    .map(
+      (f, i) =>
+        `${i + 1}. 【${f.severity}】${f.description}${f.suggestion ? ` → ${f.suggestion}` : ""}`,
+    );
   const summary =
-    `大纲审核 ${pass ? "通过" : "未通过"}（${findings.length} 条）` +
+    `大纲审核 ${pass ? "通过" : "未通过"}（${findings.length} 条，已 save_findings）` +
     (lines.length ? "：\n" + lines.join("\n") : "。");
 
-  // attach trail for agent card if needed
-  void trail;
-
-  return { pass: ok ? pass : false, findings, summary };
+  return { pass, findings, summary };
 }
 
 export const outlineReviewAgent: AgentDef = {
   execute: async (ctx, llm, _onChunk, onTrail) => {
     const result = await runOutlineReview(ctx, llm, onTrail);
     return {
-      content: result.summary + "（findings 已存 dimension=outline，可用 get_findings）",
+      content: result.summary + "（主 agent 可用 get_findings 查看 outline 维）",
       messages: [],
     };
   },

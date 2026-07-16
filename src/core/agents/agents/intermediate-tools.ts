@@ -10,6 +10,10 @@ import {
   looksLikeFindingsNotProse,
 } from "../prose-guard";
 
+/** Prefixes so execute layer can verify tool save without parsing free text */
+export const SAVE_OUTLINE_OK = "大纲已存";
+export const SAVE_FINDINGS_OK = "findings 已存";
+
 /** Read-only intermediate tools — safe for sub-agents that should not write. */
 export const intermediateReadTools: ToolDefinition[] = [
   {
@@ -110,19 +114,34 @@ export const saveProseTool: ToolDefinition = {
 export const intermediateTools: ToolDefinition[] = [
   {
     name: "save_outline",
-    description: "把生成好的大纲正文存起来供后续 write_prose 获取。生成大纲后必须调用一次，content 参数为大纲全文。",
+    description:
+      "保存大纲正文到 store（唯一真相）。生成大纲后必须调用；content=完整大纲全文。程序只认本工具成功。",
     parameters: {
       type: "object",
       properties: {
-        content: { type: "string", description: "大纲正文（结构化文本）" },
+        content: { type: "string", description: "完整大纲正文（给人看的结构文，非 JSON）" },
       },
       required: ["content"],
     },
     execute: async (args, ctx) => {
       const novelId = (ctx as any).novelId as string;
       const branchId = (ctx as any).branchId as string;
-      saveOutline(novelId, branchId, args.content as string);
-      return { content: `大纲已存（${(args.content as string).length} 字）。后续 writer 可用 get_outline 获取。`, messages: [] };
+      const raw = String(args.content ?? "").trim();
+      if (raw.length < 50) {
+        return {
+          content: `大纲保存失败：content 过短（${raw.length} 字），请提交完整大纲。`,
+          messages: [],
+        };
+      }
+      saveOutline(novelId, branchId, raw);
+      const preview = raw.slice(0, 180).replace(/\s+/g, " ");
+      return {
+        content:
+          `${SAVE_OUTLINE_OK}（${raw.length} 字）。` +
+          `摘要：${preview}${raw.length > 180 ? "…" : ""}。` +
+          `后续可用 get_outline 读取全文。`,
+        messages: [],
+      };
     },
   },
   ...intermediateReadTools.filter(t => t.name === "get_outline"),
@@ -130,27 +149,57 @@ export const intermediateTools: ToolDefinition[] = [
   ...intermediateReadTools.filter(t => t.name === "get_prose" || t.name === "get_findings"),
   {
     name: "save_findings",
-    description: "把审查发现存起来。一般由执行层自动调用；子 agent 不必主动调。",
+    description:
+      "保存本维审查结果（唯一真相）。审查结束必须调用。findings 为 JSON 数组字符串。",
     parameters: {
       type: "object",
       properties: {
-        dimension: { type: "string", description: "审查维度名（如 character / continuity）" },
-        findings: { type: "string", description: "JSON 数组字符串：[{severity,description,suggestion}, ...]" },
+        dimension: {
+          type: "string",
+          description: "维度：outline / character / continuity / foreshadowing / style / world / pacing",
+        },
+        findings: {
+          type: "string",
+          description: 'JSON 数组：[{"severity":"critical|major|minor","description":"...","suggestion":"..."}]；无问题用 []',
+        },
       },
       required: ["dimension", "findings"],
     },
     execute: async (args, ctx) => {
       const novelId = (ctx as any).novelId as string;
       const branchId = (ctx as any).branchId as string;
+      const dim = String(args.dimension || "other");
       let parsed: any[] = [];
-      try { parsed = JSON.parse((args.findings as string) || "[]"); } catch { /* keep empty */ }
-      saveFindings(novelId, branchId, parsed.map(f => ({
-        dimension: args.dimension as string,
-        severity: String(f.severity || "minor"),
-        description: String(f.description || ""),
-        suggestion: String(f.suggestion || ""),
-      })));
-      return { content: `${args.dimension}: ${parsed.length} findings 已存。`, messages: [] };
+      const raw = args.findings;
+      try {
+        if (typeof raw === "string") parsed = JSON.parse(raw || "[]");
+        else if (Array.isArray(raw)) parsed = raw;
+      } catch {
+        return {
+          content: `${dim}: findings JSON 解析失败，请重试 save_findings。`,
+          messages: [],
+        };
+      }
+      if (!Array.isArray(parsed)) {
+        return { content: `${dim}: findings 必须是 JSON 数组。`, messages: [] };
+      }
+      const normalized = parsed
+        .filter((f) => f && (f.description || f.suggestion))
+        .map((f) => ({
+          dimension: dim,
+          severity: String(f.severity || "minor"),
+          description: String(f.description || "").trim(),
+          suggestion: String(f.suggestion || "").trim(),
+        }))
+        .filter((f) => f.description.length > 0);
+      saveFindings(novelId, branchId, normalized);
+      const readable = formatFindingsReadable(normalized);
+      return {
+        content:
+          `${dim}: ${normalized.length} 条 ${SAVE_FINDINGS_OK}。\n\n` +
+          (normalized.length ? readable : "本维无问题。"),
+        messages: [],
+      };
     },
   },
   {
