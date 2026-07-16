@@ -130,6 +130,14 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
 
   // ---- Review ----
   {
+    agentId: "outline_review",
+    name: "大纲审核",
+    description: "写正文前审核大纲：承接、出场合法性、类型逻辑、伏笔",
+    category: "review",
+    variables: ["prompt", "novelId", "branchId"],
+    bilingual: false,
+  },
+  {
     agentId: "character_consistency_review",
     name: "角色一致性审查",
     description: "对照角色设定检查说话风格、性格行为、关系动态",

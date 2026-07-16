@@ -81,6 +81,11 @@ export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
     user: "writer-rewrite-user.md",
   },
 
+  outline_review: {
+    system: "review-outline-system.md",
+    user: "review-user.md",
+  },
+
   // ---- Review (one system md per dimension) ----
   character_consistency_review: {
     system: "review-character-system.md",

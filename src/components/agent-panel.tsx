@@ -5,7 +5,7 @@ import Markdown from "@/components/markdown";
 import { useNovel } from "@/lib/novel-context";
 
 const AGENT_TYPES = new Set([
-  "generate_outline", "write_prose",
+  "generate_outline", "write_prose", "review_outline",
   "review_character", "review_continuity", "review_foreshadowing",
   "review_style", "review_world", "review_pacing",
 ]);
@@ -763,6 +763,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
 
   const toolNames: Record<string, string> = {
     generate_outline: "大纲 Agent", write_prose: "Writer Agent",
+    review_outline: "大纲审核",
     review_character: "角色审查", review_continuity: "连贯与逻辑审查",
     review_foreshadowing: "伏笔审查", review_style: "风格审查",
     review_world: "世界观审查", review_pacing: "节奏审查",

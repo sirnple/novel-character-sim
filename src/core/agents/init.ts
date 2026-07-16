@@ -10,9 +10,10 @@ import {
   reviewCharacterAgent, reviewContinuityAgent, reviewForeshadowingAgent,
   reviewStyleAgent, reviewWorldAgent, reviewPacingAgent,
 } from "./agents/review";
+import { outlineReviewAgent } from "./agents/outline-review";
 
 const AGENT_TYPES = [
-  "generate_outline", "write_prose",
+  "generate_outline", "write_prose", "review_outline",
   "review_character", "review_continuity", "review_foreshadowing",
   "review_style", "review_world", "review_pacing",
 ] as const;
@@ -20,6 +21,7 @@ const AGENT_TYPES = [
 export function initRegistry(): void {
   registerAgent("generate_outline", outlineAgent);
   registerAgent("write_prose", writerAgent);
+  registerAgent("review_outline", outlineReviewAgent);
   registerAgent("review_character", reviewCharacterAgent);
   registerAgent("review_continuity", reviewContinuityAgent);
   registerAgent("review_foreshadowing", reviewForeshadowingAgent);
@@ -29,14 +31,15 @@ export function initRegistry(): void {
 
   register({
     name: "agent",
-    description: "调用子 Agent 执行任务。主 agent 只传任务说明；大纲/正文/findings 由子 agent 自行 get_*，不要把正文塞进 prompt。",
+    description:
+      "调用子 Agent。可选: generate_outline（含自动大纲审核）、review_outline、write_prose、review_*。只传任务说明，勿塞正文。",
     parameters: {
       type: "object",
       properties: {
         agent_type: {
           type: "string",
           enum: [...AGENT_TYPES],
-          description: "要调用哪个Agent。可选: " + AGENT_TYPES.join(", "),
+          description: "Agent 类型: " + AGENT_TYPES.join(", "),
         },
         prompt: {
           type: "string",

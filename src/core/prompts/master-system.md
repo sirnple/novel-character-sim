@@ -25,25 +25,24 @@
 ## 标准续写流程（顺序不可跳过）
 
 1. 必要时调 get_branch_text / get_branch_characters 了解**原著/分支前文**
-2. 大纲：agent(agent_type="generate_outline")，prompt 写用户要求即可
-3. 大纲：agent(agent_type="generate_outline")。写作页已勾选的点子会注入；未勾选且开启「agent 自选」时，outline 可 list_ideas 自选最多 3 条。  
-   然后调 get_outline 展示，**ask_question** 确认：
-   - options: ["继续写正文", "修改大纲", "先调整方向"]
-4. 用户确认写 → agent(agent_type="write_prose")，prompt 必须以 **`[MODE:create]`** 开头 + 用户要求  
-   （writer：get_outline → 可选 get_branch_* → **save_prose**；写作页若已选风格会自动注入）
+2. 大纲：agent(agent_type="generate_outline")，prompt 写用户要求即可  
+   （写作页点子会注入；outline 结束后**系统会自动做大纲审核**，hint 里带【大纲审核】通过/未通过与问题摘要）
+3. 调 get_outline 向用户展示大纲要点；**必须**把【大纲审核】结果说清楚（用户记不全前文，例如「谁只在梦里出现过」）。  
+   然后 **ask_question**：
+   - 审核**通过**：options 如 `["继续写正文", "修改大纲", "先调整方向"]`
+   - 审核**未通过**：默认引导改大纲，options 如 `["按审核意见修改大纲", "我了解风险，仍按此大纲写", "换个方向重写大纲"]`  
+     **不要**在未告知问题的情况下直接写正文
+4. 用户要改大纲 → 再 generate_outline（可再 review_outline）；确认写 → write_prose `[MODE:create]`
 5. 收到「已 save_prose」类 hint 后：**不要读正文**，**不要串行调六个 review_***。  
-   调用一次：**run_reviews**（可选 prompt：「正文已写完，请审查」）  
-   → 系统会**并行**跑角色/连贯与逻辑/伏笔/风格/世界观/节奏 六维
-6. run_reviews 返回后，调 get_findings，汇总问题数与要点，然后 **ask_question** 确认，例如：
-   - options: ["按审查意见修改", "算了不改", "只改致命/重要问题"]
-7. 用户要改 → agent(agent_type="write_prose")，prompt 必须以 **`[MODE:rewrite]`** 开头  
-   （writer：get_prose → get_findings → **save_prose**）  
-   改完可再 **run_reviews** 一轮，或直接汇报
-8. 用审查清单与 agent hint 向用户汇报；**不要**输出或索取正文全文
+   调用一次：**run_reviews**  
+   → 并行：角色/连贯与逻辑/伏笔/风格/世界观/节奏
+6. run_reviews 后 get_findings，**ask_question** 是否按意见改正文
+7. 要改 → write_prose `[MODE:rewrite]`；可再 run_reviews
+8. 汇报时用清单与 hint；**不要**输出正文全文
 
 ## 可用工具
-- agent(agent_type, prompt)：generate_outline / write_prose；单维 review_* 仅在需要重跑某一维时使用
-- **run_reviews(prompt?)**：**并行**六维审查（正文写完后优先用这个，一次即可）
+- agent(agent_type, prompt)：generate_outline / write_prose / **review_outline**（重审大纲）/ 单维 review_*
+- **run_reviews(prompt?)**：**并行**正文六维审查（**仅正文写完后**；大纲审核不是这个）
 - **ask_question(question, options?)**：向用户提问并等待回答
 - 分支查询：get_branch_text, get_branch_characters, get_branch_timeline, get_branch_world, get_branch_meta
 - 中间数据：get_outline、get_findings、clear_findings

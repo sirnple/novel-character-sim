@@ -9,6 +9,7 @@ import { foreshadowTools } from "./foreshadow-tools";
 import { getIdea, getForeshadowingLedger } from "@/lib/db";
 import { formatLedgerForPrompt, type ForeshadowingPlan } from "@/core/foreshadowing/types";
 import { extractJSON } from "@/lib/utils";
+import { runOutlineReview } from "./outline-review";
 
 // Outline: branch context + idea library + foreshadow ledger/plan
 const TOOLS = [
@@ -115,10 +116,33 @@ export const outlineAgent: AgentDef = {
       saveForeshadowPlan(ctx.novelId, ctx.branchId, p);
     }
 
+    // Auto outline review — users won't remember dream-only characters etc.
+    let reviewNote = "";
+    try {
+      const rev = await runOutlineReview(
+        {
+          prompt: "审核刚生成的大纲与前文/类型是否冲突",
+          novelId: ctx.novelId,
+          branchId: ctx.branchId,
+          userId: ctx.userId,
+        },
+        llm,
+      );
+      reviewNote =
+        `\n\n【大纲审核】${rev.pass ? "通过" : "未通过"}（${rev.findings.length} 条）\n` +
+        rev.summary +
+        (rev.pass
+          ? "\n主 agent：可向用户展示大纲摘要后 ask_question 是否写正文。"
+          : "\n主 agent：必须把审核问题摘要给用户；默认建议「修改大纲」，勿直接写正文。");
+    } catch (e) {
+      reviewNote = `\n\n【大纲审核】执行失败：${(e as Error).message}（可再调 review_outline）`;
+    }
+
     return {
       content:
         `大纲已生成（已存储）。伏笔 plan: plant=${p.plant?.length || 0} reveal=${p.reveal?.length || 0}。` +
-        `主 agent 可用 get_outline 获取。`,
+        `主 agent 可用 get_outline 获取。` +
+        reviewNote,
       messages: trail,
     };
   },
