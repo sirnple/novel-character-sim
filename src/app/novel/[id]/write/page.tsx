@@ -104,12 +104,29 @@ export default function WritePage() {
 
   const createBranch = async () => {
     if (!newBranchName.trim()) return;
-    const offset = forkPoint?.offset || 0;
-    const baseText = !activeBranchId ? novelText.slice(0, offset) : "";
+    // Source text of the line we're forking from (not "" when a branch is already selected)
+    const sourceText =
+      freeMode || !activeBranchId || activeBranchId === "main"
+        ? novelText || ""
+        : activeBranch?.text || novelText || "";
+    const offset = Math.min(
+      Math.max(0, forkPoint?.offset ?? sourceText.length),
+      sourceText.length,
+    );
+    // Branch body = text up to fork point (full source if forking at end)
+    const baseText = sourceText.slice(0, offset);
+    const parentBranchId =
+      freeMode || !activeBranchId || activeBranchId === "main" ? "main" : activeBranchId;
     const res = await fetch("/api/branches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ novelId, name: newBranchName, parentOffset: offset, content: baseText }),
+      body: JSON.stringify({
+        novelId,
+        name: newBranchName,
+        parentOffset: offset,
+        content: baseText,
+        parentBranchId,
+      }),
     });
     const data = await res.json();
     if (data.branch) {

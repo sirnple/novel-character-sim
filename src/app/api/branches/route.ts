@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { saveBranch, getBranch, listBranches, appendBranchContent, copyForeshadowingLedger } from "@/lib/db";
+import {
+  saveBranch,
+  getBranch,
+  listBranches,
+  appendBranchContent,
+  copyForeshadowingLedger,
+  getBranchProse,
+  ensureMainBranch,
+} from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
@@ -47,10 +55,27 @@ export async function POST(request: NextRequest) {
   }
 
   const id = branchId || `branch_${Date.now()}`;
-  saveBranch(userId, id, novelId, name, parentOffset || 0, content || "");
+  const parentId = String(parentBranchId || "main");
+  let body = typeof content === "string" ? content : "";
+  const offset = typeof parentOffset === "number" ? parentOffset : Number(parentOffset) || 0;
+
+  // If client sent empty content, fill from parent branch text up to parentOffset
+  // (fixes older clients that zeroed baseText when a branch was already selected)
+  if (!body.trim()) {
+    ensureMainBranch(userId, novelId);
+    const { text: parentText } = getBranchProse(userId, novelId, parentId);
+    if (parentText) {
+      body =
+        offset > 0
+          ? parentText.slice(0, Math.min(offset, parentText.length))
+          : parentText;
+    }
+  }
+
+  saveBranch(userId, id, novelId, name, offset, body);
   // Snapshot foreshadowing ledger from parent (default main)
   try {
-    copyForeshadowingLedger(userId, novelId, parentBranchId || "main", id);
+    copyForeshadowingLedger(userId, novelId, parentId, id);
   } catch (e) {
     console.warn("[branches] copy foreshadowing ledger failed:", (e as Error).message);
   }
