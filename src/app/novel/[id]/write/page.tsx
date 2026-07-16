@@ -3,6 +3,13 @@ import { useState, useEffect, useRef } from "react";
 import { useNovel } from "@/lib/novel-context";
 import { GitBranch, Plus, BookOpen, Sparkles } from "lucide-react";
 import ScrollEdgeButtons from "@/components/scroll-edge-buttons";
+import {
+  TextFindBar,
+  renderHighlightedText,
+  useFindShortcut,
+  useScrollToMatch,
+  useTextFindSegments,
+} from "@/components/text-find";
 
 interface BranchInfo { id: string; name: string; text: string; parent_offset: number; updated_at: string; }
 
@@ -31,6 +38,12 @@ export default function WritePage() {
       : activeBranch
         ? (activeBranch.text || "")
         : "";
+
+  const bodyText = freeMode ? novelText : (currentText || "");
+  const proseText = generatedProse || "";
+  const find = useTextFindSegments([bodyText, proseText]);
+  useFindShortcut(find.searchInputRef, hasSelection);
+  useScrollToMatch(readerRef, find.currentIndex, find.matchCount, [find.debouncedQuery, bodyText, proseText]);
 
   const [queryOffset, setQueryOffset] = useState<string | null>(null);
   const [queryLabel, setQueryLabel] = useState<string | null>(null);
@@ -123,11 +136,13 @@ export default function WritePage() {
       if (node === range.startContainer) { offset += range.startOffset; break; }
       offset += node.textContent?.length || 0;
     }
-    const contextStart = Math.max(0, offset - 100);
-    const contextEnd = Math.min(currentText.length, offset + 100);
+    // Cap to body text — ignore generated prose / chrome labels for fork offset
+    const capped = Math.min(offset, currentText.length);
+    const contextStart = Math.max(0, capped - 100);
+    const contextEnd = Math.min(currentText.length, capped + 100);
     setForkPoint({
-      offset,
-      label: `偏移 ${offset} 字`,
+      offset: capped,
+      label: `偏移 ${capped} 字`,
       context: currentText.slice(contextStart, contextEnd),
     });
   };
@@ -147,6 +162,44 @@ export default function WritePage() {
     setLocalBranchId(null);
     setBranchDrawerOpen(false);
   };
+
+  const forkNode =
+    forkPoint && !freeMode ? (
+      <span key="fork" className="inline-flex items-center gap-1 mx-1">
+        <span className="inline-block w-2 h-4 bg-orange-500 animate-pulse rounded-sm" />
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowForkDialog(true);
+            setNewBranchName("");
+          }}
+          className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-1.5 py-0.5 rounded font-mono"
+        >
+          分叉
+        </button>
+      </span>
+    ) : null;
+
+  const bodyHighlighted = renderHighlightedText({
+    text: bodyText,
+    matches: find.segmentMatches[0] || [],
+    queryLen: find.queryLen,
+    currentIndex: find.currentIndex,
+    matchIndexBase: find.matchIndexBase(0),
+    continueOffset: forkPoint && !freeMode ? forkPoint.offset : null,
+    continueNode: forkNode,
+  });
+
+  const proseHighlighted = proseText
+    ? renderHighlightedText({
+        text: proseText,
+        matches: find.segmentMatches[1] || [],
+        queryLen: find.queryLen,
+        currentIndex: find.currentIndex,
+        matchIndexBase: find.matchIndexBase(1),
+      })
+    : null;
 
   const branchList = (
     <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
@@ -259,9 +312,25 @@ export default function WritePage() {
               </span>
             )}
           </div>
-          <a href={`/novel/${novelId}/read`} className="text-[10px] text-neutral-500 hover:text-neutral-300 font-mono shrink-0">
-            阅读
-          </a>
+          <div className="flex items-center gap-2 min-w-0 shrink">
+            {hasSelection && (
+              <TextFindBar
+                compact
+                query={find.query}
+                onQueryChange={find.setQuery}
+                matchCount={find.matchCount}
+                currentIndex={find.currentIndex}
+                counterLabel={find.counterLabel}
+                onPrev={find.goPrev}
+                onNext={find.goNext}
+                onClear={find.clearSearch}
+                inputRef={find.searchInputRef}
+              />
+            )}
+            <a href={`/novel/${novelId}/read`} className="text-[10px] text-neutral-500 hover:text-neutral-300 font-mono shrink-0">
+              阅读
+            </a>
+          </div>
         </div>
 
         {!hasSelection ? (
@@ -285,9 +354,9 @@ export default function WritePage() {
           <div ref={readerRef} onClick={handleEditorClick} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
             <div className="max-w-[800px] mx-auto p-6">
               <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
-                {novelText}
-                {generatedProse && (
-                  <span className="text-orange-300/80">{generatedProse}</span>
+                {bodyHighlighted}
+                {proseHighlighted && (
+                  <span className="text-orange-300/80">{proseHighlighted}</span>
                 )}
               </div>
             </div>
@@ -295,33 +364,16 @@ export default function WritePage() {
         ) : (
           <div ref={readerRef} onClick={handleEditorClick} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
             <div className="max-w-[800px] mx-auto p-6">
-              {currentText ? (
+              {bodyText ? (
                 <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
-                  {forkPoint ? (
-                    <>
-                      {currentText.slice(0, forkPoint.offset)}
-                      <span className="inline-flex items-center gap-1 mx-1">
-                        <span className="inline-block w-2 h-4 bg-orange-500 animate-pulse rounded-sm" />
-                        <button onClick={() => { setShowForkDialog(true); setNewBranchName(""); }}
-                          className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-1.5 py-0.5 rounded font-mono">分叉</button>
-                      </span>
-                      {currentText.slice(forkPoint.offset)}
-                      {generatedProse && (
-                        <span className="text-orange-300/80">{generatedProse}</span>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {currentText}
-                      {generatedProse && (
-                        <span className="text-orange-300/80">{generatedProse}</span>
-                      )}
-                    </>
+                  {bodyHighlighted}
+                  {proseHighlighted && (
+                    <span className="text-orange-300/80">{proseHighlighted}</span>
                   )}
                 </div>
-              ) : generatedProse ? (
+              ) : proseHighlighted ? (
                 <div className="text-base text-orange-300/80 leading-relaxed whitespace-pre-wrap font-serif">
-                  {generatedProse}
+                  {proseHighlighted}
                 </div>
               ) : (
                 <div className="text-center py-12 text-neutral-600 text-sm font-mono">
