@@ -73,48 +73,48 @@ export default function ExtractModulesPanel({
   return (
     <div className={compact ? "space-y-2" : "space-y-3"}>
       <div className="flex items-center gap-2">
-        <Sparkles className="w-3.5 h-3.5 text-orange-500" />
-        <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">
+        <Sparkles className="w-3.5 h-3.5 text-primary" />
+        <h3 className="text-sm font-semibold text-muted-foreground">
           拆解模块
         </h3>
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         {EXTRACT_MODULES.map(m => (
           <label
             key={m.id}
-            className={`flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
-              selected.has(m.id) ? "bg-orange-500/10 border border-orange-500/20" : "hover:bg-neutral-800/40 border border-transparent"
+            className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+              selected.has(m.id) ? "bg-primary/10 border border-primary/20" : "hover:bg-panel-elevated border border-transparent"
             }`}
           >
             <input
               type="checkbox"
               checked={selected.has(m.id)}
               onChange={() => toggle(m.id)}
-              className="mt-0.5 accent-orange-500"
+              className="mt-1 accent-primary"
             />
             <span className="min-w-0">
-              <span className="text-xs text-neutral-300 font-mono block">{m.label}</span>
+              <span className="text-sm text-foreground block">{m.label}</span>
               {!compact && (
-                <span className="text-[10px] text-neutral-600 font-mono">{m.hint}</span>
+                <span className="text-xs text-fog leading-relaxed">{m.hint}</span>
               )}
             </span>
           </label>
         ))}
       </div>
-      <label className="flex items-center gap-2 text-[10px] text-neutral-500 font-mono cursor-pointer px-1">
-        <input type="checkbox" checked={forceRefresh} onChange={e => setForceRefresh(e.target.checked)} className="accent-orange-500" />
+      <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer px-1">
+        <input type="checkbox" checked={forceRefresh} onChange={e => setForceRefresh(e.target.checked)} className="accent-primary" />
         强制重新提取（忽略缓存）
       </label>
       <button
         type="button"
         disabled={loading || selected.size === 0}
         onClick={run}
-        className="w-full py-1.5 rounded text-xs font-mono bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white transition-colors flex items-center justify-center gap-1"
+        className="btn-primary w-full disabled:bg-secondary disabled:text-fog disabled:hover:brightness-100"
       >
-        {loading ? <><Loader2 className="w-3 h-3 animate-spin" />拆解中…</> : "开始拆解"}
+        {loading ? <><Loader2 className="w-4 h-4 animate-spin" />拆解中…</> : "开始拆解"}
       </button>
-      {error && <p className="text-[10px] text-red-400 font-mono">{error}</p>}
-      {lastResult && <p className="text-[10px] text-green-500/80 font-mono">{lastResult}</p>}
+      {error && <p className="text-sm text-red-400">{error}</p>}
+      {lastResult && <p className="text-sm text-green-500/80">{lastResult}</p>}
     </div>
   );
 }

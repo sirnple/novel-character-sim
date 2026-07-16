@@ -85,13 +85,16 @@ export default function AuthBar() {
     return `${id.slice(0, 10)}…${id.slice(-4)}`;
   };
 
+  const inputClass =
+    "w-full px-3 py-2.5 bg-secondary border border-border rounded-lg text-sm text-foreground outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/40";
+
   if (me?.kind === "user" && me.user) {
     return (
       <div className="flex items-center gap-1.5 shrink-0">
         <button
           type="button"
           onClick={() => copyId(me.userId)}
-          className="hidden sm:inline text-[10px] text-neutral-500 font-mono max-w-[120px] truncate hover:text-neutral-300"
+          className="hidden sm:inline text-sm text-muted-foreground max-w-[140px] truncate hover:text-foreground px-2 py-1.5 rounded-lg"
           title={`${me.user.email}\nID: ${me.userId}\n点击复制 ID`}
         >
           {me.user.displayName || me.user.email}
@@ -99,10 +102,10 @@ export default function AuthBar() {
         <button
           type="button"
           onClick={logout}
-          className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300 font-mono px-2 py-1.5"
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-2.5 py-2 rounded-lg hover:bg-panel-elevated"
           title="退出登录"
         >
-          <LogOut className="w-3 h-3" />
+          <LogOut className="w-4 h-4" />
           <span className="hidden sm:inline">退出</span>
         </button>
       </div>
@@ -116,7 +119,7 @@ export default function AuthBar() {
           <button
             type="button"
             onClick={() => copyId(me.userId)}
-            className="text-[10px] text-neutral-600 hover:text-orange-400/90 font-mono px-1.5 py-1 max-w-[9.5rem] sm:max-w-[12rem] truncate"
+            className="text-xs text-fog hover:text-primary px-1.5 py-1.5 max-w-[9.5rem] sm:max-w-[12rem] truncate rounded-lg"
             title={`${me.userId}\n（Cookie 游客 ID，点击复制）`}
           >
             游客 {shortId(me.userId)}
@@ -129,44 +132,44 @@ export default function AuthBar() {
             setMode("login");
             setError("");
           }}
-          className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300 font-mono px-2 py-1.5"
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-2.5 py-2 rounded-lg hover:bg-panel-elevated"
           title="登录 / 注册"
         >
-          <LogIn className="w-3 h-3" />
+          <LogIn className="w-4 h-4" />
           <span className="hidden sm:inline">登录</span>
         </button>
       </div>
 
       {open && (
         <div
-          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4"
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-full max-w-sm bg-[#0e0e0e] border border-neutral-800 rounded-t-xl sm:rounded-lg p-5 shadow-2xl"
+            className="w-full max-w-sm bg-card border border-border rounded-t-xl sm:rounded-xl p-5 sm:p-6 shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-neutral-300 font-mono flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-orange-500" />
+              <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+                <User className="w-4 h-4 text-primary" />
                 {mode === "login" ? "登录" : "注册"}
               </h2>
-              <button type="button" onClick={() => setOpen(false)} className="p-1 text-neutral-500 hover:text-neutral-300">
-                <X className="w-4 h-4" />
+              <button type="button" onClick={() => setOpen(false)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-panel-elevated">
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-[10px] text-neutral-600 font-mono mb-3 leading-relaxed">
+            <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
               未登录时以游客身份使用（浏览器 Cookie 标记，换网络不丢数据）。
               登录后数据按账号隔离。
             </p>
             {me?.userId && (
-              <div className="mb-3 px-2 py-1.5 rounded bg-neutral-900/80 border border-neutral-800">
-                <div className="text-[9px] text-neutral-600 font-mono mb-0.5">当前游客 ID</div>
+              <div className="mb-4 px-3 py-2 rounded-lg bg-secondary border border-border">
+                <div className="text-xs text-fog mb-1">当前游客 ID</div>
                 <button
                   type="button"
                   onClick={() => copyId(me.userId)}
-                  className="text-[10px] text-orange-400/90 font-mono break-all text-left hover:text-orange-300 w-full"
+                  className="text-xs text-primary break-all text-left hover:brightness-110 w-full font-mono"
                   title="点击复制"
                 >
                   {me.userId}
@@ -174,49 +177,49 @@ export default function AuthBar() {
               </div>
             )}
 
-            <form onSubmit={submit} className="space-y-3">
+            <form onSubmit={submit} className="space-y-3.5">
               {mode === "register" && (
                 <div>
-                  <label className="block text-[10px] text-neutral-500 font-mono mb-1">昵称（可选）</label>
+                  <label className="block text-sm text-muted-foreground mb-1.5">昵称（可选）</label>
                   <input
                     value={displayName}
                     onChange={e => setDisplayName(e.target.value)}
-                    className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono outline-none focus:border-orange-600/50"
+                    className={inputClass}
                     placeholder="怎么称呼你"
                     autoComplete="nickname"
                   />
                 </div>
               )}
               <div>
-                <label className="block text-[10px] text-neutral-500 font-mono mb-1">邮箱</label>
+                <label className="block text-sm text-muted-foreground mb-1.5">邮箱</label>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono outline-none focus:border-orange-600/50"
+                  className={inputClass}
                   placeholder="you@example.com"
                   autoComplete="email"
                 />
               </div>
               <div>
-                <label className="block text-[10px] text-neutral-500 font-mono mb-1">密码</label>
+                <label className="block text-sm text-muted-foreground mb-1.5">密码</label>
                 <input
                   type="password"
                   required
                   minLength={8}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono outline-none focus:border-orange-600/50"
+                  className={inputClass}
                   placeholder={mode === "register" ? "至少 8 位" : "••••••••"}
                   autoComplete={mode === "login" ? "current-password" : "new-password"}
                 />
               </div>
-              {error && <p className="text-[11px] text-red-400 font-mono">{error}</p>}
+              {error && <p className="text-sm text-red-400">{error}</p>}
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2 rounded text-sm font-mono bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white"
+                className="btn-primary w-full"
               >
                 {loading ? "提交中…" : mode === "login" ? "登录" : "注册并登录"}
               </button>
@@ -224,7 +227,7 @@ export default function AuthBar() {
 
             <button
               type="button"
-              className="mt-3 w-full text-[11px] text-neutral-500 hover:text-neutral-300 font-mono"
+              className="mt-4 w-full text-sm text-muted-foreground hover:text-foreground"
               onClick={() => {
                 setMode(m => (m === "login" ? "register" : "login"));
                 setError("");

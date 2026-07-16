@@ -376,7 +376,7 @@ export default function ReviewPanel({ draft, timelineEvents, characterStates, wr
                 {data.pass ? (
                   <ShieldCheck className="w-4 h-4 text-green-500" />
                 ) : (
-                  <ShieldAlert className="w-4 h-4 text-orange-500" />
+                  <ShieldAlert className="w-4 h-4 text-primary" />
                 )}
                 {cat.label}
                 <span className={`text-xs px-1.5 py-0.5 rounded-full ${
@@ -404,7 +404,7 @@ export default function ReviewPanel({ draft, timelineEvents, characterStates, wr
                           <Icon className="w-4 h-4 mt-0.5 shrink-0" />
                           <div className="space-y-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-mono bg-white/50 px-1.5 py-0.5 rounded">
+                              <span className="text-xs bg-white/50 px-1.5 py-0.5 rounded">
                                 {issue.severity.toUpperCase()}
                               </span>
                               <span className="text-xs text-muted-foreground">{issue.location}</span>

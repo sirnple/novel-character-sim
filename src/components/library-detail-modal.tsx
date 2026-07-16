@@ -36,7 +36,7 @@ export default function LibraryDetailModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg max-h-[85vh] bg-[#0e0e0e] border border-neutral-800 rounded-lg shadow-2xl flex flex-col overflow-hidden"
+        className="w-full max-w-lg max-h-[85vh] bg-card border border-border rounded-lg shadow-2xl flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {target.kind === "style" ? (
@@ -72,23 +72,23 @@ function Header({
   onClose: () => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-neutral-800/60 shrink-0">
+    <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border/80 shrink-0">
       <div className="min-w-0">
-        <div className="flex items-center gap-2 text-orange-400/90 mb-1">
+        <div className="flex items-center gap-2 text-primary/90 mb-1">
           {icon}
-          <span className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+          <span className="text-xs uppercase tracking-widest text-muted-foreground">
             详情
           </span>
         </div>
-        <h2 className="text-sm font-semibold text-neutral-200 truncate">{title}</h2>
+        <h2 className="text-sm font-semibold text-foreground truncate">{title}</h2>
         {subtitle && (
-          <p className="text-[11px] text-neutral-500 font-mono mt-0.5 truncate">{subtitle}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>
         )}
       </div>
       <button
         type="button"
         onClick={onClose}
-        className="p-1 rounded text-neutral-500 hover:text-neutral-300 shrink-0"
+        className="p-1 rounded text-muted-foreground hover:text-foreground/90 shrink-0"
       >
         <X className="w-4 h-4" />
       </button>
@@ -126,24 +126,24 @@ function StyleBody({
       <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-3 space-y-4 text-sm">
         {(entry.description || s.styleDescription) && (
           <Block label="文风说明">
-            <p className="text-neutral-300 leading-relaxed whitespace-pre-wrap">
+            <p className="text-foreground/90 leading-relaxed whitespace-pre-wrap">
               {entry.description || s.styleDescription}
             </p>
           </Block>
         )}
         {s.languageFeatures && (
           <Block label="语言特点">
-            <p className="text-neutral-300 leading-relaxed whitespace-pre-wrap">{s.languageFeatures}</p>
+            <p className="text-foreground/90 leading-relaxed whitespace-pre-wrap">{s.languageFeatures}</p>
           </Block>
         )}
         {s.pacingDescription && (
           <Block label="节奏">
-            <p className="text-neutral-300 leading-relaxed whitespace-pre-wrap">{s.pacingDescription}</p>
+            <p className="text-foreground/90 leading-relaxed whitespace-pre-wrap">{s.pacingDescription}</p>
           </Block>
         )}
         {(s.narrativeTechniques || []).length > 0 && (
           <Block label="叙事手法">
-            <ul className="list-disc list-inside space-y-1 text-neutral-300">
+            <ul className="list-disc list-inside space-y-1 text-foreground/90">
               {s.narrativeTechniques.map((t, i) => (
                 <li key={i}>{t}</li>
               ))}
@@ -152,7 +152,7 @@ function StyleBody({
         )}
         {s.contentRating?.level && (
           <Block label="内容尺度">
-            <p className="text-neutral-300">
+            <p className="text-foreground/90">
               {s.contentRating.level}
               {s.contentRating.description ? ` — ${s.contentRating.description}` : ""}
               {s.contentRating.hasExplicitContent ? "（含露骨内容）" : ""}
@@ -165,14 +165,14 @@ function StyleBody({
               {s.examplePassages.map((p, i) => (
                 <div
                   key={i}
-                  className="rounded border border-neutral-800/80 bg-[#0a0a0a] p-3"
+                  className="rounded border border-border/80 bg-background p-3"
                 >
                   {p.aspect && (
-                    <div className="text-[10px] text-orange-400/80 font-mono mb-1.5">
+                    <div className="text-xs text-primary/80 mb-1.5">
                       {p.aspect}
                     </div>
                   )}
-                  <p className="text-neutral-400 text-xs leading-relaxed whitespace-pre-wrap font-serif">
+                  <p className="text-muted-foreground text-xs leading-relaxed whitespace-pre-wrap font-serif">
                     {p.text}
                   </p>
                 </div>
@@ -181,14 +181,14 @@ function StyleBody({
           </Block>
         )}
         {!entry.description && !s.styleDescription && (s.examplePassages || []).length === 0 && (
-          <p className="text-neutral-600 text-xs font-mono">暂无详细文风数据</p>
+          <p className="text-fog text-xs">暂无详细文风数据</p>
         )}
       </div>
-      <div className="px-4 py-3 border-t border-neutral-800/60 flex items-center justify-end gap-2 shrink-0">
+      <div className="px-4 py-3 border-t border-border/80 flex items-center justify-end gap-2 shrink-0">
         <button
           type="button"
           onClick={onClose}
-          className="px-3 py-1.5 text-xs text-neutral-500 hover:text-neutral-300 font-mono"
+          className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground/90"
         >
           关闭
         </button>
@@ -198,10 +198,10 @@ function StyleBody({
             onSelect();
             onClose();
           }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs ${
             selected
-              ? "bg-orange-500/20 text-orange-300 border border-orange-500/40"
-              : "bg-orange-600 hover:bg-orange-500 text-white"
+              ? "bg-primary/20 text-primary border border-primary/40"
+              : "bg-primary hover:bg-primary text-white"
           }`}
         >
           {selected && <Check className="w-3 h-3" />}
@@ -245,7 +245,7 @@ function IdeaBody({
             {entry.tags.map(tag => (
               <span
                 key={tag}
-                className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-neutral-800 text-neutral-400 border border-neutral-700/60"
+                className="px-1.5 py-0.5 rounded text-xs bg-secondary text-muted-foreground border border-border/60"
               >
                 {tag}
               </span>
@@ -253,16 +253,16 @@ function IdeaBody({
           </div>
         )}
         <Block label="内容">
-          <p className="text-neutral-300 leading-relaxed whitespace-pre-wrap text-sm">
+          <p className="text-foreground/90 leading-relaxed whitespace-pre-wrap text-sm">
             {entry.content || "（空）"}
           </p>
         </Block>
       </div>
-      <div className="px-4 py-3 border-t border-neutral-800/60 flex items-center justify-end gap-2 shrink-0">
+      <div className="px-4 py-3 border-t border-border/80 flex items-center justify-end gap-2 shrink-0">
         <button
           type="button"
           onClick={onClose}
-          className="px-3 py-1.5 text-xs text-neutral-500 hover:text-neutral-300 font-mono"
+          className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground/90"
         >
           关闭
         </button>
@@ -273,10 +273,10 @@ function IdeaBody({
             onToggle();
             if (!selected) onClose();
           }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono disabled:opacity-40 ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs disabled:opacity-40 ${
             selected
-              ? "bg-orange-500/20 text-orange-300 border border-orange-500/40"
-              : "bg-orange-600 hover:bg-orange-500 text-white"
+              ? "bg-primary/20 text-primary border border-primary/40"
+              : "bg-primary hover:bg-primary text-white"
           }`}
         >
           {selected && <Check className="w-3 h-3" />}
@@ -290,7 +290,7 @@ function IdeaBody({
 function Block({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-600 mb-1.5">
+      <div className="text-xs uppercase tracking-widest text-fog mb-1.5">
         {label}
       </div>
       {children}

@@ -85,13 +85,13 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
   return (
     <div className="flex flex-1 overflow-hidden min-h-0 flex-col">
       {/* Sub-nav always above content + agent sheet */}
-      <div className="flex items-center gap-1 px-2 sm:px-3 py-1.5 border-b border-neutral-800/40 bg-[#0c0c0c] shrink-0 overflow-x-auto z-30">
+      <div className="flex items-center gap-1 px-2 sm:px-3 py-1.5 border-b border-border/60 bg-card shrink-0 overflow-x-auto z-30">
         {nav.map(n => (
           <Link
             key={n.href}
             href={n.href}
-            className={`px-2.5 py-1.5 rounded text-[11px] font-mono transition-colors shrink-0 ${
-              n.match ? "bg-orange-500/15 text-orange-300" : "text-neutral-500 hover:text-neutral-300"
+            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors shrink-0 ${
+              n.match ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
             }`}
           >
             {n.label === "阅读" && <BookOpen className="w-3 h-3 inline mr-1 -mt-0.5" />}
@@ -104,7 +104,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
             type="button"
             onClick={() => setShowRightPanel(v => !v)}
             className={`ml-auto p-2 rounded transition-colors shrink-0 ${
-              showRightPanel ? "text-orange-400 bg-orange-500/10" : "text-neutral-500 hover:text-neutral-300"
+              showRightPanel ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground/90"
             }`}
             title="助手面板"
             aria-label="切换助手面板"
@@ -112,7 +112,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
             <PanelRight className="w-4 h-4" />
           </button>
         ) : (
-          <span className="ml-auto text-[10px] text-neutral-600 font-mono shrink-0 px-1">
+          <span className="ml-auto text-xs text-fog shrink-0 px-1">
             {onWritePage ? "请先选择分支" : ""}
           </span>
         )}
@@ -120,7 +120,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
 
       {/* Content row: main + optional single agent chrome */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
-        <main className="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col bg-[#0a0a0a]">
+        <main className="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col bg-background">
           {children}
         </main>
 
@@ -130,7 +130,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
               <div
                 onMouseDown={startDrag}
                 className={`w-1 hover:w-1.5 cursor-col-resize transition-all shrink-0 ${
-                  dragging ? "bg-orange-500 w-1.5" : "bg-neutral-700/30 hover:bg-orange-500/50"
+                  dragging ? "bg-primary w-1.5" : "bg-neutral-700/30 hover:bg-primary/50"
                 }`}
               />
             )}
@@ -143,16 +143,16 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
               style={isLg ? { width: panelWidth } : undefined}
               className={
                 isLg
-                  ? "shrink-0 border-l border-neutral-800/60 bg-[#0c0c0c] flex flex-col overflow-hidden"
-                  : "absolute inset-0 z-20 bg-[#0c0c0c] flex flex-col overflow-hidden safe-drawer-pad"
+                  ? "shrink-0 border-l border-border/80 bg-card flex flex-col overflow-hidden"
+                  : "absolute inset-0 z-20 bg-card flex flex-col overflow-hidden safe-drawer-pad"
               }
             >
-              <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 border-b border-neutral-800/40 shrink-0">
-                <span className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">助手</span>
+              <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 border-b border-border/60 shrink-0">
+                <span className="text-sm font-semibold text-muted-foreground">助手</span>
                 <button
                   type="button"
                   onClick={() => setShowRightPanel(false)}
-                  className="p-2 rounded text-neutral-500 hover:text-neutral-300"
+                  className="p-2 rounded text-muted-foreground hover:text-foreground/90"
                   aria-label="关闭助手"
                 >
                   <X className="w-4 h-4" />

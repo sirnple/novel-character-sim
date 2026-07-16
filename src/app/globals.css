@@ -2,46 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Late-night study design system
+ * Warm dark chrome + paper prose surfaces
+ */
 @layer base {
   :root {
-    --background: 30 20% 98%;
-    --foreground: 20 14% 4%;
-    --card: 0 0% 100%;
-    --card-foreground: 20 14% 4%;
-    --primary: 24 95% 53%;
-    --primary-foreground: 60 9% 98%;
-    --secondary: 60 5% 92%;
-    --secondary-foreground: 24 10% 10%;
-    --muted: 60 5% 92%;
-    --muted-foreground: 25 5% 45%;
-    --accent: 24 95% 53%;
-    --accent-foreground: 60 9% 98%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 60 9% 98%;
-    --border: 20 6% 90%;
-    --input: 20 6% 90%;
-    --ring: 24 95% 53%;
-    --radius: 0.5rem;
-  }
+    /* Ink shell */
+    --background: 24 12% 7%;          /* #14110f */
+    --foreground: 40 25% 94%;         /* #f5f0e8 snow */
 
-  .dark {
-    --background: 20 14% 4%;
-    --foreground: 60 9% 98%;
-    --card: 20 14% 8%;
-    --card-foreground: 60 9% 98%;
-    --primary: 24 95% 53%;
-    --primary-foreground: 60 9% 98%;
-    --secondary: 12 7% 15%;
-    --secondary-foreground: 60 9% 98%;
-    --muted: 12 7% 15%;
-    --muted-foreground: 24 5% 64%;
-    --accent: 24 95% 53%;
-    --accent-foreground: 60 9% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 60 9% 98%;
-    --border: 12 7% 20%;
-    --input: 12 7% 20%;
-    --ring: 24 95% 53%;
+    --card: 24 12% 10%;               /* #1c1816 panel */
+    --card-foreground: 40 25% 94%;
+
+    --panel: 24 12% 10%;
+    --panel-elevated: 24 12% 13%;     /* #241f1c */
+
+    --primary: 22 62% 56%;            /* ember #d4774a */
+    --primary-foreground: 40 30% 98%;
+    --ember: 22 62% 56%;
+    --ember-soft: 22 45% 18%;
+
+    --secondary: 24 10% 16%;
+    --secondary-foreground: 40 20% 90%;
+
+    --muted: 24 10% 16%;
+    --muted-foreground: 28 10% 62%;   /* mist-ish */
+
+    --accent: 22 62% 56%;
+    --accent-foreground: 40 30% 98%;
+
+    --destructive: 0 62% 48%;
+    --destructive-foreground: 40 30% 98%;
+
+    --border: 24 12% 20%;             /* line #3a322c-ish */
+    --input: 24 12% 18%;
+    --ring: 22 62% 56%;
+
+    --mist: 28 10% 62%;
+    --fog: 28 8% 42%;
+
+    /* Paper surface */
+    --paper: 36 38% 92%;              /* #f3ebe0 */
+    --paper-foreground: 24 14% 15%;   /* #2a241f */
+    --paper-line: 34 28% 82%;         /* #e0d4c4 */
+
+    --radius: 0.75rem;
   }
 }
 
@@ -56,9 +62,34 @@
     overflow: hidden;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
-    /* padding lives on .app-shell-height so 100dvh + safe-area do not double-clip */
+    font-size: 14px;
+    line-height: 1.5;
+  }
+}
+
+@layer components {
+  /* Dual-layer signature: warm paper for long-form novel text */
+  .surface-paper {
+    @apply bg-paper text-paper-foreground rounded-xl shadow-paper border border-paper-line/80;
+  }
+
+  .prose-novel {
+    @apply font-prose text-[17px] sm:text-lg leading-[1.9] tracking-wide;
+  }
+
+  .prose-novel p + p {
+    margin-top: 1.25em;
+  }
+
+  /* Primary action button baseline */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:pointer-events-none;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-panel-elevated hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
   }
 }
 
@@ -83,22 +114,41 @@
   padding-right: env(safe-area-inset-right, 0px);
 }
 
-
-/* Scrollbar */
+/* Scrollbar — warm study */
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: #555 transparent;
+  scrollbar-color: hsl(var(--border)) transparent;
 }
 .custom-scrollbar::-webkit-scrollbar {
   width: 8px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: #111;
+  background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #555;
+  background: hsl(var(--border));
   border-radius: 4px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #888;
+  background: hsl(var(--mist));
+}
+
+/* Paper surface scrollbars (slightly softer) */
+.surface-paper.custom-scrollbar,
+.surface-paper .custom-scrollbar {
+  scrollbar-color: hsl(var(--paper-line)) transparent;
+}
+.surface-paper.custom-scrollbar::-webkit-scrollbar-thumb,
+.surface-paper .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--paper-line));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

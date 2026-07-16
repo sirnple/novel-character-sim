@@ -147,7 +147,7 @@ function PrettyBody({ text, className }: { text: string; className?: string }) {
     } catch { /* keep */ }
   }
   return (
-    <pre className={className || "text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto"}>
+    <pre className={className || "text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto"}>
       {pretty}
     </pre>
   );
@@ -155,18 +155,18 @@ function PrettyBody({ text, className }: { text: string; className?: string }) {
 
 const SEV_UI: Record<string, string> = {
   critical: "bg-red-500/15 text-red-400 border-red-500/30",
-  major: "bg-orange-500/15 text-orange-400 border-orange-500/30",
-  minor: "bg-neutral-700/40 text-neutral-400 border-neutral-600/40",
+  major: "bg-primary/15 text-primary border-primary/30",
+  minor: "bg-neutral-700/40 text-muted-foreground border-neutral-600/40",
   致命: "bg-red-500/15 text-red-400 border-red-500/30",
-  重要: "bg-orange-500/15 text-orange-400 border-orange-500/30",
-  次要: "bg-neutral-700/40 text-neutral-400 border-neutral-600/40",
+  重要: "bg-primary/15 text-primary border-primary/30",
+  次要: "bg-neutral-700/40 text-muted-foreground border-neutral-600/40",
 };
 
 /** Render findings: JSON array → cards; otherwise markdown (new readable format). */
 function FindingsDisplay({ text }: { text: string }) {
   const trimmed = (text || "").trim();
   if (!trimmed) {
-    return <div className="text-[11px] text-neutral-600 font-mono">（空）</div>;
+    return <div className="text-xs text-fog">（空）</div>;
   }
 
   // Legacy: raw JSON array of findings
@@ -175,25 +175,25 @@ function FindingsDisplay({ text }: { text: string }) {
       const arr = JSON.parse(trimmed);
       if (Array.isArray(arr)) {
         if (arr.length === 0) {
-          return <div className="text-[11px] text-green-600/80 font-mono">暂无问题</div>;
+          return <div className="text-xs text-green-600/80">暂无问题</div>;
         }
         return (
           <div className="space-y-2 max-h-[280px] overflow-y-auto">
             {arr.map((f: any, i: number) => {
               const sev = String(f.severity || "minor");
               return (
-                <div key={i} className="rounded-lg border border-neutral-800/60 bg-[#0a0a0a] p-2 space-y-1">
+                <div key={i} className="rounded-lg border border-border/80 bg-background p-2 space-y-1">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${SEV_UI[sev] || SEV_UI.minor}`}>
+                    <span className={`text-xs px-1.5 py-0.5 rounded border ${SEV_UI[sev] || SEV_UI.minor}`}>
                       {sev}
                     </span>
                     {f.dimension && (
-                      <span className="text-[9px] font-mono text-neutral-500">{f.dimension}</span>
+                      <span className="text-xs text-muted-foreground">{f.dimension}</span>
                     )}
                   </div>
-                  <div className="text-[11px] text-neutral-300 leading-relaxed">{String(f.description || "")}</div>
+                  <div className="text-xs text-foreground/90 leading-relaxed">{String(f.description || "")}</div>
                   {f.suggestion && (
-                    <div className="text-[10px] text-emerald-500/80 leading-relaxed">
+                    <div className="text-xs text-emerald-500/80 leading-relaxed">
                       → {String(f.suggestion)}
                     </div>
                   )}
@@ -207,7 +207,7 @@ function FindingsDisplay({ text }: { text: string }) {
   }
 
   return (
-    <div className="text-[11px] text-neutral-300 leading-relaxed max-h-[280px] overflow-y-auto prose-headings:text-neutral-400 prose-headings:text-xs prose-headings:font-mono prose-headings:mt-2 prose-headings:mb-1">
+    <div className="text-xs text-foreground/90 leading-relaxed max-h-[280px] overflow-y-auto prose-headings:text-muted-foreground prose-headings:text-xs prose-headings:prose-headings:mt-2 prose-headings:mb-1">
       <Markdown>{trimmed}</Markdown>
     </div>
   );
@@ -252,46 +252,46 @@ function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAg
 
   return (
     <div className="flex justify-start">
-      <details className="max-w-[95%] w-full rounded-lg border border-neutral-700/50 bg-neutral-900/40 group">
-        <summary className="cursor-pointer list-none px-2.5 py-1.5 text-[10px] font-mono flex items-center gap-1.5 select-none text-neutral-300">
-          <span className="text-neutral-600 group-open:rotate-90 transition-transform inline-block">▸</span>
+      <details className="max-w-[95%] w-full rounded-lg border border-border/50 bg-neutral-900/40 group">
+        <summary className="cursor-pointer list-none px-2.5 py-1.5 text-xs flex items-center gap-1.5 select-none text-foreground/90">
+          <span className="text-fog group-open:rotate-90 transition-transform inline-block">▸</span>
           <Wrench className="w-3 h-3 shrink-0 text-sky-500" />
           <span className="text-sky-400/90">工具</span>
-          <span className="px-1.5 py-0.5 rounded bg-sky-900/40 text-sky-200 text-[9px]">
+          <span className="px-1.5 py-0.5 rounded bg-sky-900/40 text-sky-200 text-xs">
             {toolLabel(name)}
           </span>
           {name && TOOL_LABELS[name] && (
-            <span className="text-neutral-600 text-[9px]">{name}</span>
+            <span className="text-fog text-xs">{name}</span>
           )}
-          <span className="ml-auto text-[9px] text-neutral-500 flex items-center gap-1.5">
+          <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1.5">
             {pending ? (
-              <span className="text-orange-500/80 flex items-center gap-1">
+              <span className="text-primary/80 flex items-center gap-1">
                 <Loader2 className="w-2.5 h-2.5 animate-spin" />执行中
               </span>
             ) : (
               <span className="text-emerald-600/80">{resultLen} 字</span>
             )}
-            <span className="text-neutral-600">展开</span>
+            <span className="text-fog">展开</span>
           </span>
         </summary>
-        <div className="px-2.5 pb-2 space-y-2 border-t border-neutral-800/50 pt-2">
+        <div className="px-2.5 pb-2 space-y-2 border-t border-border/50 pt-2">
           {call && (
             <div>
-              <div className="text-[9px] text-sky-600/90 font-mono mb-0.5">参数</div>
+              <div className="text-xs text-sky-600/90 mb-0.5">参数</div>
               {noArgs ? (
-                <div className="text-[10px] text-neutral-600 font-mono">（无参数）</div>
+                <div className="text-xs text-fog">（无参数）</div>
               ) : (
                 <PrettyBody
                   text={call.content}
-                  className="text-[10px] text-sky-200/70 font-mono whitespace-pre-wrap break-all max-h-[120px] overflow-y-auto bg-sky-950/20 rounded p-1.5"
+                  className="text-xs text-sky-200/70  font-mono whitespace-pre-wrap break-all max-h-[120px] overflow-y-auto bg-sky-950/20 rounded p-1.5"
                 />
               )}
             </div>
           )}
           <div>
-            <div className="text-[9px] text-emerald-600/90 font-mono mb-0.5">返回</div>
+            <div className="text-xs text-emerald-600/90 mb-0.5">返回</div>
             {pending ? (
-              <div className="text-[10px] text-neutral-600 font-mono flex items-center gap-1">
+              <div className="text-xs text-fog flex items-center gap-1">
                 <Loader2 className="w-2.5 h-2.5 animate-spin" />等待结果…
               </div>
             ) : result ? (
@@ -302,11 +302,11 @@ function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAg
               ) : (
                 <PrettyBody
                   text={result.content}
-                  className="text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[220px] overflow-y-auto bg-emerald-950/15 rounded p-1.5"
+                  className="text-xs text-muted-foreground  font-mono leading-relaxed whitespace-pre-wrap max-h-[220px] overflow-y-auto bg-emerald-950/15 rounded p-1.5"
                 />
               )
             ) : (
-              <div className="text-[10px] text-neutral-600 font-mono">（无返回）</div>
+              <div className="text-xs text-fog">（无返回）</div>
             )}
           </div>
         </div>
@@ -319,7 +319,7 @@ function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAg
 function SubAgentTranscript({ messages }: { messages: SubAgentMessage[] }) {
   const items = groupTranscript(normalizeSubMessages(messages));
   return (
-    <div className="mt-1 space-y-2 max-h-[480px] overflow-y-auto bg-[#080808] rounded-lg p-2.5 border border-neutral-800/40">
+    <div className="mt-1 space-y-2 max-h-[480px] overflow-y-auto bg-background rounded-lg p-2.5 border border-border/60">
       {items.map((item) => {
         if (item.kind === "tool") {
           return <ToolPairCard key={item.key} call={item.call} result={item.result} />;
@@ -329,12 +329,12 @@ function SubAgentTranscript({ messages }: { messages: SubAgentMessage[] }) {
         if (sm.role === "system") {
           return (
             <details key={item.key} className="group">
-              <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400 font-mono list-none flex items-center gap-1.5">
-                <span className="text-neutral-600">▸</span>
+              <summary className="text-xs text-muted-foreground cursor-pointer hover:text-muted-foreground list-none flex items-center gap-1.5">
+                <span className="text-fog">▸</span>
                 <span className="uppercase tracking-wide">System</span>
-                <span className="text-neutral-600">({sm.content.length} 字)</span>
+                <span className="text-fog">({sm.content.length} 字)</span>
               </summary>
-              <div className="mt-1.5 text-[11px] text-neutral-500 leading-relaxed bg-[#0a0a0a] rounded-lg p-2.5 border border-neutral-800/30 max-h-[200px] overflow-y-auto">
+              <div className="mt-1.5 text-xs text-muted-foreground leading-relaxed bg-background rounded-lg p-2.5 border border-border/50 max-h-[200px] overflow-y-auto">
                 <Markdown>{sm.content}</Markdown>
               </div>
             </details>
@@ -345,19 +345,19 @@ function SubAgentTranscript({ messages }: { messages: SubAgentMessage[] }) {
         return (
           <div key={item.key} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
             <div
-              className={`max-w-[92%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+              className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
                 isUser
-                  ? "bg-orange-600/15 text-orange-100/90 border border-orange-600/25 rounded-br-md"
-                  : "bg-neutral-800/70 text-neutral-200 border border-neutral-700/40 rounded-bl-md"
+                  ? "bg-primary/15 text-orange-100/90 border border-primary/25 rounded-br-md"
+                  : "bg-secondary/70 text-foreground border border-border/40 rounded-bl-md"
               }`}
             >
-              <div className={`text-[9px] font-mono mb-1 ${isUser ? "text-orange-500/70" : "text-neutral-500"}`}>
+              <div className={`text-xs mb-1 ${isUser ? "text-primary/70" : "text-muted-foreground"}`}>
                 {isUser ? "任务" : "Agent"}
               </div>
               {sm.content ? (
                 <Markdown>{sm.content}</Markdown>
               ) : (
-                <span className="text-neutral-600 italic">（空）</span>
+                <span className="text-fog italic">（空）</span>
               )}
             </div>
           </div>
@@ -777,15 +777,15 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0c0c0c]">
+    <div className="flex flex-col h-full bg-card">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-800/40 shrink-0">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 shrink-0">
         <div className="flex items-center gap-2">
-          <Bot className="w-3.5 h-3.5 text-orange-500" />
-          <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">主编 Agent</h3>
+          <Bot className="w-3.5 h-3.5 text-primary" />
+          <h3 className="text-sm font-semibold text-muted-foreground">主编 Agent</h3>
         </div>
         {status === "generating" && (
-          <span className="text-[9px] text-orange-500 font-mono flex items-center gap-1">
+          <span className="text-xs text-primary flex items-center gap-1">
             <Loader2 className="w-2.5 h-2.5 animate-spin" />工作中
           </span>
         )}
@@ -794,7 +794,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
       {/* Messages */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
         {messages.length === 0 && (
-          <div className="text-center py-8 text-neutral-600 text-xs font-mono">
+          <div className="text-center py-8 text-fog text-xs">
             <Bot className="w-6 h-6 mx-auto mb-2 opacity-30" />
             我是你的创作助手。告诉我你想做什么——续写、修改大纲、检查 prose。
           </div>
@@ -820,17 +820,17 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   key={msg.id}
                   className={`rounded-lg border p-3 space-y-2.5 ${
                     isAwaiting
-                      ? "bg-orange-500/[0.06] border-orange-500/30"
-                      : "bg-neutral-800/20 border-neutral-700/50"
+                      ? "bg-primary/[0.06] border-primary/30"
+                      : "bg-secondary/20 border-border/50"
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <HelpCircle className={`w-3.5 h-3.5 ${isAwaiting ? "text-orange-400" : "text-neutral-500"}`} />
-                    <span className={`text-[10px] font-mono uppercase tracking-wider ${isAwaiting ? "text-orange-400" : "text-neutral-500"}`}>
+                    <HelpCircle className={`w-3.5 h-3.5 ${isAwaiting ? "text-primary" : "text-muted-foreground"}`} />
+                    <span className={`text-xs uppercase tracking-wider ${isAwaiting ? "text-primary" : "text-muted-foreground"}`}>
                       {isAwaiting ? "等待你的选择" : "已回答"}
                     </span>
                   </div>
-                  <div className="text-sm text-neutral-200 leading-relaxed">{question}</div>
+                  <div className="text-sm text-foreground leading-relaxed">{question}</div>
                   {isAwaiting ? (
                     <div className="space-y-2">
                       {options.length > 0 && (
@@ -841,7 +841,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                               type="button"
                               disabled={status === "generating"}
                               onClick={() => handleAnswerQuestion(msg.id, opt)}
-                              className="px-2.5 py-1.5 rounded-md text-xs font-mono border border-orange-500/35 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20 hover:border-orange-400/50 disabled:opacity-40 transition-colors"
+                              className="px-2.5 py-1.5 rounded-md text-xs border border-primary/35 bg-primary/10 text-primary hover:bg-primary/20 hover:border-primary/50 disabled:opacity-40 transition-colors"
                             >
                               {opt}
                             </button>
@@ -859,7 +859,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                               if (el.value.trim()) handleAnswerQuestion(msg.id, el.value);
                             }
                           }}
-                          className="flex-1 bg-[#111110] border border-neutral-700 rounded px-2.5 py-1.5 text-xs text-neutral-300 font-mono outline-none focus:border-orange-600/50 disabled:opacity-50"
+                          className="flex-1 bg-secondary border border-border rounded px-2.5 py-1.5 text-xs text-foreground/90 outline-none focus:border-primary/50 disabled:opacity-50"
                         />
                         <button
                           type="button"
@@ -868,14 +868,14 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                             const el = document.getElementById(`ask-free-${msg.id}`) as HTMLInputElement | null;
                             if (el?.value.trim()) handleAnswerQuestion(msg.id, el.value);
                           }}
-                          className="px-2.5 py-1.5 rounded bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 text-white text-xs font-mono transition-colors"
+                          className="px-2.5 py-1.5 rounded bg-primary hover:bg-primary disabled:bg-secondary text-white text-xs transition-colors"
                         >
                           发送
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="text-[11px] text-emerald-500/90 font-mono">
+                    <div className="text-xs text-emerald-500/90">
                       你的回答：{answer || msg.content}
                     </div>
                   )}
@@ -884,18 +884,18 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
             }
 
             return (
-              <div key={msg.id} className={`${isDone && isReview && !hasFindings ? "py-1" : "bg-neutral-800/20 border border-neutral-700/50 rounded-lg p-2"}`}>
+              <div key={msg.id} className={`${isDone && isReview && !hasFindings ? "py-1" : "bg-secondary/20 border border-border/50 rounded-lg p-2"}`}>
                 <div className="flex items-center gap-2">
                   {isDone && isReview && !hasFindings ? (
-                    <span className="text-[10px] text-green-600 font-mono">✓ {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}</span>
+                    <span className="text-xs text-green-600">✓ {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}</span>
                   ) : (
                     <>
-                      <Wrench className="w-3 h-3 text-neutral-500" />
-                      <span className="text-[10px] text-neutral-400 font-mono">
+                      <Wrench className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">
                         {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}
                       </span>
-                      <span className={`w-2 h-2 rounded-full ml-auto ${isRunning ? "bg-orange-500 animate-pulse" : "bg-green-500"}`} />
-                      <span className="text-[9px] text-neutral-600 font-mono">
+                      <span className={`w-2 h-2 rounded-full ml-auto ${isRunning ? "bg-primary animate-pulse" : "bg-green-500"}`} />
+                      <span className="text-xs text-fog">
                         {isRunning ? "执行中" : "完成"}
                       </span>
                     </>
@@ -919,7 +919,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   if (live.length === 0) {
                     if (isRunning) {
                       return (
-                        <div className="mt-1.5 text-[10px] text-neutral-600 font-mono flex items-center gap-1">
+                        <div className="mt-1.5 text-xs text-fog flex items-center gap-1">
                           <Loader2 className="w-2.5 h-2.5 animate-spin" />等待对话…
                         </div>
                       );
@@ -932,7 +932,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   }
                   return (
                     <details className="mt-1.5" open>
-                      <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400 font-mono">
+                      <summary className="text-xs text-muted-foreground cursor-pointer hover:text-muted-foreground">
                         对话 ({live.length}){isRunning ? " · 进行中" : ""}
                       </summary>
                       <div className="mt-1.5">
@@ -944,14 +944,14 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                 {/* Done — data tool result (e.g. get_findings) when no sub-agent trail */}
                 {isDone && msg.content && !(isReview && !hasFindings) && (!msg.metadata?.subMessages || msg.metadata.subMessages.length === 0) && (
                   <details className="mt-1.5" open={msg.metadata?.tool === "get_findings"}>
-                    <summary className="text-[10px] text-neutral-500 cursor-pointer hover:text-neutral-400 font-mono">
+                    <summary className="text-xs text-muted-foreground cursor-pointer hover:text-muted-foreground">
                       {msg.metadata?.tool === "get_findings" ? "审查清单" : `输出 (${msg.content.length} 字符)`}
                     </summary>
-                    <div className="mt-1.5 bg-[#080808] rounded p-2 border border-neutral-800/40">
+                    <div className="mt-1.5 bg-background rounded p-2 border border-border/60">
                       {msg.metadata?.tool === "get_findings" ? (
                         <FindingsDisplay text={msg.content} />
                       ) : (
-                        <pre className="text-[11px] text-neutral-400 font-mono leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto">{msg.content.slice(0, 5000)}</pre>
+                        <pre className="text-xs text-muted-foreground  font-mono leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto">{msg.content.slice(0, 5000)}</pre>
                       )}
                     </div>
                   </details>
@@ -965,13 +965,13 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
             <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               <div className={`max-w-[90%] rounded-lg px-3 py-2 text-xs ${
                 msg.role === "user"
-                  ? "bg-orange-600/20 text-orange-300 border border-orange-600/20"
-                  : "bg-neutral-800/50 text-neutral-300 border border-neutral-700/50"
+                  ? "bg-primary/20 text-primary border border-primary/20"
+                  : "bg-secondary/70 text-foreground/90 border border-border/50"
               }`}>
                 {msg.content ? (
                   <Markdown>{msg.content}</Markdown>
                 ) : (
-                  <span className="text-neutral-500 italic">思考中...</span>
+                  <span className="text-muted-foreground italic">思考中...</span>
                 )}
               </div>
             </div>
@@ -982,8 +982,8 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
 
       {/* Accept continuation — not save_prose */}
       {branchId && novelId && (
-        <div className="px-3 py-2 border-t border-neutral-800/40 bg-[#0a0a0a] shrink-0 space-y-1.5">
-          <div className="flex items-center justify-between gap-2 text-[9px] font-mono text-neutral-500">
+        <div className="px-3 py-2 border-t border-border/60 bg-background shrink-0 space-y-1.5">
+          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
               伏笔账本 active={fsStatus?.activeCount ?? "—"}
               {fsStatus?.hasRealization
@@ -994,13 +994,13 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
             <button
               type="button"
               onClick={() => refreshFsStatus()}
-              className="text-neutral-600 hover:text-neutral-400"
+              className="text-fog hover:text-muted-foreground"
             >
               刷新
             </button>
           </div>
           {fsStatus?.message && (
-            <p className="text-[10px] text-amber-500/90 font-mono leading-snug">{fsStatus.message}</p>
+            <p className="text-xs text-amber-500/90 leading-snug">{fsStatus.message}</p>
           )}
           <div className="flex flex-wrap gap-1.5">
             <button
@@ -1014,7 +1014,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
               }
               onClick={() => handleAccept(false)}
               title={!fsStatus?.hasRealization ? "请先跑伏笔审查" : fsStatus.pass === false ? "审查未通过，请改写或用「允许不全落实」" : "写入当前分支并按 realized 更新账本"}
-              className="px-2.5 py-1 rounded text-[10px] font-mono bg-emerald-700 hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-600 text-white transition-colors"
+              className="px-2.5 py-1 rounded text-xs bg-emerald-700 hover:bg-emerald-600 disabled:bg-secondary disabled:text-fog text-white transition-colors"
             >
               {accepting ? "写入中…" : "接受续写"}
             </button>
@@ -1028,7 +1028,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
               }
               onClick={() => handleAccept(true)}
               title="正文可不全落实 plan；账本仍按 realized（实际做到的）更新"
-              className="px-2.5 py-1 rounded text-[10px] font-mono border border-neutral-600 text-neutral-400 hover:border-amber-600/50 hover:text-amber-300 disabled:opacity-40 transition-colors"
+              className="px-2.5 py-1 rounded text-xs border border-neutral-600 text-muted-foreground hover:border-amber-600/50 hover:text-amber-300 disabled:opacity-40 transition-colors"
             >
               接受（允许不全落实）
             </button>
@@ -1037,7 +1037,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
       )}
 
       {/* Input */}
-      <div className="p-3 border-t border-neutral-800/40 shrink-0">
+      <div className="p-3 border-t border-border/60 shrink-0">
         <div className="flex gap-2">
           <input
             value={input}
@@ -1049,16 +1049,16 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                 : "告诉主编你想做什么..."
             }
             disabled={status === "generating"}
-            className="flex-1 bg-[#111110] border border-neutral-800 rounded px-3 py-1.5 text-xs text-neutral-300 font-mono outline-none focus:border-orange-600/50 disabled:opacity-50"
+            className="flex-1 bg-secondary border border-border rounded px-3 py-1.5 text-xs text-foreground/90 outline-none focus:border-primary/50 disabled:opacity-50"
           />
           <button onClick={() => handleSend()}
             disabled={status === "generating" || !input.trim()}
-            className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded text-xs font-mono transition-colors">
+            className="px-3 py-1.5 bg-primary hover:bg-primary disabled:bg-secondary disabled:text-fog text-white rounded text-xs transition-colors">
             <Send className="w-3 h-3" />
           </button>
           {status === "generating" && (
             <button onClick={handleStop}
-              className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded text-xs font-mono transition-colors">
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded text-xs transition-colors">
               停止
             </button>
           )}

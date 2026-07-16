@@ -65,24 +65,20 @@ export default function ReadPage() {
     window.location.href = `/novel/${novelId}/write?offset=${continueOffset}&label=${encodeURIComponent(continueLabel)}`;
   };
 
-  const branchName = (id: string) => {
-    if (id === "main") return "主线";
-    const b = branches?.find(b => b.id === id);
-    return b?.name || id;
-  };
-
   return (
-    <div className="flex-1 relative min-h-0 flex flex-col overflow-hidden">
+    <div className="flex-1 relative min-h-0 flex flex-col overflow-hidden bg-background">
       <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-        {/* Header with branch selector */}
-        <div className="max-w-[800px] mx-auto px-4 sm:px-6 pt-4 flex flex-wrap items-center gap-2 sm:gap-3">
-          <h2 className="text-sm font-semibold text-neutral-300 font-mono uppercase tracking-wider min-w-0 truncate">阅读 · {novelTitle}</h2>
+        {/* Chrome: title + branch */}
+        <div className="max-w-[48rem] mx-auto px-4 sm:px-6 pt-5 pb-3 flex flex-wrap items-center gap-3">
+          <h2 className="text-base font-semibold text-foreground min-w-0 truncate">
+            阅读 · {novelTitle}
+          </h2>
           <div className="flex items-center gap-2">
             <select
               value={selectedBranchId}
               onChange={e => setSelectedBranchId(e.target.value)}
               disabled={loadingText}
-              className="bg-[#111110] border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-300 font-mono outline-none focus:border-orange-600/50 disabled:opacity-50"
+              className="bg-secondary border border-border rounded-lg px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary/50 disabled:opacity-50"
             >
               {branches.length === 0
                 ? <option value="main">主线</option>
@@ -90,26 +86,41 @@ export default function ReadPage() {
                   <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
             </select>
-            {loadingText && <span className="text-[10px] text-orange-500 font-mono animate-pulse">加载中</span>}
+            {loadingText && <span className="text-xs text-primary animate-pulse">加载中</span>}
           </div>
         </div>
 
-        {/* Text body */}
-        <div ref={readerRef} onClick={handleClick} className="max-w-[800px] mx-auto p-6">
-          <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
-            {continueOffset != null ? (
-              <>
-                {readingText.slice(0, continueOffset)}
-                <span className="inline-flex items-center gap-1 mx-1">
-                  <span className="inline-block w-2 h-4 bg-orange-500 animate-pulse rounded-sm" />
-                  <button onClick={openWriter} className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-1.5 py-0.5 rounded font-mono">续写</button>
-                </span>
-                {readingText.slice(continueOffset)}
-              </>
-            ) : (
-              readingText || novelText
-            )}
+        {/* Paper body */}
+        <div className="max-w-[48rem] mx-auto px-4 sm:px-6 pb-16">
+          <div
+            ref={readerRef}
+            onClick={handleClick}
+            className="surface-paper px-6 sm:px-10 py-8 sm:py-10 cursor-text"
+          >
+            <div className="prose-novel whitespace-pre-wrap">
+              {continueOffset != null ? (
+                <>
+                  {readingText.slice(0, continueOffset)}
+                  <span className="inline-flex items-center gap-1.5 mx-1 align-middle">
+                    <span className="inline-block w-1.5 h-5 bg-primary animate-pulse rounded-sm" />
+                    <button
+                      type="button"
+                      onClick={openWriter}
+                      className="text-xs font-medium bg-primary hover:brightness-110 text-primary-foreground px-2.5 py-1 rounded-md"
+                    >
+                      续写
+                    </button>
+                  </span>
+                  {readingText.slice(continueOffset)}
+                </>
+              ) : (
+                readingText || novelText
+              )}
+            </div>
           </div>
+          <p className="mt-3 text-center text-xs text-fog">
+            点击正文任意位置可插入续写标记
+          </p>
         </div>
       </div>
       <ScrollEdgeButtons scrollRef={scrollRef} />

@@ -8,6 +8,14 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        prose: ["var(--font-prose)", "Georgia", "serif"],
+        mono: ["ui-monospace", "Cascadia Code", "SF Mono", "Menlo", "monospace"],
+      },
+      fontSize: {
+        "2xs": ["0.75rem", { lineHeight: "1.25rem" }], // 12px floor
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -38,11 +46,29 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        panel: {
+          DEFAULT: "hsl(var(--panel))",
+          elevated: "hsl(var(--panel-elevated))",
+        },
+        paper: {
+          DEFAULT: "hsl(var(--paper))",
+          foreground: "hsl(var(--paper-foreground))",
+          line: "hsl(var(--paper-line))",
+        },
+        ember: {
+          DEFAULT: "hsl(var(--ember))",
+          soft: "hsl(var(--ember-soft))",
+        },
+        mist: "hsl(var(--mist))",
+        fog: "hsl(var(--fog))",
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        paper: "0 8px 32px -8px rgba(0, 0, 0, 0.45), 0 2px 8px -2px rgba(0, 0, 0, 0.25)",
       },
     },
   },
