@@ -74,15 +74,28 @@ export default function AuthBar() {
     window.location.reload();
   };
 
+  const copyId = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(id);
+    } catch { /* ignore */ }
+  };
+
+  const shortId = (id: string) => {
+    if (id.length <= 14) return id;
+    return `${id.slice(0, 10)}…${id.slice(-4)}`;
+  };
+
   if (me?.kind === "user" && me.user) {
     return (
       <div className="flex items-center gap-1.5 shrink-0">
-        <span
-          className="hidden sm:inline text-[10px] text-neutral-500 font-mono max-w-[100px] truncate"
-          title={me.user.email}
+        <button
+          type="button"
+          onClick={() => copyId(me.userId)}
+          className="hidden sm:inline text-[10px] text-neutral-500 font-mono max-w-[120px] truncate hover:text-neutral-300"
+          title={`${me.user.email}\nID: ${me.userId}\n点击复制 ID`}
         >
           {me.user.displayName || me.user.email}
-        </span>
+        </button>
         <button
           type="button"
           onClick={logout}
@@ -98,19 +111,31 @@ export default function AuthBar() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => {
-          setOpen(true);
-          setMode("login");
-          setError("");
-        }}
-        className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300 font-mono px-2 py-1.5"
-        title="登录 / 注册"
-      >
-        <LogIn className="w-3 h-3" />
-        <span className="hidden sm:inline">登录</span>
-      </button>
+      <div className="flex items-center gap-1 shrink-0">
+        {me?.userId && (
+          <button
+            type="button"
+            onClick={() => copyId(me.userId)}
+            className="text-[10px] text-neutral-600 hover:text-orange-400/90 font-mono px-1.5 py-1 max-w-[9.5rem] sm:max-w-[12rem] truncate"
+            title={`${me.userId}\n（Cookie 游客 ID，点击复制）`}
+          >
+            游客 {shortId(me.userId)}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(true);
+            setMode("login");
+            setError("");
+          }}
+          className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300 font-mono px-2 py-1.5"
+          title="登录 / 注册"
+        >
+          <LogIn className="w-3 h-3" />
+          <span className="hidden sm:inline">登录</span>
+        </button>
+      </div>
 
       {open && (
         <div
@@ -135,6 +160,19 @@ export default function AuthBar() {
               未登录时以游客身份使用（浏览器 Cookie 标记，换网络不丢数据）。
               登录后数据按账号隔离。
             </p>
+            {me?.userId && (
+              <div className="mb-3 px-2 py-1.5 rounded bg-neutral-900/80 border border-neutral-800">
+                <div className="text-[9px] text-neutral-600 font-mono mb-0.5">当前游客 ID</div>
+                <button
+                  type="button"
+                  onClick={() => copyId(me.userId)}
+                  className="text-[10px] text-orange-400/90 font-mono break-all text-left hover:text-orange-300 w-full"
+                  title="点击复制"
+                >
+                  {me.userId}
+                </button>
+              </div>
+            )}
 
             <form onSubmit={submit} className="space-y-3">
               {mode === "register" && (
