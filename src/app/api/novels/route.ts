@@ -38,7 +38,16 @@ export async function DELETE(request: NextRequest) {
       { status: 429 }
     );
   }
-  const { id } = await request.json();
+  let id = request.nextUrl.searchParams.get("id");
+  if (!id) {
+    try {
+      const body = await request.json();
+      id = body?.id || null;
+    } catch { /* empty body */ }
+  }
+  if (!id) {
+    return NextResponse.json({ error: "id required" }, { status: 400 });
+  }
   deleteNovel(userId, id);
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, id });
 }

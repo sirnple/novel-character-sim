@@ -296,9 +296,27 @@ export function listNovels(userId: string): { id: string; title: string; total_l
 
 export function deleteNovel(userId: string, id: string): void {
   const d = getDb();
-  d.prepare("DELETE FROM novels WHERE id = ? AND user_id = ?").run(id, userId);
-  d.prepare("DELETE FROM story_info WHERE novel_id = ? AND user_id = ?").run(id, userId);
-  d.prepare("DELETE FROM characters WHERE novel_id = ? AND user_id = ?").run(id, userId);
+  const tx = d.transaction(() => {
+    d.prepare("DELETE FROM novels WHERE id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM story_info WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM characters WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM timelines WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM chapter_states WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM branches WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM drafts WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM simulations WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM scenes WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM generation_logs WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM codex_data WHERE novel_id = ?").run(id);
+    // Extracted library entries tied to this book (keep manual entries)
+    d.prepare(
+      "DELETE FROM style_library WHERE user_id = ? AND source_novel_id = ? AND source = 'extracted'"
+    ).run(userId, id);
+    d.prepare(
+      "DELETE FROM idea_library WHERE user_id = ? AND source_novel_id = ? AND source = 'extracted'"
+    ).run(userId, id);
+  });
+  tx();
 }
 
 // ---- Story Info ----

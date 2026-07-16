@@ -5,12 +5,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BookMarked, BookOpen, Lightbulb, ChevronDown, ChevronRight,
-  PanelLeftClose, PanelLeft, Eye,
+  PanelLeftClose, PanelLeft, Eye, Trash2,
 } from "lucide-react";
 import { useNovel } from "@/lib/novel-context";
 import type { StyleLibraryEntry, IdeaLibraryEntry } from "@/types";
 import LibraryDetailModal from "@/components/library-detail-modal";
-import { LIBRARIES_REFRESH_EVENT } from "@/lib/library-events";
+import { LIBRARIES_REFRESH_EVENT, notifyLibrariesRefresh } from "@/lib/library-events";
 
 const MAX_IDEAS = 3;
 
@@ -42,6 +42,7 @@ export default function GlobalLibrarySidebar({
   const {
     novelId,
     setNovel,
+    clearNovel,
     selectedStyleId,
     selectedIdeaIds,
     autoPickIdeas,
@@ -173,6 +174,36 @@ export default function GlobalLibrarySidebar({
     setExpanded(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const deleteNovel = async (id: string, title: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const ok = window.confirm(
+      `确定删除《${title || id}》？\n将清除该书正文、拆解结果、分支，以及从该书提取的风格/点子。此操作不可恢复。`,
+    );
+    if (!ok) return;
+    try {
+      const res = await fetch("/api/novels", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        window.alert(data.error || "删除失败");
+        return;
+      }
+      setNovels(prev => prev.filter(n => n.id !== id));
+      if (novelId === id) {
+        clearNovel();
+        if (pathname.startsWith("/novel/")) router.push("/");
+      }
+      if (selectedStyleId?.includes(id)) setSelectedStyleId(null);
+      notifyLibrariesRefresh();
+    } catch {
+      window.alert("删除失败");
+    }
+  };
+
   const libraryScrollBody = (
     <div className="flex-1 overflow-y-auto custom-scrollbar">
       <Section
@@ -204,19 +235,35 @@ export default function GlobalLibrarySidebar({
         {novels.map(n => {
           const active = n.id === novelId;
           return (
-            <button
+            <div
               key={n.id}
-              type="button"
-              onClick={() => openNovel(n.id)}
-              className={`w-full text-left px-3 py-2.5 rounded text-xs font-mono transition-colors ${
+              className={`group flex items-stretch rounded text-xs font-mono min-w-0 ${
                 active
                   ? "bg-orange-500/10 border-l-2 border-orange-500 text-neutral-200"
                   : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300"
               }`}
             >
-              <div className="truncate font-medium">{n.title}</div>
-              <div className="text-[10px] text-neutral-600 mt-0.5">{n.total_length.toLocaleString()} 字</div>
-            </button>
+              <button
+                type="button"
+                onClick={() => openNovel(n.id)}
+                className="flex-1 min-w-0 text-left px-3 py-2.5"
+                title="打开"
+              >
+                <div className="truncate font-medium">{n.title}</div>
+                <div className="text-[10px] text-neutral-600 mt-0.5">
+                  {n.total_length.toLocaleString()} 字
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => deleteNovel(n.id, n.title, e)}
+                className="px-2.5 text-neutral-600 hover:text-red-400 opacity-70 group-hover:opacity-100 shrink-0"
+                title="删除作品"
+                aria-label={`删除 ${n.title}`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           );
         })}
       </Section>
