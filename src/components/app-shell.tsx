@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { BookMarked, Settings, X, PanelLeft } from "lucide-react";
 import GlobalLibrarySidebar from "@/components/global-library-sidebar";
 import NovelUpload from "@/components/novel-upload";
+import AuthBar from "@/components/auth-bar";
 import { useNovel } from "@/lib/novel-context";
 import { novelFingerprint } from "@/lib/utils";
 
@@ -62,6 +63,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </div>
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <AuthBar />
           <a
             href="/admin"
             className="flex items-center gap-1 text-xs text-neutral-600 hover:text-neutral-400 font-mono px-2 py-1.5"

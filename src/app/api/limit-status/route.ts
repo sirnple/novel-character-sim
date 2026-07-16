@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { queryRateLimit, getUserId } from "@/lib/rate-limit";
+import { queryRateLimit, getClientIP } from "@/lib/rate-limit";
+import { resolveAuth } from "@/lib/auth";
 
 const ENDPOINTS = [
   { key: "chat", label: "角色对话", windowMs: 60_000, maxRequests: 20 },
@@ -10,9 +11,10 @@ const ENDPOINTS = [
 ];
 
 export async function GET(request: NextRequest) {
-  const userId = getUserId(request);
+  const auth = resolveAuth(request);
+  // Rate limit display still keyed by identity (guest cookie or user)
   const limits = ENDPOINTS.map((e) => {
-    const status = queryRateLimit(userId, e.key, { windowMs: e.windowMs, maxRequests: e.maxRequests });
+    const status = queryRateLimit(auth.userId, e.key, { windowMs: e.windowMs, maxRequests: e.maxRequests });
     return {
       key: e.key,
       label: e.label,
@@ -22,5 +24,10 @@ export async function GET(request: NextRequest) {
       resetSec: Math.max(0, Math.ceil((status.resetAt - Date.now()) / 1000)),
     };
   });
-  return NextResponse.json({ userId, limits });
+  return NextResponse.json({
+    userId: auth.userId,
+    kind: auth.kind,
+    clientIp: getClientIP(request),
+    limits,
+  });
 }

@@ -123,15 +123,7 @@ export function getClientIP(request: Request): string {
 }
 
 /**
- * Get a deterministic guest user ID from the client's IP.
- * Same IP → same guest ID.  No frontend involvement needed.
+ * Effective data-isolation id: logged-in user, else cookie guest.
+ * (Implementation in auth.ts — cookie guest + session.)
  */
-export function getUserId(request: Request): string {
-  const ip = getClientIP(request);
-  // Simple hash of IP to produce a stable guest ID
-  let hash = 0;
-  for (let i = 0; i < ip.length; i++) {
-    hash = ((hash << 5) - hash + ip.charCodeAt(i)) | 0;
-  }
-  return "guest_" + Math.abs(hash).toString(36);
-}
+export { getUserId } from "@/lib/auth";

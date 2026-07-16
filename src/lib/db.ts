@@ -256,6 +256,26 @@ function initSchema(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_idea_library_user ON idea_library(user_id);
     CREATE INDEX IF NOT EXISTS idx_idea_library_source ON idea_library(user_id, source_novel_id);
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT NOT NULL PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      display_name TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
   `);
 
   // Migrate old tables that may be missing user_id.
@@ -263,6 +283,86 @@ function initSchema(db: Database.Database) {
   for (const table of ["novels", "story_info", "characters", "simulations"]) {
     try { db.exec(`ALTER TABLE ${table} ADD COLUMN user_id TEXT NOT NULL DEFAULT 'guest'`); console.log(`[DB] Added user_id to ${table}`); } catch { /* already exists */ }
   }
+}
+
+// ---- Auth users / sessions ----
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  displayName: string;
+}
+
+export interface AuthUserRow extends AuthUser {
+  passwordHash: string;
+}
+
+export function createUser(input: {
+  id: string;
+  email: string;
+  passwordHash: string;
+  displayName: string;
+}): AuthUser {
+  const d = getDb();
+  d.prepare(
+    `INSERT INTO users (id, email, password_hash, display_name)
+     VALUES (?, ?, ?, ?)`
+  ).run(input.id, input.email, input.passwordHash, input.displayName);
+  return { id: input.id, email: input.email, displayName: input.displayName };
+}
+
+export function getUserByEmail(email: string): AuthUserRow | null {
+  const row = getDb()
+    .prepare("SELECT id, email, password_hash, display_name FROM users WHERE email = ?")
+    .get(email) as any;
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name || "",
+    passwordHash: row.password_hash,
+  };
+}
+
+export function getUserById(id: string): AuthUser | null {
+  const row = getDb()
+    .prepare("SELECT id, email, display_name FROM users WHERE id = ?")
+    .get(id) as any;
+  if (!row) return null;
+  return { id: row.id, email: row.email, displayName: row.display_name || "" };
+}
+
+export function createSession(token: string, userId: string, maxAgeSec: number): void {
+  const expires = new Date(Date.now() + maxAgeSec * 1000).toISOString();
+  getDb()
+    .prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)")
+    .run(token, userId, expires);
+}
+
+export function getSessionUser(token: string): AuthUser | null {
+  const d = getDb();
+  const row = d
+    .prepare(
+      `SELECT u.id, u.email, u.display_name
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.token = ? AND s.expires_at > datetime('now')`
+    )
+    .get(token) as any;
+  if (!row) {
+    // Drop expired/orphan
+    d.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+    return null;
+  }
+  return { id: row.id, email: row.email, displayName: row.display_name || "" };
+}
+
+export function deleteSession(token: string): void {
+  getDb().prepare("DELETE FROM sessions WHERE token = ?").run(token);
+}
+
+export function deleteExpiredSessions(): void {
+  getDb().prepare("DELETE FROM sessions WHERE expires_at <= datetime('now')").run();
 }
 
 // ---- Novel CRUD ----
