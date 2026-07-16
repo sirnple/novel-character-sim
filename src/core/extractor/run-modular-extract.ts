@@ -49,15 +49,23 @@ export async function runModularExtract(input: ModularExtractInput): Promise<Mod
     throw new Error("请至少选择一个拆解模块");
   }
 
+  const existingNovel = getNovel(userId, novelId);
   let text = input.text;
   if (!text) {
-    const novel = getNovel(userId, novelId);
-    if (!novel?.text) throw new Error("小说文本不存在，请先导入");
-    text = novel.text;
+    if (!existingNovel?.text) throw new Error("小说文本不存在，请先导入");
+    text = existingNovel.text;
   }
 
   const parsed = parseNovel(text);
-  saveNovel(userId, novelId, parsed.title, text);
+  // Prefer title from import (LLM / filename). Don't overwrite with first-line heuristic.
+  const title =
+    (existingNovel?.title && existingNovel.title.trim() && existingNovel.title !== "未命名小说"
+      ? existingNovel.title.trim()
+      : "") ||
+    parsed.title ||
+    "未命名小说";
+  parsed.title = title;
+  saveNovel(userId, novelId, title, text);
   ensureMainBranch(userId, novelId);
 
   const result: ModularExtractResult = { ran: [], skipped: [] };
