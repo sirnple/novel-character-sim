@@ -89,19 +89,30 @@ export const outlineAgent: AgentDef = {
 
     const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, TOOLS, ctx, onChunk, onTrail);
 
-    // 由 execute 层强制把大纲存进 store —— 不依赖 LLM 主动调 save_outline
-    if (!finalText || finalText.length < 50) {
+    // Recover body: final turn, else longest assistant trail (pre-tool outline is common)
+    let outlineBody = (finalText || "").trim();
+    if (outlineBody.length < 50) {
+      for (const m of trail) {
+        if (m.role === "assistant" && typeof m.content === "string" && m.content.trim().length > outlineBody.length) {
+          outlineBody = m.content.trim();
+        }
+      }
+    }
+    // Drop pure foreshadow_plan fence if that was the only "long" blob
+    if (outlineBody.length < 50 || (/^\s*\{/.test(outlineBody) && outlineBody.includes('"plant"') && outlineBody.length < 800 && !outlineBody.includes("情节点"))) {
       return {
         content: "大纲生成失败：产出为空或过短，请重试 generate_outline。",
         messages: trail,
       };
     }
-    saveOutline(ctx.novelId, ctx.branchId, finalText);
+
+    // 由 execute 层强制把大纲存进 store —— 不依赖 LLM 主动调 save_outline
+    saveOutline(ctx.novelId, ctx.branchId, outlineBody);
 
     // Prefer plan saved via tool; else parse from text; else empty plan
     let p = getForeshadowPlan(ctx.novelId, ctx.branchId);
     if (!p) {
-      p = tryExtractPlan(finalText, ctx.novelId, ctx.branchId) || {
+      p = tryExtractPlan(outlineBody + "\n" + (finalText || ""), ctx.novelId, ctx.branchId) || {
         novelId: ctx.novelId,
         branchId: ctx.branchId,
         createdAt: new Date().toISOString(),

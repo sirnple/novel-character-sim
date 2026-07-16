@@ -78,6 +78,8 @@ export async function runToolLoop(
 
   let maxSteps = 15;
   let finalText = "";
+  /** Longest assistant prose before a tool call — outline often lives here, not in final tool-free turn */
+  let bestPreToolText = "";
   while (maxSteps-- > 0) {
     let hasToolUse = false;
     let stepText = "";
@@ -98,6 +100,9 @@ export async function runToolLoop(
         const args = event.args as Record<string, any>;
 
         if (preToolText) {
+          if (preToolText.length > bestPreToolText.length) {
+            bestPreToolText = preToolText;
+          }
           conversation.push({ role: "assistant", content: preToolText } as AssistantMessage);
           pushTrail({ role: "assistant", content: preToolText });
           preToolText = "";
@@ -153,7 +158,15 @@ export async function runToolLoop(
     }
   }
 
-  return { finalText, trail };
+  // Prefer explicit final turn; if empty/short (model ended on tool_use), fall back to longest pre-tool prose
+  const delivered =
+    finalText.trim().length >= 50
+      ? finalText
+      : bestPreToolText.trim().length >= 50
+        ? bestPreToolText
+        : finalText || bestPreToolText;
+
+  return { finalText: delivered, trail };
 }
 
 /** Drive a sub-agent: prepend system+user, run loop, return final text + trail. */

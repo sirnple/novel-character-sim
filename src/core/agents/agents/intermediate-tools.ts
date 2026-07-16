@@ -17,10 +17,21 @@ export const intermediateReadTools: ToolDefinition[] = [
     description: "获取已经存好的大纲正文。writer 写正文前必须先 get_outline 拿到轮廓。",
     parameters: { type: "object", properties: {}, required: [] },
     execute: async (_args, ctx) => {
-      const novelId = (ctx as any).novelId as string;
-      const branchId = (ctx as any).branchId as string;
+      const novelId = String((ctx as any).novelId || "");
+      const branchId = String((ctx as any).branchId || "main");
+      if (!novelId) {
+        return { content: "大纲未生成（缺少 novelId）", messages: [] };
+      }
       const o = getOutline(novelId, branchId);
-      return { content: o ? (o as string) : "大纲未生成", messages: [] };
+      if (!o || (typeof o === "string" && o.trim().length < 20)) {
+        console.warn(`[Store] get_outline miss ${novelId}/${branchId}`);
+        return {
+          content:
+            "大纲未生成。请先调用 generate_outline；若刚生成过，确认 branchId 与写作页一致。",
+          messages: [],
+        };
+      }
+      return { content: typeof o === "string" ? o : JSON.stringify(o), messages: [] };
     },
   },
   {
