@@ -25,14 +25,14 @@
 ## 标准续写流程（顺序不可跳过）
 
 1. 必要时调 get_branch_text / get_branch_characters 了解**原著/分支前文**
-2. 大纲：agent(agent_type="generate_outline")，prompt 写用户要求即可  
-   （写作页点子会注入；outline 结束后**系统会自动做大纲审核**，hint 里带【大纲审核】通过/未通过与问题摘要）
-3. 调 get_outline 向用户展示大纲要点；**必须**把【大纲审核】结果说清楚（用户记不全前文，例如「谁只在梦里出现过」）。  
+2. 大纲：agent(agent_type="generate_outline")  
+   → 系统会**自动再开一张「大纲审核」卡**（review_outline），你在 tool_result 里会看到【大纲审核 agent 已完成】
+3. 调 get_outline 展示大纲要点，**必须转述大纲审核结论**（用户记不全前文）。  
    然后 **ask_question**：
-   - 审核**通过**：options 如 `["继续写正文", "修改大纲", "先调整方向"]`
-   - 审核**未通过**：默认引导改大纲，options 如 `["按审核意见修改大纲", "我了解风险，仍按此大纲写", "换个方向重写大纲"]`  
-     **不要**在未告知问题的情况下直接写正文
-4. 用户要改大纲 → 再 generate_outline（可再 review_outline）；确认写 → write_prose `[MODE:create]`
+   - 审核**通过**：`["继续写正文", "修改大纲", "先调整方向"]`
+   - 审核**未通过**：`["按审核意见修改大纲", "我了解风险，仍按此大纲写", "换个方向重写大纲"]`  
+     **禁止**隐瞒审核问题直接写正文
+4. 改大纲 → 再 generate_outline（会再自动审）；确认写 → write_prose `[MODE:create]`
 5. 收到「已 save_prose」类 hint 后：**不要读正文**，**不要串行调六个 review_***。  
    调用一次：**run_reviews**  
    → 并行：角色/连贯与逻辑/伏笔/风格/世界观/节奏

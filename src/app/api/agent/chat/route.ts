@@ -88,6 +88,54 @@ export async function POST(request: NextRequest) {
         );
         logSession({ ts: new Date().toISOString(), type: "tool_exec", tool: agentType, elapsed: Date.now() - t0, resultPreview: result.content.slice(0, 300) });
         sendTool(agentType, "done", toolCallId, result.content.slice(0, 5000), result.messages);
+
+        // After outline: open a separate visible card for outline review (not buried in generate_outline)
+        if (agentType === "generate_outline") {
+          const reviewId = `${toolCallId}__outline_review`;
+          const reviewDef = getAgent("review_outline");
+          if (reviewDef) {
+            sendTool("review_outline", "running", reviewId);
+            const t1 = Date.now();
+            try {
+              const rev = await reviewDef.execute(
+                {
+                  prompt: "审核刚生成的大纲与前文/类型是否冲突（出场合法性、梦与现实、承接等）",
+                  novelId,
+                  branchId,
+                  userId,
+                },
+                llm,
+                (text) => send({ type: "tool_chunk", toolCallId: reviewId, content: text, tool: "review_outline" }),
+                (messages) => send({ type: "tool_trail", toolCallId: reviewId, messages, tool: "review_outline" }),
+              );
+              logSession({
+                ts: new Date().toISOString(),
+                type: "tool_exec",
+                tool: "review_outline",
+                elapsed: Date.now() - t1,
+                resultPreview: rev.content.slice(0, 300),
+              });
+              sendTool("review_outline", "done", reviewId, rev.content.slice(0, 5000), rev.messages);
+              // Append review into master's conversation so it must surface findings
+              return {
+                content:
+                  result.content +
+                  "\n\n---\n【大纲审核 agent 已完成】\n" +
+                  rev.content.slice(0, 4000) +
+                  "\n主 agent：必须把审核结论告诉用户后再 ask_question；未通过时默认建议改大纲。",
+                messages: [...(result.messages || []), ...(rev.messages || [])],
+              };
+            } catch (e) {
+              const err = "大纲审核失败: " + (e as Error).message;
+              sendTool("review_outline", "done", reviewId, err);
+              return {
+                content: result.content + "\n\n" + err + "（可再调 review_outline）",
+                messages: result.messages,
+              };
+            }
+          }
+        }
+
         return result;
       };
 
