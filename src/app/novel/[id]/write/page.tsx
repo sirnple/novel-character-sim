@@ -30,14 +30,22 @@ export default function WritePage() {
 
   const activeBranch = branches.find(b => b.id === activeBranchId);
   const hasSelection = freeMode || activeBranchId === "main" || !!activeBranch;
+  // Prefer branch row for main when present (accepted 续写 lives on branches.main)
+  const mainBranchRow = branches.find((b) => b.id === "main");
+  const mainDisplayText =
+    (mainBranchRow?.text && mainBranchRow.text.length >= (novelText || "").length
+      ? mainBranchRow.text
+      : novelText) || "";
+
   const currentText =
     freeMode || activeBranchId === "main"
-      ? novelText
+      ? mainDisplayText
       : activeBranch
         ? (activeBranch.text || "")
         : "";
 
-  const bodyText = freeMode ? novelText : (currentText || "");
+  const bodyText = freeMode ? mainDisplayText : (currentText || "");
+  // Draft only: never treat intermediate tool streams as body (agent-panel loads save_prose)
   const proseText = generatedProse || "";
   const find = useTextFindSegments([bodyText, proseText]);
   useFindShortcut(find.searchInputRef, hasSelection);
@@ -56,6 +64,26 @@ export default function WritePage() {
     fetch(`/api/branches?novelId=${novelId}`).then(r => r.json()).then(d => {
       if (d.branches) setBranches(d.branches);
     }).catch(() => {});
+  }, [novelId]);
+
+  // Accept 续写后刷新本分支正文（避免列表/阅读区仍是旧 text）
+  useEffect(() => {
+    const onBranchUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as {
+        novelId?: string;
+        branchId?: string;
+        text?: string;
+      };
+      if (!detail || detail.novelId !== novelId || !detail.branchId) return;
+      setBranches((prev) =>
+        prev.map((b) =>
+          b.id === detail.branchId ? { ...b, text: detail.text || "" } : b,
+        ),
+      );
+      // 若本地没有该分支行（仅 main 用 novelText），主线已由 agent-panel setNovelText
+    };
+    window.addEventListener("ncs:branch-updated", onBranchUpdated);
+    return () => window.removeEventListener("ncs:branch-updated", onBranchUpdated);
   }, [novelId]);
 
   // Sync writing target to context only after explicit selection (no silent default to main)

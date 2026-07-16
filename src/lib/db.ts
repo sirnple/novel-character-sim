@@ -1123,21 +1123,50 @@ export function copyForeshadowingLedger(
   saveForeshadowingLedger(copy);
 }
 
+/**
+ * Append continuation prose onto a branch.
+ * @param fromOffset if set, keep only text[0..fromOffset) then append (continue from mid-point)
+ */
 export function appendBranchContent(
   userId: string,
   novelId: string,
   branchId: string,
-  newContent: string
+  newContent: string,
+  fromOffset?: number,
 ): void {
   const d = getDb();
   const branch = d.prepare(
-    "SELECT text FROM branches WHERE novel_id = ? AND id = ? AND user_id = ?"
+    "SELECT text FROM branches WHERE novel_id = ? AND id = ? AND user_id = ?",
   ).get(novelId, branchId, userId) as { text: string } | undefined;
   if (!branch) return;
-  const combined = branch.text + "\n\n" + newContent;
+  const incoming = (newContent || "").trim();
+  if (!incoming) return;
+
+  let base = branch.text || "";
+  if (typeof fromOffset === "number" && fromOffset >= 0 && fromOffset < base.length) {
+    base = base.slice(0, fromOffset);
+  }
+
+  // Avoid double-append if the same continuation was already saved
+  if (base.endsWith(incoming) || base.includes("\n\n" + incoming)) {
+    return;
+  }
+
+  const combined = base ? base.replace(/\s*$/, "") + "\n\n" + incoming : incoming;
   d.prepare(
-    "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = ? AND user_id = ?"
+    "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = ? AND user_id = ?",
   ).run(combined, novelId, branchId, userId);
+
+  // Keep novels.text in sync when writing main (write UI / list length use it for 主线)
+  if (branchId === "main") {
+    const novel = getNovel(userId, novelId);
+    if (novel) {
+      d.prepare(
+        `UPDATE novels SET text = ?, total_length = ?, updated_at = datetime('now')
+         WHERE id = ? AND user_id = ?`,
+      ).run(combined, combined.length, novelId, userId);
+    }
+  }
 }
 
 export function getBranch(

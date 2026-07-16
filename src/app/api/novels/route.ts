@@ -8,7 +8,10 @@ export async function GET(request: NextRequest) {
   if (!rate.allowed) {
     return NextResponse.json({ error: rateLimitMessage(rate) }, { status: 429 });
   }
-  const id = request.nextUrl.searchParams.get("id");
+  // Accept both ?id= and ?novelId= (read page historically used novelId)
+  const id =
+    request.nextUrl.searchParams.get("id") ||
+    request.nextUrl.searchParams.get("novelId");
   const branchId = request.nextUrl.searchParams.get("branchId") || "main";
 
   if (id) {

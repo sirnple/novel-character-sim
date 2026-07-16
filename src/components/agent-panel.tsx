@@ -395,7 +395,15 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<AgentMessage[]>([]);
-  const { setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas, setNovelText } = useNovel();
+  const {
+    setNovel,
+    selectedStyleId,
+    selectedIdeaIds,
+    autoPickIdeas,
+    setNovelText,
+    sessionContinueOffset,
+    sessionContinueLabel,
+  } = useNovel();
 
   const refreshFsStatus = useCallback(async () => {
     if (!novelId || !branchId) return;
@@ -495,9 +503,8 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                   ? { ...m, content: event.content }
                   : m
               ));
-              if (event.tool === "write_prose") {
-                setNovel({ generatedProse: event.content });
-              }
+              // Do not bind tool_chunk stream to reading pane — intermediate
+              // "先获取大纲…" chatter was being shown as appended 正文.
             } else if (event.type === "tool_trail") {
               // Live sub-agent conversation (system/user/tool/assistant) while still running
               const trailMsgs: SubAgentMessage[] = event.messages || [];
@@ -647,6 +654,20 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     abortRef.current = null;
     setStatus("idle");
     refreshFsStatus();
+    // Load final save_prose draft for reading pane (not stream junk)
+    if (novelId && branchId) {
+      try {
+        const dr = await fetch(
+          `/api/agent/draft?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(branchId)}`,
+        );
+        if (dr.ok) {
+          const d = await dr.json();
+          if (d.prose && d.prose.length > 50) {
+            setNovel({ generatedProse: d.prose });
+          }
+        }
+      } catch { /* ignore */ }
+    }
   }, [branchId, novelId, setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas, refreshFsStatus]);
 
   const handleAccept = async (allowPartial: boolean) => {
@@ -654,6 +675,12 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     setAccepting(true);
     setFsStatus(s => (s ? { ...s, message: undefined } : s));
     try {
+      // Mid-text continue only (read-page 偏移 / fork). Branch end 续写 must not truncate.
+      const midContinue =
+        typeof sessionContinueOffset === "number" &&
+        sessionContinueOffset >= 0 &&
+        /偏移|续写点/.test(sessionContinueLabel || "");
+      const fromOffset = midContinue ? sessionContinueOffset : undefined;
       const res = await fetch("/api/continuation/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -661,6 +688,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
           novelId,
           branchId,
           allowPartialForeshadowing: allowPartial,
+          fromOffset,
         }),
       });
       const data = await res.json();
@@ -676,8 +704,21 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         return;
       }
       if (data.branch?.text != null) {
-        setNovelText(data.branch.text);
-        setNovel({ novelText: data.branch.text, generatedProse: undefined });
+        // Main: keep novels / novelText in sync; IF branch: only branch text
+        if (branchId === "main") {
+          setNovelText(data.branch.text);
+          setNovel({ novelText: data.branch.text, generatedProse: undefined });
+        } else {
+          setNovel({ generatedProse: undefined });
+        }
+        // Notify write page to refresh branch list body
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("ncs:branch-updated", {
+              detail: { novelId, branchId, text: data.branch.text },
+            }),
+          );
+        }
       }
       setMessages(prev => [
         ...prev,

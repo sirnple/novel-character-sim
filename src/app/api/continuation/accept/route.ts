@@ -35,6 +35,12 @@ export async function POST(request: NextRequest) {
     const novelId = String(body.novelId || "");
     const branchId = String(body.branchId || "main");
     const allowPartial = !!body.allowPartialForeshadowing;
+    const fromOffset =
+      typeof body.fromOffset === "number"
+        ? body.fromOffset
+        : body.fromOffset != null
+          ? Number(body.fromOffset)
+          : undefined;
     let content = String(body.content || "").trim();
 
     if (!novelId) {
@@ -43,6 +49,18 @@ export async function POST(request: NextRequest) {
 
     if (!content) {
       content = (getProse(novelId, branchId) || "").trim();
+    }
+    // Strip accidental full-book paste: if draft starts with a long prefix of branch text, keep only the new tail
+    ensureMainBranch(userId, novelId);
+    const existing = getBranch(userId, novelId, branchId);
+    if (existing?.text && content.length > existing.text.length + 20) {
+      const base = existing.text;
+      if (content.startsWith(base.slice(0, Math.min(500, base.length)))) {
+        // draft re-includes prior branch — take only the delta after base
+        if (content.startsWith(base)) {
+          content = content.slice(base.length).replace(/^\s+/, "");
+        }
+      }
     }
     if (!content || content.length < 50) {
       return NextResponse.json(
@@ -77,14 +95,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    ensureMainBranch(userId, novelId);
     const before = getBranch(userId, novelId, branchId);
     if (!before && branchId !== "main") {
       return NextResponse.json({ error: "分支不存在" }, { status: 404 });
     }
     if (branchId === "main") ensureMainBranch(userId, novelId);
 
-    appendBranchContent(userId, novelId, branchId, content);
+    appendBranchContent(
+      userId,
+      novelId,
+      branchId,
+      content,
+      Number.isFinite(fromOffset as number) ? (fromOffset as number) : undefined,
+    );
     const after = getBranch(userId, novelId, branchId);
 
     const ledger = getForeshadowingLedger(userId, novelId, branchId);
