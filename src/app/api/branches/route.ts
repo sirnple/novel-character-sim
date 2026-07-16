@@ -11,6 +11,17 @@ import {
 } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
+/** Safe basename for Content-Disposition / download attribute */
+function branchTxtFilename(name: string, branchId: string): string {
+  const base = (name || branchId || "branch")
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 80) || "branch";
+  return base.endsWith(".txt") ? base : `${base}.txt`;
+}
+
 export async function GET(request: NextRequest) {
   const userId = getUserId(request);
   const rate = checkRateLimit(userId, "branches_get", { windowMs: 60_000, maxRequests: 30 });
@@ -20,11 +31,35 @@ export async function GET(request: NextRequest) {
 
   const novelId = request.nextUrl.searchParams.get("novelId");
   const branchId = request.nextUrl.searchParams.get("branchId");
+  const download =
+    request.nextUrl.searchParams.get("download") === "1" ||
+    request.nextUrl.searchParams.get("format") === "txt";
 
   if (branchId) {
     if (!novelId) return NextResponse.json({ error: "novelId required with branchId" }, { status: 400 });
+    if (branchId === "main") ensureMainBranch(userId, novelId);
     const branch = getBranch(userId, novelId, branchId);
     if (!branch) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    // Download branch body as UTF-8 .txt
+    if (download) {
+      const filename = branchTxtFilename(branch.name || branch.id, branch.id);
+      const body = branch.text || "";
+      // ASCII fallback + RFC 5987 for Chinese names
+      const asciiFallback = filename.replace(/[^\x20-\x7E]/g, "_") || "branch.txt";
+      return new NextResponse(body, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Content-Disposition":
+            `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+          "Cache-Control": "no-store",
+          "X-Branch-Id": branch.id,
+          "X-Branch-Name": encodeURIComponent(branch.name || branch.id),
+        },
+      });
+    }
+
     return NextResponse.json({ branch });
   }
 

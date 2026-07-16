@@ -2,21 +2,34 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useNovel } from "@/lib/novel-context";
-import { BookOpen, Play, GitBranch, Trash2 } from "lucide-react";
+import { BookOpen, Play, GitBranch, Trash2, Download } from "lucide-react";
 import StoryInfoPanel from "@/components/story-info-panel";
 import ExtractModulesPanel from "@/components/extract-modules-panel";
+import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
 
 interface BranchInfo { id: string; name: string; text: string; created_at: string; }
 
 export default function NovelPage() {
   const { novelId, novelTitle, novelText, characters, storyInfo, timeline, setNovel } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/branches?novelId=${novelId}`).then(r => r.json()).then(d => {
       if (d.branches) setBranches(d.branches);
     }).catch(() => {});
   }, [novelId]);
+
+  const handleDownloadBranch = async (branchId: string, name: string) => {
+    if (!novelId || downloadingId) return;
+    setDownloadingId(branchId);
+    try {
+      const err = await downloadBranchAsTxt(novelId, branchId, name || branchId);
+      if (err) alert(err);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   return (
     <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 bg-background">
@@ -65,14 +78,30 @@ export default function NovelPage() {
               <GitBranch className="w-4 h-4" /> 分支故事线
             </h3>
             <div className="space-y-2">
-              <div className="flex items-center gap-3 px-3 py-2.5 bg-secondary/60 rounded-lg text-sm text-foreground">
-                <span className="text-muted-foreground">主线</span>
-                <span className="text-fog text-xs">{novelText.length.toLocaleString()} 字</span>
-              </div>
               {branches.map(b => (
                 <div key={b.id} className="flex items-center gap-3 px-3 py-2.5 bg-secondary/60 rounded-lg text-sm text-foreground">
-                  <span className="flex-1 truncate">{b.name || b.id}</span>
-                  <span className="text-fog text-xs">{(b.text || "").length.toLocaleString()} 字</span>
+                  <span className="flex-1 truncate min-w-0">
+                    {b.id === "main" ? "主线" : (b.name || b.id)}
+                  </span>
+                  <span className="text-fog text-xs shrink-0">
+                    {(b.text || (b.id === "main" ? novelText : "") || "").length.toLocaleString()} 字
+                  </span>
+                  <button
+                    type="button"
+                    title="下载为 TXT"
+                    disabled={downloadingId === b.id}
+                    className="p-1 text-fog hover:text-primary disabled:opacity-40"
+                    onClick={() =>
+                      handleDownloadBranch(
+                        b.id,
+                        b.id === "main"
+                          ? `${novelTitle || "主线"}_主线`
+                          : (b.name || b.id),
+                      )
+                    }
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
                   {b.id !== "main" && (
                     <button
                       type="button"

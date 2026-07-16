@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useNovel } from "@/lib/novel-context";
-import { GitBranch, BookOpen, Sparkles, Trash2 } from "lucide-react";
+import { GitBranch, BookOpen, Sparkles, Trash2, Download } from "lucide-react";
 import ScrollEdgeButtons from "@/components/scroll-edge-buttons";
 import {
   TextFindBar,
@@ -10,6 +10,7 @@ import {
   useScrollToMatch,
   useTextFindSegments,
 } from "@/components/text-find";
+import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
 
 interface BranchInfo { id: string; name: string; text: string; parent_offset: number; updated_at: string; }
 
@@ -148,6 +149,17 @@ export default function WritePage() {
       setFreeMode(false);
       setActiveBranchId(undefined);
     }
+  };
+
+  const handleDownloadBranch = async (branchId: string, name: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!novelId || !branchId) return;
+    const err = await downloadBranchAsTxt(
+      novelId,
+      branchId,
+      branchId === "main" ? `${novelTitle || "主线"}_主线` : name,
+    );
+    if (err) alert(err);
   };
 
   const createBranch = async () => {
@@ -307,6 +319,15 @@ export default function WritePage() {
               </span>
             </div>
           </button>
+          <button
+            type="button"
+            title="下载为 TXT"
+            aria-label={`下载分支 ${b.name || b.id}`}
+            onClick={(e) => handleDownloadBranch(b.id, b.name || b.id, e)}
+            className="px-1.5 text-fog hover:text-primary shrink-0 opacity-70 hover:opacity-100"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
           {b.id !== "main" && (
             <button
               type="button"
@@ -413,6 +434,24 @@ export default function WritePage() {
                 onClear={find.clearSearch}
                 inputRef={find.searchInputRef}
               />
+            )}
+            {hasSelection && !freeMode && activeBranchId && (
+              <button
+                type="button"
+                title="下载当前分支为 TXT"
+                onClick={() =>
+                  handleDownloadBranch(
+                    activeBranchId,
+                    activeBranchId === "main"
+                      ? `${novelTitle || "主线"}_主线`
+                      : (activeBranch?.name || activeBranchId),
+                  )
+                }
+                className="text-sm text-muted-foreground hover:text-primary shrink-0 px-1.5 py-1 rounded-lg hover:bg-panel-elevated inline-flex items-center gap-1"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">下载</span>
+              </button>
             )}
             <a href={`/novel/${novelId}/read`} className="text-sm text-muted-foreground hover:text-foreground shrink-0 px-1">
               阅读
