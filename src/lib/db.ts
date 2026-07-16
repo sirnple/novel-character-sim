@@ -1170,6 +1170,35 @@ export function listBranches(
   ).all(novelId, userId) as BranchRow[];
 }
 
+/**
+ * Delete an IF branch (and its foreshadowing ledger).
+ * Refuses to delete id "main" — main line is the novel source of truth.
+ */
+export function deleteBranch(
+  userId: string,
+  novelId: string,
+  branchId: string,
+): { ok: true } | { ok: false; error: string } {
+  if (!branchId || branchId === "main") {
+    return { ok: false, error: "不能删除主线" };
+  }
+  const existing = getBranch(userId, novelId, branchId);
+  if (!existing) {
+    return { ok: false, error: "分支不存在" };
+  }
+  const d = getDb();
+  const tx = d.transaction(() => {
+    d.prepare(
+      "DELETE FROM branches WHERE novel_id = ? AND id = ? AND user_id = ?",
+    ).run(novelId, branchId, userId);
+    d.prepare(
+      "DELETE FROM foreshadowing_ledgers WHERE novel_id = ? AND branch_id = ? AND user_id = ?",
+    ).run(novelId, branchId, userId);
+  });
+  tx();
+  return { ok: true };
+}
+
 /** Lazy: if novel exists but main missing, create main from novel text. No empty shells. */
 export function ensureMainBranch(userId: string, novelId: string): void {
   if (getBranch(userId, novelId, "main")) return;

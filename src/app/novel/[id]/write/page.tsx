@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useNovel } from "@/lib/novel-context";
-import { GitBranch, BookOpen, Sparkles } from "lucide-react";
+import { GitBranch, BookOpen, Sparkles, Trash2 } from "lucide-react";
 import ScrollEdgeButtons from "@/components/scroll-edge-buttons";
 import {
   TextFindBar,
@@ -101,6 +101,26 @@ export default function WritePage() {
       setActiveBranchId(undefined);
     }
   }, [activeBranchId, activeBranch?.text, freeMode, novelText, queryOffset, queryLabel]);
+
+  const deleteBranchById = async (branchId: string, name: string) => {
+    if (branchId === "main") return;
+    if (!confirm(`确定删除分支「${name}」？此操作不可恢复。`)) return;
+    const res = await fetch(
+      `/api/branches?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(branchId)}`,
+      { method: "DELETE" },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || "删除失败");
+      return;
+    }
+    setBranches((prev) => prev.filter((b) => b.id !== branchId));
+    if (activeBranchId === branchId) {
+      setLocalBranchId(null);
+      setFreeMode(false);
+      setActiveBranchId(undefined);
+    }
+  };
 
   const createBranch = async () => {
     if (!newBranchName.trim()) return;
@@ -235,21 +255,45 @@ export default function WritePage() {
         </button>
       )}
       {branches.map(b => (
-        <button
+        <div
           key={b.id}
-          type="button"
-          onClick={() => selectBranch(b.id)}
-          className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors ${
+          className={`group flex items-stretch rounded-lg transition-colors ${
             activeBranchId === b.id
-              ? "bg-primary/10 border-l-2 border-primary text-foreground"
-              : "text-muted-foreground hover:bg-panel-elevated hover:text-foreground"
+              ? "bg-primary/10 border-l-2 border-primary"
+              : "border-l-2 border-transparent hover:bg-panel-elevated"
           }`}
         >
-          <div className="flex items-center justify-between">
-            <span className="truncate">{b.name}</span>
-            <span className="text-xs text-fog shrink-0 ml-1">{(b.text || "").length.toLocaleString()}字</span>
-          </div>
-        </button>
+          <button
+            type="button"
+            onClick={() => selectBranch(b.id)}
+            className={`flex-1 min-w-0 text-left px-3 py-2.5 text-sm ${
+              activeBranchId === b.id
+                ? "text-foreground"
+                : "text-muted-foreground group-hover:text-foreground"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-1">
+              <span className="truncate">{b.name || b.id}</span>
+              <span className="text-xs text-fog shrink-0">
+                {(b.text || "").length.toLocaleString()}字
+              </span>
+            </div>
+          </button>
+          {b.id !== "main" && (
+            <button
+              type="button"
+              title="删除分支"
+              aria-label={`删除分支 ${b.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteBranchById(b.id, b.name || b.id);
+              }}
+              className="px-2 text-fog hover:text-red-400 shrink-0 opacity-70 hover:opacity-100"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       ))}
       <button
         type="button"

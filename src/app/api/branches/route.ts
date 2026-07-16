@@ -7,6 +7,7 @@ import {
   copyForeshadowingLedger,
   getBranchProse,
   ensureMainBranch,
+  deleteBranch,
 } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
@@ -81,4 +82,41 @@ export async function POST(request: NextRequest) {
   }
   const branch = getBranch(userId, novelId, id);
   return NextResponse.json({ success: true, branch });
+}
+
+/** DELETE ?novelId=&branchId= — remove IF branch (not main) */
+export async function DELETE(request: NextRequest) {
+  const userId = getUserId(request);
+  const rate = checkRateLimit(userId, "branches_delete", { windowMs: 60_000, maxRequests: 30 });
+  if (!rate.allowed) {
+    return NextResponse.json({ error: rateLimitMessage(rate) }, { status: 429 });
+  }
+
+  const novelId =
+    request.nextUrl.searchParams.get("novelId") ||
+    "";
+  const branchId =
+    request.nextUrl.searchParams.get("branchId") ||
+    "";
+
+  // Also accept JSON body
+  let bodyNovel = novelId;
+  let bodyBranch = branchId;
+  try {
+    const body = await request.json();
+    if (body?.novelId) bodyNovel = String(body.novelId);
+    if (body?.branchId) bodyBranch = String(body.branchId);
+  } catch {
+    /* query only */
+  }
+
+  if (!bodyNovel || !bodyBranch) {
+    return NextResponse.json({ error: "novelId and branchId required" }, { status: 400 });
+  }
+
+  const result = deleteBranch(userId, bodyNovel, bodyBranch);
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: 400 });
+  }
+  return NextResponse.json({ success: true, novelId: bodyNovel, branchId: bodyBranch });
 }

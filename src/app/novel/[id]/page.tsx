@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useNovel } from "@/lib/novel-context";
-import { BookOpen, Play, GitBranch } from "lucide-react";
+import { BookOpen, Play, GitBranch, Trash2 } from "lucide-react";
 import StoryInfoPanel from "@/components/story-info-panel";
 import ExtractModulesPanel from "@/components/extract-modules-panel";
 
@@ -71,8 +71,30 @@ export default function NovelPage() {
               </div>
               {branches.map(b => (
                 <div key={b.id} className="flex items-center gap-3 px-3 py-2.5 bg-secondary/60 rounded-lg text-sm text-foreground">
-                  <span>{b.name}</span>
+                  <span className="flex-1 truncate">{b.name || b.id}</span>
                   <span className="text-fog text-xs">{(b.text || "").length.toLocaleString()} 字</span>
+                  {b.id !== "main" && (
+                    <button
+                      type="button"
+                      title="删除分支"
+                      className="p-1 text-fog hover:text-red-400"
+                      onClick={async () => {
+                        if (!confirm(`确定删除分支「${b.name || b.id}」？`)) return;
+                        const res = await fetch(
+                          `/api/branches?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(b.id)}`,
+                          { method: "DELETE" },
+                        );
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                          alert(data.error || "删除失败");
+                          return;
+                        }
+                        setBranches(prev => prev.filter(x => x.id !== b.id));
+                      }}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
