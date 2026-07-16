@@ -31,31 +31,31 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="app-shell-height flex flex-col overflow-hidden">
-      <header className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 border-b border-neutral-800/60 bg-[#0c0c0c] shrink-0">
+    <div className="app-shell-height flex flex-col overflow-hidden bg-background">
+      <header className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3 border-b border-border bg-card shrink-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           {/* Mobile: open libraries drawer */}
           <button
             type="button"
             onClick={() => setLibraryMobileOpen(true)}
-            className="lg:hidden p-2 -ml-1 rounded text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 shrink-0"
+            className="lg:hidden p-2 -ml-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-panel-elevated shrink-0"
             title="打开库"
             aria-label="打开作品/风格/点子库"
           >
-            <PanelLeft className="w-4 h-4" />
+            <PanelLeft className="w-5 h-5" />
           </button>
           <Link href="/" className="flex items-center gap-2 shrink-0 min-w-0">
-            <BookMarked className="w-4 h-4 text-orange-500 shrink-0" />
-            <h1 className="text-sm font-bold tracking-wider text-neutral-300 font-mono truncate">
-              NOVEL WORKSPACE
+            <BookMarked className="w-5 h-5 text-primary shrink-0" />
+            <h1 className="text-base font-semibold text-foreground truncate">
+              小说工作台
             </h1>
           </Link>
           {novelTitle && pathname?.startsWith("/novel/") && (
             <>
-              <span className="w-px h-4 bg-neutral-800 shrink-0 hidden sm:block" />
-              <span className="text-sm text-neutral-400 truncate hidden sm:inline">{novelTitle}</span>
+              <span className="w-px h-4 bg-border shrink-0 hidden sm:block" />
+              <span className="text-sm text-muted-foreground truncate hidden sm:inline">{novelTitle}</span>
               {novelText && (
-                <span className="text-xs text-neutral-600 shrink-0 hidden md:inline">
+                <span className="text-xs text-fog shrink-0 hidden md:inline">
                   {novelText.length.toLocaleString()} 字
                 </span>
               )}
@@ -66,10 +66,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <AuthBar />
           <a
             href="/admin"
-            className="flex items-center gap-1 text-xs text-neutral-600 hover:text-neutral-400 font-mono px-2 py-1.5"
+            className="flex items-center gap-1.5 text-sm text-fog hover:text-muted-foreground px-2.5 py-2 rounded-lg hover:bg-panel-elevated"
           >
-            <Settings className="w-3 h-3" />
-            <span className="hidden sm:inline">ADMIN</span>
+            <Settings className="w-4 h-4" />
+            <span className="hidden sm:inline">管理</span>
           </a>
         </div>
       </header>
@@ -82,18 +82,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           mobileOpen={libraryMobileOpen}
           onMobileClose={() => setLibraryMobileOpen(false)}
         />
-        <div className="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col">
+        <div className="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col bg-background">
           {children}
         </div>
       </div>
 
       {showUpload && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4">
-          <div className="w-full max-w-lg bg-[#0e0e0e] border border-neutral-800 rounded-t-xl sm:rounded-lg p-5 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4">
+          <div className="w-full max-w-lg bg-card border border-border rounded-t-xl sm:rounded-xl p-5 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-neutral-300 font-mono">导入小说</h2>
-              <button type="button" onClick={() => setShowUpload(false)} className="p-1 text-neutral-500 hover:text-neutral-300">
-                <X className="w-4 h-4" />
+              <h2 className="text-base font-semibold text-foreground">导入小说</h2>
+              <button type="button" onClick={() => setShowUpload(false)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-panel-elevated">
+                <X className="w-5 h-5" />
               </button>
             </div>
             <NovelUpload

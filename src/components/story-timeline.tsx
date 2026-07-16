@@ -131,7 +131,7 @@ export default function StoryTimeline({ timeline, lastChapterStates }: StoryTime
                 >
                   {/* 上方标签：章节 + 事件名 */}
                   <span className="absolute -top-6 w-[120px] text-center">
-                    <span className="block text-[10px] text-muted-foreground/60 leading-tight">
+                    <span className="block text-xs text-muted-foreground/60 leading-tight">
                       第{evt.chapterNumber}章
                     </span>
                     <span className="block text-xs font-medium leading-tight truncate">
@@ -159,7 +159,7 @@ export default function StoryTimeline({ timeline, lastChapterStates }: StoryTime
                       />
                     ))}
                     {evt.involvedCharacters.length > 4 && (
-                      <span className="text-[9px] text-muted-foreground">+{evt.involvedCharacters.length - 4}</span>
+                      <span className="text-xs text-muted-foreground">+{evt.involvedCharacters.length - 4}</span>
                     )}
                   </span>
                 </button>

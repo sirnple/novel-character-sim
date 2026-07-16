@@ -30,8 +30,8 @@ export function findMatchOffsets(text: string, query: string): number[] {
 
 function markClass(isCurrent: boolean) {
   return isCurrent
-    ? "bg-orange-500/50 text-neutral-100 rounded-sm px-0.5"
-    : "bg-yellow-500/30 text-neutral-100 rounded-sm px-0.5";
+    ? "bg-primary/40 text-paper-foreground rounded-sm px-0.5"
+    : "bg-amber-300/50 text-paper-foreground rounded-sm px-0.5";
 }
 
 export interface RenderHighlightedOptions {

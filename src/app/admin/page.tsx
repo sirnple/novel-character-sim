@@ -125,22 +125,22 @@ function PasswordGate({ onUnlock }: { onUnlock: (token: string) => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#080808]/95 backdrop-blur-sm">
-      <div className="w-full max-w-sm px-8 py-10 border border-neutral-800 rounded-lg bg-[#0e0e0e] shadow-2xl shadow-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm">
+      <div className="w-full max-w-sm px-8 py-10 border border-border rounded-lg bg-card shadow-2xl shadow-black/50">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-md bg-orange-600/20 border border-orange-600/40 flex items-center justify-center">
-            <Terminal className="w-5 h-5 text-orange-500" />
+          <div className="w-10 h-10 rounded-md bg-primary/20 border border-primary/40 flex items-center justify-center">
+            <Terminal className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-neutral-200 font-mono tracking-wide">
+            <h2 className="text-sm font-semibold text-foreground font-mono tracking-wide">
               管理后台
             </h2>
-            <p className="text-xs text-neutral-500">Agent 提示词管理</p>
+            <p className="text-xs text-muted-foreground">Agent 提示词管理</p>
           </div>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs text-neutral-400 mb-1.5 font-mono">
+            <label className="block text-xs text-muted-foreground mb-1.5 font-mono">
               <Key className="w-3 h-3 inline mr-1.5 -mt-0.5" />
               请输入管理密码
             </label>
@@ -148,7 +148,7 @@ function PasswordGate({ onUnlock }: { onUnlock: (token: string) => void }) {
               type="password"
               value={pw}
               onChange={(e) => setPw(e.target.value)}
-              className="w-full px-3 py-2 bg-[#1a1a1a] border border-neutral-700 rounded text-sm text-neutral-200 font-mono placeholder-neutral-600 focus:outline-none focus:border-orange-600 transition-colors"
+              className="w-full px-3 py-2 bg-[#1a1a1a] border border-border rounded text-sm text-foreground font-mono placeholder-neutral-600 focus:outline-none focus:border-primary transition-colors"
               placeholder="······"
               autoFocus
             />
@@ -161,7 +161,7 @@ function PasswordGate({ onUnlock }: { onUnlock: (token: string) => void }) {
           <button
             type="submit"
             disabled={loading || !pw}
-            className="w-full py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded transition-colors"
+            className="w-full py-2 bg-primary hover:bg-primary disabled:bg-secondary disabled:text-fog text-white text-sm font-mono rounded transition-colors"
           >
             {loading ? "验证中..." : "进入后台"}
           </button>
@@ -225,49 +225,49 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
   return (
     <div className="flex-1 overflow-y-auto p-6 custom-scrollbar space-y-6">
       {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 p-4 border border-neutral-800 rounded-lg bg-[#0c0c0c]">
-        <label className="text-xs text-neutral-500">
+      <div className="flex flex-wrap items-end gap-3 p-4 border border-border rounded-lg bg-card">
+        <label className="text-xs text-muted-foreground">
           <span className="block mb-1 font-mono">用户 ID</span>
           <input
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
             placeholder="guest_… / uuid"
-            className="w-44 px-2 py-1.5 bg-[#1a1a1a] border border-neutral-700 rounded text-xs text-neutral-200 font-mono"
+            className="w-44 px-2 py-1.5 bg-[#1a1a1a] border border-border rounded text-xs text-foreground font-mono"
           />
         </label>
-        <label className="text-xs text-neutral-500">
+        <label className="text-xs text-muted-foreground">
           <span className="block mb-1 font-mono">Agent</span>
           <input
             value={agentId}
             onChange={(e) => setAgentId(e.target.value)}
             placeholder="master / write_prose"
-            className="w-40 px-2 py-1.5 bg-[#1a1a1a] border border-neutral-700 rounded text-xs text-neutral-200 font-mono"
+            className="w-40 px-2 py-1.5 bg-[#1a1a1a] border border-border rounded text-xs text-foreground font-mono"
           />
         </label>
-        <label className="text-xs text-neutral-500">
+        <label className="text-xs text-muted-foreground">
           <span className="block mb-1 font-mono">Branch</span>
           <input
             value={branchId}
             onChange={(e) => setBranchId(e.target.value)}
             placeholder="main / …"
-            className="w-32 px-2 py-1.5 bg-[#1a1a1a] border border-neutral-700 rounded text-xs text-neutral-200 font-mono"
+            className="w-32 px-2 py-1.5 bg-[#1a1a1a] border border-border rounded text-xs text-foreground font-mono"
           />
         </label>
-        <label className="text-xs text-neutral-500">
+        <label className="text-xs text-muted-foreground">
           <span className="block mb-1 font-mono">Novel ID</span>
           <input
             value={novelId}
             onChange={(e) => setNovelId(e.target.value)}
             placeholder="fingerprint"
-            className="w-36 px-2 py-1.5 bg-[#1a1a1a] border border-neutral-700 rounded text-xs text-neutral-200 font-mono"
+            className="w-36 px-2 py-1.5 bg-[#1a1a1a] border border-border rounded text-xs text-foreground font-mono"
           />
         </label>
-        <label className="text-xs text-neutral-500">
+        <label className="text-xs text-muted-foreground">
           <span className="block mb-1 font-mono">时间范围</span>
           <select
             value={sinceDays}
             onChange={(e) => setSinceDays(e.target.value)}
-            className="px-2 py-1.5 bg-[#1a1a1a] border border-neutral-700 rounded text-xs text-neutral-200 font-mono"
+            className="px-2 py-1.5 bg-[#1a1a1a] border border-border rounded text-xs text-foreground font-mono"
           >
             <option value="1">近 1 天</option>
             <option value="7">近 7 天</option>
@@ -278,7 +278,7 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
         <button
           onClick={load}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded font-mono"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary hover:bg-primary disabled:opacity-50 text-white rounded font-mono"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
           刷新
@@ -308,25 +308,25 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
         ].map((c) => (
           <div
             key={c.label}
-            className="px-4 py-3 border border-neutral-800 rounded-lg bg-[#0c0c0c]"
+            className="px-4 py-3 border border-border rounded-lg bg-card"
           >
-            <div className="text-[10px] text-neutral-500 font-mono uppercase tracking-wider">
+            <div className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
               {c.label}
             </div>
-            <div className="text-lg text-orange-400 font-mono mt-1">{c.value}</div>
+            <div className="text-lg text-primary font-mono mt-1">{c.value}</div>
           </div>
         ))}
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* By agent */}
-        <section className="border border-neutral-800 rounded-lg bg-[#0c0c0c] overflow-hidden">
-          <h3 className="px-4 py-2.5 text-[10px] text-neutral-500 font-mono uppercase tracking-widest border-b border-neutral-800">
+        <section className="border border-border rounded-lg bg-card overflow-hidden">
+          <h3 className="px-4 py-2.5 text-xs text-muted-foreground font-mono uppercase tracking-widest border-b border-border">
             按 Agent
           </h3>
           <div className="max-h-80 overflow-y-auto custom-scrollbar">
             <table className="w-full text-xs font-mono">
-              <thead className="sticky top-0 bg-[#111] text-neutral-500">
+              <thead className="sticky top-0 bg-secondary text-muted-foreground">
                 <tr>
                   <th className="text-left px-3 py-2 font-normal">Agent</th>
                   <th className="text-right px-3 py-2 font-normal">Calls</th>
@@ -336,18 +336,18 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
               </thead>
               <tbody>
                 {(data?.byAgent || []).map((r) => (
-                  <tr key={r.key} className="border-t border-neutral-800/60 hover:bg-neutral-900/40">
-                    <td className="px-3 py-2 text-neutral-300 truncate max-w-[140px]" title={r.key}>
+                  <tr key={r.key} className="border-t border-border/80 hover:bg-neutral-900/40">
+                    <td className="px-3 py-2 text-foreground/90 truncate max-w-[140px]" title={r.key}>
                       {r.key}
                     </td>
-                    <td className="px-3 py-2 text-right text-neutral-400">{r.calls}</td>
-                    <td className="px-3 py-2 text-right text-orange-400/90">
+                    <td className="px-3 py-2 text-right text-muted-foreground">{r.calls}</td>
+                    <td className="px-3 py-2 text-right text-primary/90">
                       {formatTokens(r.totalTokens)}
                     </td>
                     <td className="px-3 py-2">
-                      <div className="h-1.5 rounded bg-neutral-800 overflow-hidden">
+                      <div className="h-1.5 rounded bg-secondary overflow-hidden">
                         <div
-                          className="h-full bg-orange-600/70"
+                          className="h-full bg-primary/70"
                           style={{ width: `${(r.totalTokens / maxAgent) * 100}%` }}
                         />
                       </div>
@@ -356,7 +356,7 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
                 ))}
                 {!data?.byAgent?.length && (
                   <tr>
-                    <td colSpan={4} className="px-3 py-8 text-center text-neutral-600">
+                    <td colSpan={4} className="px-3 py-8 text-center text-fog">
                       暂无数据（有 LLM 调用后自动记录）
                     </td>
                   </tr>
@@ -367,13 +367,13 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
         </section>
 
         {/* By user */}
-        <section className="border border-neutral-800 rounded-lg bg-[#0c0c0c] overflow-hidden">
-          <h3 className="px-4 py-2.5 text-[10px] text-neutral-500 font-mono uppercase tracking-widest border-b border-neutral-800">
+        <section className="border border-border rounded-lg bg-card overflow-hidden">
+          <h3 className="px-4 py-2.5 text-xs text-muted-foreground font-mono uppercase tracking-widest border-b border-border">
             按用户
           </h3>
           <div className="max-h-80 overflow-y-auto custom-scrollbar">
             <table className="w-full text-xs font-mono">
-              <thead className="sticky top-0 bg-[#111] text-neutral-500">
+              <thead className="sticky top-0 bg-secondary text-muted-foreground">
                 <tr>
                   <th className="text-left px-3 py-2 font-normal">User</th>
                   <th className="text-right px-3 py-2 font-normal">Calls</th>
@@ -382,19 +382,19 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
               </thead>
               <tbody>
                 {(data?.byUser || []).map((r) => (
-                  <tr key={r.key} className="border-t border-neutral-800/60 hover:bg-neutral-900/40">
-                    <td className="px-3 py-2 text-neutral-300 truncate max-w-[200px]" title={r.key}>
+                  <tr key={r.key} className="border-t border-border/80 hover:bg-neutral-900/40">
+                    <td className="px-3 py-2 text-foreground/90 truncate max-w-[200px]" title={r.key}>
                       {r.label || r.key}
                     </td>
-                    <td className="px-3 py-2 text-right text-neutral-400">{r.calls}</td>
-                    <td className="px-3 py-2 text-right text-orange-400/90">
+                    <td className="px-3 py-2 text-right text-muted-foreground">{r.calls}</td>
+                    <td className="px-3 py-2 text-right text-primary/90">
                       {formatTokens(r.totalTokens)}
                     </td>
                   </tr>
                 ))}
                 {!data?.byUser?.length && (
                   <tr>
-                    <td colSpan={3} className="px-3 py-8 text-center text-neutral-600">
+                    <td colSpan={3} className="px-3 py-8 text-center text-fog">
                       暂无数据
                     </td>
                   </tr>
@@ -405,13 +405,13 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
         </section>
 
         {/* By branch */}
-        <section className="border border-neutral-800 rounded-lg bg-[#0c0c0c] overflow-hidden">
-          <h3 className="px-4 py-2.5 text-[10px] text-neutral-500 font-mono uppercase tracking-widest border-b border-neutral-800">
+        <section className="border border-border rounded-lg bg-card overflow-hidden">
+          <h3 className="px-4 py-2.5 text-xs text-muted-foreground font-mono uppercase tracking-widest border-b border-border">
             按分支
           </h3>
           <div className="max-h-64 overflow-y-auto custom-scrollbar">
             <table className="w-full text-xs font-mono">
-              <thead className="sticky top-0 bg-[#111] text-neutral-500">
+              <thead className="sticky top-0 bg-secondary text-muted-foreground">
                 <tr>
                   <th className="text-left px-3 py-2 font-normal">Branch</th>
                   <th className="text-right px-3 py-2 font-normal">Calls</th>
@@ -420,17 +420,17 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
               </thead>
               <tbody>
                 {(data?.byBranch || []).map((r) => (
-                  <tr key={r.key} className="border-t border-neutral-800/60 hover:bg-neutral-900/40">
-                    <td className="px-3 py-2 text-neutral-300">{r.key}</td>
-                    <td className="px-3 py-2 text-right text-neutral-400">{r.calls}</td>
-                    <td className="px-3 py-2 text-right text-orange-400/90">
+                  <tr key={r.key} className="border-t border-border/80 hover:bg-neutral-900/40">
+                    <td className="px-3 py-2 text-foreground/90">{r.key}</td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">{r.calls}</td>
+                    <td className="px-3 py-2 text-right text-primary/90">
                       {formatTokens(r.totalTokens)}
                     </td>
                   </tr>
                 ))}
                 {!data?.byBranch?.length && (
                   <tr>
-                    <td colSpan={3} className="px-3 py-8 text-center text-neutral-600">
+                    <td colSpan={3} className="px-3 py-8 text-center text-fog">
                       暂无数据
                     </td>
                   </tr>
@@ -441,13 +441,13 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
         </section>
 
         {/* By day */}
-        <section className="border border-neutral-800 rounded-lg bg-[#0c0c0c] overflow-hidden">
-          <h3 className="px-4 py-2.5 text-[10px] text-neutral-500 font-mono uppercase tracking-widest border-b border-neutral-800">
+        <section className="border border-border rounded-lg bg-card overflow-hidden">
+          <h3 className="px-4 py-2.5 text-xs text-muted-foreground font-mono uppercase tracking-widest border-b border-border">
             按日
           </h3>
           <div className="max-h-64 overflow-y-auto custom-scrollbar">
             <table className="w-full text-xs font-mono">
-              <thead className="sticky top-0 bg-[#111] text-neutral-500">
+              <thead className="sticky top-0 bg-secondary text-muted-foreground">
                 <tr>
                   <th className="text-left px-3 py-2 font-normal">Day</th>
                   <th className="text-right px-3 py-2 font-normal">Calls</th>
@@ -458,17 +458,17 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
                 {[...(data?.byDay || [])]
                   .sort((a, b) => b.key.localeCompare(a.key))
                   .map((r) => (
-                    <tr key={r.key} className="border-t border-neutral-800/60 hover:bg-neutral-900/40">
-                      <td className="px-3 py-2 text-neutral-300">{r.key}</td>
-                      <td className="px-3 py-2 text-right text-neutral-400">{r.calls}</td>
-                      <td className="px-3 py-2 text-right text-orange-400/90">
+                    <tr key={r.key} className="border-t border-border/80 hover:bg-neutral-900/40">
+                      <td className="px-3 py-2 text-foreground/90">{r.key}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{r.calls}</td>
+                      <td className="px-3 py-2 text-right text-primary/90">
                         {formatTokens(r.totalTokens)}
                       </td>
                     </tr>
                   ))}
                 {!data?.byDay?.length && (
                   <tr>
-                    <td colSpan={3} className="px-3 py-8 text-center text-neutral-600">
+                    <td colSpan={3} className="px-3 py-8 text-center text-fog">
                       暂无数据
                     </td>
                   </tr>
@@ -480,13 +480,13 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
       </div>
 
       {/* Recent calls */}
-      <section className="border border-neutral-800 rounded-lg bg-[#0c0c0c] overflow-hidden">
-        <h3 className="px-4 py-2.5 text-[10px] text-neutral-500 font-mono uppercase tracking-widest border-b border-neutral-800">
+      <section className="border border-border rounded-lg bg-card overflow-hidden">
+        <h3 className="px-4 py-2.5 text-xs text-muted-foreground font-mono uppercase tracking-widest border-b border-border">
           最近调用
         </h3>
         <div className="max-h-96 overflow-auto custom-scrollbar">
-          <table className="w-full text-[11px] font-mono min-w-[900px]">
-            <thead className="sticky top-0 bg-[#111] text-neutral-500">
+          <table className="w-full text-xs font-mono min-w-[900px]">
+            <thead className="sticky top-0 bg-secondary text-muted-foreground">
               <tr>
                 <th className="text-left px-3 py-2 font-normal">时间</th>
                 <th className="text-left px-3 py-2 font-normal">Agent</th>
@@ -502,43 +502,43 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
             </thead>
             <tbody>
               {(data?.recent || []).map((r) => (
-                <tr key={r.id} className="border-t border-neutral-800/50 hover:bg-neutral-900/40">
-                  <td className="px-3 py-1.5 text-neutral-500 whitespace-nowrap">
+                <tr key={r.id} className="border-t border-border/50 hover:bg-neutral-900/40">
+                  <td className="px-3 py-1.5 text-muted-foreground whitespace-nowrap">
                     {r.createdAt?.replace("T", " ").slice(0, 19)}
                   </td>
-                  <td className="px-3 py-1.5 text-neutral-300">{r.agentId || "—"}</td>
-                  <td className="px-3 py-1.5 text-neutral-400 max-w-[120px] truncate" title={r.userId}>
+                  <td className="px-3 py-1.5 text-foreground/90">{r.agentId || "—"}</td>
+                  <td className="px-3 py-1.5 text-muted-foreground max-w-[120px] truncate" title={r.userId}>
                     {r.userLabel || shortId(r.userId, 14)}
                   </td>
-                  <td className="px-3 py-1.5 text-neutral-400">{r.branchId || "—"}</td>
-                  <td className="px-3 py-1.5 text-neutral-500" title={r.novelId}>
+                  <td className="px-3 py-1.5 text-muted-foreground">{r.branchId || "—"}</td>
+                  <td className="px-3 py-1.5 text-muted-foreground" title={r.novelId}>
                     {shortId(r.novelId, 8)}
                   </td>
-                  <td className="px-3 py-1.5 text-right text-neutral-400">
+                  <td className="px-3 py-1.5 text-right text-muted-foreground">
                     {formatTokens(r.promptTokens)}
                   </td>
-                  <td className="px-3 py-1.5 text-right text-neutral-400">
+                  <td className="px-3 py-1.5 text-right text-muted-foreground">
                     {formatTokens(r.completionTokens)}
                   </td>
-                  <td className="px-3 py-1.5 text-right text-orange-400/90">
+                  <td className="px-3 py-1.5 text-right text-primary/90">
                     {formatTokens(r.totalTokens)}
                     {r.estimated ? (
-                      <span className="ml-1 text-[9px] text-yellow-600" title="估算值">
+                      <span className="ml-1 text-xs text-yellow-600" title="估算值">
                         ~
                       </span>
                     ) : null}
                   </td>
-                  <td className="px-3 py-1.5 text-neutral-500 max-w-[100px] truncate" title={r.model}>
+                  <td className="px-3 py-1.5 text-muted-foreground max-w-[100px] truncate" title={r.model}>
                     {r.model || "—"}
                   </td>
-                  <td className="px-3 py-1.5 text-neutral-600 max-w-[100px] truncate" title={r.operation}>
+                  <td className="px-3 py-1.5 text-fog max-w-[100px] truncate" title={r.operation}>
                     {r.operation}
                   </td>
                 </tr>
               ))}
               {!data?.recent?.length && (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-neutral-600">
+                  <td colSpan={10} className="px-3 py-8 text-center text-fog">
                     暂无调用记录
                   </td>
                 </tr>
@@ -669,32 +669,32 @@ export default function AdminPage() {
   );
 
   return (
-    <div className="h-screen flex flex-col bg-[#0a0a0a] text-neutral-200 font-sans">
+    <div className="h-screen flex flex-col bg-background text-foreground font-sans">
       {/* Top bar */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-neutral-800/60 bg-[#0e0e0e] shrink-0">
+      <header className="flex items-center justify-between px-6 py-3 border-b border-border/80 bg-card shrink-0">
         <div className="flex items-center gap-4">
           <a
             href="/"
-            className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground/90 transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             返回主站
           </a>
-          <span className="w-px h-4 bg-neutral-800" />
+          <span className="w-px h-4 bg-secondary" />
           <div className="flex items-center gap-2">
-            <Terminal className="w-4 h-4 text-orange-500" />
-            <h1 className="text-sm font-bold tracking-wider text-neutral-300 font-[family-name:var(--font-geist-mono)]">
+            <Terminal className="w-4 h-4 text-primary" />
+            <h1 className="text-sm font-bold tracking-wider text-foreground/90 font-[family-name:var(--font-geist-mono)]">
               管理后台
             </h1>
           </div>
-          <span className="w-px h-4 bg-neutral-800" />
-          <div className="flex rounded border border-neutral-700 overflow-hidden text-[11px] font-mono">
+          <span className="w-px h-4 bg-secondary" />
+          <div className="flex rounded border border-border overflow-hidden text-xs font-mono">
             <button
               onClick={() => setTab("prompts")}
               className={`flex items-center gap-1.5 px-3 py-1.5 transition-colors ${
                 tab === "prompts"
-                  ? "bg-orange-600/20 text-orange-400"
-                  : "text-neutral-500 hover:text-neutral-300"
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted-foreground hover:text-foreground/90"
               }`}
             >
               <Filter className="w-3 h-3" />
@@ -702,10 +702,10 @@ export default function AdminPage() {
             </button>
             <button
               onClick={() => setTab("tokens")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 transition-colors border-l border-neutral-700 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 transition-colors border-l border-border ${
                 tab === "tokens"
-                  ? "bg-orange-600/20 text-orange-400"
-                  : "text-neutral-500 hover:text-neutral-300"
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted-foreground hover:text-foreground/90"
               }`}
             >
               <BarChart3 className="w-3 h-3" />
@@ -713,7 +713,7 @@ export default function AdminPage() {
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-3 text-[10px] text-neutral-600 font-[family-name:var(--font-geist-mono)]">
+        <div className="flex items-center gap-3 text-xs text-fog font-[family-name:var(--font-geist-mono)]">
           {tab === "prompts" ? (
             <>
               <span>{agents.length} agents</span>
@@ -733,9 +733,9 @@ export default function AdminPage() {
       ) : (
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
-        <aside className="w-[270px] shrink-0 border-r border-neutral-800/60 bg-[#0c0c0c] flex flex-col overflow-hidden">
-          <div className="px-4 py-3 border-b border-neutral-800/40">
-            <div className="flex items-center gap-1.5 text-[10px] text-neutral-500 font-[family-name:var(--font-geist-mono)] uppercase tracking-widest">
+        <aside className="w-[270px] shrink-0 border-r border-border/80 bg-card flex flex-col overflow-hidden">
+          <div className="px-4 py-3 border-b border-border/60">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-[family-name:var(--font-geist-mono)] uppercase tracking-widest">
               <Filter className="w-3 h-3" />
               Agents
             </div>
@@ -743,7 +743,7 @@ export default function AdminPage() {
           <div className="flex-1 overflow-y-auto custom-scrollbar">
             {Object.entries(grouped).map(([cat, list]) => (
               <div key={cat} className="mb-1">
-                <div className="px-4 py-2 text-[10px] text-neutral-500 font-[family-name:var(--font-geist-mono)] uppercase tracking-widest">
+                <div className="px-4 py-2 text-xs text-muted-foreground font-[family-name:var(--font-geist-mono)] uppercase tracking-widest">
                   {CATEGORY_ICONS[cat]}{" "}
                   {CATEGORY_LABELS[cat]}
                 </div>
@@ -753,14 +753,14 @@ export default function AdminPage() {
                     onClick={() => setSelectedId(agent.agent_id)}
                     className={`w-full text-left px-4 py-2.5 text-sm transition-colors border-l-2 ${
                       selectedId === agent.agent_id
-                        ? "border-orange-500 bg-orange-500/5 text-neutral-200"
-                        : "border-transparent hover:bg-neutral-800/30 text-neutral-400 hover:text-neutral-300"
+                        ? "border-primary bg-primary/5 text-foreground"
+                        : "border-transparent hover:bg-panel-elevated text-muted-foreground hover:text-foreground/90"
                     }`}
                   >
                     <div className="flex items-center gap-2">
                       <span className="truncate">{agent.name}</span>
                       {agent.is_modified ? (
-                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500 shrink-0" title="已修改" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" title="已修改" />
                       ) : null}
                     </div>
                   </button>
@@ -771,29 +771,29 @@ export default function AdminPage() {
         </aside>
 
         {/* Editor */}
-        <main className="flex-1 flex flex-col overflow-hidden bg-[#0a0a0a]">
+        <main className="flex-1 flex flex-col overflow-hidden bg-background">
           {selectedMeta ? (
             <>
               {/* Editor header */}
-              <div className="px-6 py-3 border-b border-neutral-800/40 bg-[#0c0c0c] flex items-center justify-between shrink-0">
+              <div className="px-6 py-3 border-b border-border/60 bg-card flex items-center justify-between shrink-0">
                 <div>
-                  <h2 className="text-sm font-semibold text-neutral-300 font-[family-name:var(--font-geist-mono)]">
+                  <h2 className="text-sm font-semibold text-foreground/90 font-[family-name:var(--font-geist-mono)]">
                     {selectedMeta.name}
                   </h2>
-                  <p className="text-xs text-neutral-500 mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     {selectedMeta.description}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="flex rounded border border-neutral-700 overflow-hidden text-[10px] font-[family-name:var(--font-geist-mono)]">
+                  <div className="flex rounded border border-border overflow-hidden text-xs font-[family-name:var(--font-geist-mono)]">
                     {(["zh", "en"] as const).map((l) => (
                       <button
                         key={l}
                         onClick={() => setSelectedLang(l)}
                         className={`px-2.5 py-1 transition-colors ${
                           selectedLang === l
-                            ? "bg-neutral-700 text-neutral-200"
-                            : "bg-transparent text-neutral-500 hover:text-neutral-300"
+                            ? "bg-neutral-700 text-foreground"
+                            : "bg-transparent text-muted-foreground hover:text-foreground/90"
                         }`}
                       >
                         {l === "zh" ? "中文" : "EN"}
@@ -807,20 +807,20 @@ export default function AdminPage() {
               <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                 {/* System Prompt */}
                 <section>
-                  <label className="block text-[10px] text-neutral-500 font-[family-name:var(--font-geist-mono)] uppercase tracking-widest mb-2">
+                  <label className="block text-xs text-muted-foreground font-[family-name:var(--font-geist-mono)] uppercase tracking-widest mb-2">
                     System Prompt
                   </label>
                   <div className="relative">
                     <textarea
                       value={systemPrompt}
                       onChange={(e) => setSystemPrompt(e.target.value)}
-                      className="w-full min-h-[420px] px-4 py-3 bg-[#111110] border border-neutral-800 rounded font-[family-name:var(--font-geist-mono)] text-sm text-neutral-300 leading-relaxed resize-y focus:outline-none focus:border-orange-600/50 transition-colors placeholder-neutral-700"
+                      className="w-full min-h-[420px] px-4 py-3 bg-secondary border border-border rounded font-[family-name:var(--font-geist-mono)] text-sm text-foreground/90 leading-relaxed resize-y focus:outline-none focus:border-primary/50 transition-colors placeholder-neutral-700"
                       placeholder="未修改 — 使用硬编码默认提示词"
                       spellCheck={false}
                     />
                   </div>
                   {currentPrompt?.is_modified ? (
-                    <p className="text-[10px] text-orange-500/70 mt-1.5 font-[family-name:var(--font-geist-mono)] flex items-center gap-1">
+                    <p className="text-xs text-primary/70 mt-1.5 font-[family-name:var(--font-geist-mono)] flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />
                       已自定义 — 将覆盖默认提示词
                     </p>
@@ -828,15 +828,15 @@ export default function AdminPage() {
                 </section>
 
                 {/* Variables reference */}
-                <section className="border border-neutral-800/60 rounded bg-[#0c0c0c] p-4 mt-6">
-                  <h3 className="text-[10px] text-neutral-500 font-[family-name:var(--font-geist-mono)] uppercase tracking-widest mb-2">
+                <section className="border border-border/80 rounded bg-card p-4 mt-6">
+                  <h3 className="text-xs text-muted-foreground font-[family-name:var(--font-geist-mono)] uppercase tracking-widest mb-2">
                     可用变量
                   </h3>
                   <div className="flex flex-wrap gap-1.5">
-                    <code className="px-2 py-0.5 bg-[#1a1a1a] border border-neutral-700/50 rounded text-xs text-orange-400/80 font-[family-name:var(--font-geist-mono)]">
+                    <code className="px-2 py-0.5 bg-[#1a1a1a] border border-border/50 rounded text-xs text-primary/80 font-[family-name:var(--font-geist-mono)]">
                       {"{{" + "变量名" + "}}"}
                     </code>
-                    <span className="text-xs text-neutral-600 self-center">
+                    <span className="text-xs text-fog self-center">
                       — 使用双花括号包裹变量名
                     </span>
                   </div>
@@ -844,13 +844,13 @@ export default function AdminPage() {
               </div>
 
               {/* Editor footer */}
-              <div className="px-6 py-3 border-t border-neutral-800/40 bg-[#0c0c0c] flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2 text-[10px] text-neutral-600 font-[family-name:var(--font-geist-mono)]">
+              <div className="px-6 py-3 border-t border-border/60 bg-card flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2 text-xs text-fog font-[family-name:var(--font-geist-mono)]">
                   <span>
-                    agent_id: <code className="text-neutral-500">{selectedMeta.agent_id}</code>
+                    agent_id: <code className="text-muted-foreground">{selectedMeta.agent_id}</code>
                   </span>
                   {selectedMeta.is_modified ? (
-                    <span className="text-orange-500/60">
+                    <span className="text-primary/60">
                       · modified {selectedMeta.updated_at}
                     </span>
                   ) : (
@@ -860,7 +860,7 @@ export default function AdminPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleReset}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-neutral-500 hover:text-red-400 border border-neutral-700 hover:border-red-500/30 rounded transition-colors font-[family-name:var(--font-geist-mono)]"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-red-400 border border-border hover:border-red-500/30 rounded transition-colors font-[family-name:var(--font-geist-mono)]"
                   >
                     <RotateCcw className="w-3 h-3" />
                     重置默认
@@ -871,7 +871,7 @@ export default function AdminPage() {
                     className={`flex items-center gap-1.5 px-4 py-1.5 text-xs rounded transition-all font-[family-name:var(--font-geist-mono)] ${
                       saved
                         ? "bg-green-600/20 border border-green-600/30 text-green-400"
-                        : "bg-orange-600 hover:bg-orange-500 text-white border border-orange-600"
+                        : "bg-primary hover:bg-primary text-white border border-primary"
                     }`}
                   >
                     {saved ? (

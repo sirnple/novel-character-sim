@@ -6,26 +6,26 @@ import { cn } from "@/lib/utils";
 
 const tableComponents = {
   table: ({ children }: { children?: React.ReactNode }) => (
-    <div className="my-2 w-full overflow-x-auto rounded border border-neutral-700/50">
-      <table className="w-full border-collapse text-left text-[11px]">{children}</table>
+    <div className="my-2 w-full overflow-x-auto rounded border border-border/50">
+      <table className="w-full border-collapse text-left text-xs">{children}</table>
     </div>
   ),
   thead: ({ children }: { children?: React.ReactNode }) => (
-    <thead className="bg-neutral-800/80 text-neutral-300">{children}</thead>
+    <thead className="bg-secondary/80 text-foreground/90">{children}</thead>
   ),
   tbody: ({ children }: { children?: React.ReactNode }) => (
     <tbody className="divide-y divide-neutral-800/60">{children}</tbody>
   ),
   tr: ({ children }: { children?: React.ReactNode }) => (
-    <tr className="border-b border-neutral-800/40 last:border-0">{children}</tr>
+    <tr className="border-b border-border/60 last:border-0">{children}</tr>
   ),
   th: ({ children }: { children?: React.ReactNode }) => (
-    <th className="px-2 py-1.5 font-mono font-medium text-neutral-300 whitespace-nowrap border-r border-neutral-700/40 last:border-r-0">
+    <th className="px-2 py-1.5 font-mono font-medium text-foreground/90 whitespace-nowrap border-r border-border/40 last:border-r-0">
       {children}
     </th>
   ),
   td: ({ children }: { children?: React.ReactNode }) => (
-    <td className="px-2 py-1.5 text-neutral-400 align-top border-r border-neutral-800/40 last:border-r-0">
+    <td className="px-2 py-1.5 text-muted-foreground align-top border-r border-border/60 last:border-r-0">
       {children}
     </td>
   ),

@@ -30,7 +30,7 @@ export default function ScrollEdgeButtons({ scrollRef, className = "" }: ScrollE
         onClick={scrollToTop}
         title="到顶"
         aria-label="滚动到顶部"
-        className="w-8 h-8 flex items-center justify-center rounded-full border border-neutral-700/80 bg-[#111110]/90 text-neutral-400 hover:text-orange-400 hover:border-orange-500/40 hover:bg-[#1a1a18] shadow-lg backdrop-blur-sm transition-colors"
+        className="w-8 h-8 flex items-center justify-center rounded-full border border-border/80 bg-secondary/90 text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-[#1a1a18] shadow-lg backdrop-blur-sm transition-colors"
       >
         <ChevronUp className="w-4 h-4" />
       </button>
@@ -39,7 +39,7 @@ export default function ScrollEdgeButtons({ scrollRef, className = "" }: ScrollE
         onClick={scrollToBottom}
         title="到底"
         aria-label="滚动到底部"
-        className="w-8 h-8 flex items-center justify-center rounded-full border border-neutral-700/80 bg-[#111110]/90 text-neutral-400 hover:text-orange-400 hover:border-orange-500/40 hover:bg-[#1a1a18] shadow-lg backdrop-blur-sm transition-colors"
+        className="w-8 h-8 flex items-center justify-center rounded-full border border-border/80 bg-secondary/90 text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-[#1a1a18] shadow-lg backdrop-blur-sm transition-colors"
       >
         <ChevronDown className="w-4 h-4" />
       </button>

@@ -511,23 +511,23 @@ export default function WritingWorkspace({
       <div className="h-full flex items-center justify-center" style={{ height: "calc(100vh - 130px)" }}>
         <div className="text-center max-w-md">
           <Bot className="w-12 h-12 mx-auto mb-4 text-neutral-700 opacity-50" />
-          <p className="text-base text-neutral-400 font-mono mb-2">写作工作区</p>
-          <p className="text-sm text-neutral-600 mb-8">选择承接章节，AI 将自动生成写作大纲</p>
+          <p className="text-base text-muted-foreground mb-2">写作工作区</p>
+          <p className="text-sm text-fog mb-8">选择承接章节，AI 将自动生成写作大纲</p>
 
           {tasks.filter(t => t.novelId === novelId).length > 0 && (
             <div className="mb-6">
-              <div className="text-xs text-neutral-500 font-mono uppercase tracking-wider mb-3">已有任务</div>
+              <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3">已有任务</div>
               <div className="space-y-2">
                 {tasks.filter(t => t.novelId === novelId).map(t => (
                   <button key={t.id} onClick={() => setActiveTaskId(t.id)}
-                    className="w-full text-left px-4 py-3 rounded-lg border border-neutral-800 hover:border-orange-500/30 bg-[#0c0c0c] hover:bg-neutral-800/40 transition-colors">
+                    className="w-full text-left px-4 py-3 rounded-lg border border-border hover:border-primary/30 bg-card hover:bg-panel-elevated transition-colors">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-neutral-300 font-mono">{t.label}</span>
-                      <span className={`text-[10px] font-mono ${t.status === "completed" ? "text-green-500" : "text-neutral-600"}`}>
+                      <span className="text-sm text-foreground/90">{t.label}</span>
+                      <span className={`text-xs ${t.status === "completed" ? "text-green-500" : "text-fog"}`}>
                         {t.status === "completed" ? "已完成" : "草稿"}
                       </span>
                     </div>
-                    <div className="text-xs text-neutral-600 mt-0.5">承接：{t.continueFromLabel}</div>
+                    <div className="text-xs text-fog mt-0.5">承接：{t.continueFromLabel}</div>
                   </button>
                 ))}
               </div>
@@ -546,7 +546,7 @@ export default function WritingWorkspace({
             });
             setCreatingTask(true);
           }}
-            className="px-6 py-3 bg-orange-600 hover:bg-orange-500 text-white text-sm font-mono rounded-lg transition-colors inline-flex items-center gap-2">
+            className="px-6 py-3 bg-primary hover:bg-primary text-white text-sm rounded-lg transition-colors inline-flex items-center gap-2">
             <Bot className="w-4 h-4" /> 新建写作任务
           </button>
         </div>
@@ -558,49 +558,49 @@ export default function WritingWorkspace({
   if (creatingTask && continuePoint) {
     return (
       <div className="h-full flex items-center justify-center" style={{ height: "calc(100vh - 130px)" }}>
-        <div className="max-w-md w-full bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-6">
-          <h3 className="text-sm font-semibold text-neutral-300 font-mono mb-5">新建写作任务</h3>
+        <div className="max-w-md w-full bg-card border border-border/80 rounded-lg p-6">
+          <h3 className="text-sm font-semibold text-foreground/90 mb-5">新建写作任务</h3>
           <div className="space-y-4">
             <div>
-              <div className="text-xs text-neutral-500 font-mono mb-0.5">续写点</div>
-              <div className="text-sm text-neutral-300 font-mono">{continuePoint.label}</div>
+              <div className="text-xs text-muted-foreground mb-0.5">续写点</div>
+              <div className="text-sm text-foreground/90">{continuePoint.label}</div>
             </div>
             <div>
-              <div className="text-xs text-neutral-500 font-mono mb-1">上下文</div>
-              <div className="bg-neutral-800/30 rounded p-3 text-xs text-neutral-500 font-mono max-h-24 overflow-y-auto whitespace-pre-wrap">
+              <div className="text-xs text-muted-foreground mb-1">上下文</div>
+              <div className="bg-secondary/50 rounded p-3 text-xs text-muted-foreground max-h-24 overflow-y-auto whitespace-pre-wrap">
                 ...{continuePoint.contextPreview.slice(0, 100)}...
-                <span className="text-orange-500 font-bold mx-0.5">|</span>
+                <span className="text-primary font-bold mx-0.5">|</span>
                 {continuePoint.contextPreview.slice(100)}...
               </div>
             </div>
             <div>
-              <div className="text-xs text-neutral-500 font-mono mb-1">模式</div>
+              <div className="text-xs text-muted-foreground mb-1">模式</div>
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-xs text-neutral-400 cursor-pointer">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
                   <input type="radio" name="mode" value="main" checked={creationMode === "main"} onChange={() => setCreationMode("main")} />
                   主线（从末尾续写，不创建分支）
                 </label>
-                <label className="flex items-center gap-2 text-xs text-neutral-400 cursor-pointer">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
                   <input type="radio" name="mode" value="branch" checked={creationMode === "branch"} onChange={() => setCreationMode("branch")} />
                   IF线（从此处分叉，创建分支）
                 </label>
-                <label className="flex items-center gap-2 text-xs text-neutral-400 cursor-pointer">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
                   <input type="radio" name="mode" value="free" checked={creationMode === "free"} onChange={() => setCreationMode("free")} />
                   自由（选中即创作，临时草稿）
                 </label>
               </div>
             </div>
             <div>
-              <label className="block text-xs text-neutral-500 font-mono mb-1">任务名称 <span className="text-neutral-700">（可选）</span></label>
+              <label className="block text-xs text-muted-foreground mb-1">任务名称 <span className="text-neutral-700">（可选）</span></label>
               <input type="text" value={newTaskLabel} onChange={e => setNewTaskLabel(e.target.value)}
                 placeholder={continuePoint.label + "续写"}
-                className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono outline-none focus:border-orange-600/50" />
+                className="w-full px-3 py-2 bg-secondary border border-border rounded text-sm text-foreground/90 outline-none focus:border-primary/50" />
             </div>
             <div className="flex gap-3 pt-2">
               <button onClick={() => setCreatingTask(false)}
-                className="flex-1 py-2.5 text-sm text-neutral-500 hover:text-neutral-300 font-mono border border-neutral-700 rounded-lg transition-colors">取消</button>
+                className="flex-1 py-2.5 text-sm text-muted-foreground hover:text-foreground/90 border border-border rounded-lg transition-colors">取消</button>
               <button onClick={handleCreateTaskFromPoint}
-                className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors flex items-center justify-center gap-2">
+                className="flex-1 py-2.5 bg-primary hover:bg-primary disabled:bg-secondary disabled:text-fog text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2">
                 创建任务
               </button>
             </div>
@@ -617,49 +617,49 @@ export default function WritingWorkspace({
       {/* RIGHT */}
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Status bar */}
-        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg p-2 mb-2 flex items-center gap-3 shrink-0">
-          <button onClick={handleCancelTask} className="text-neutral-500 hover:text-neutral-300 font-mono text-xs shrink-0">← 返回</button>
-          <div className="flex-1 text-[10px] text-neutral-500 font-mono">
+        <div className="bg-card border border-border/80 rounded-lg p-2 mb-2 flex items-center gap-3 shrink-0">
+          <button onClick={handleCancelTask} className="text-muted-foreground hover:text-foreground/90 text-xs shrink-0">← 返回</button>
+          <div className="flex-1 text-xs text-muted-foreground">
             承接：{activeTask?.continueFromLabel}  ·  偏移{activeTask?.continueFromOffset}字
           </div>
           <label className="flex items-center gap-1 cursor-pointer" title="允许生成成人内容">
             <input type="checkbox" checked={activeTask?.allowAdult || false}
               onChange={e => updateTask(activeTaskId!, { allowAdult: e.target.checked })}
               className="w-3 h-3 accent-red-500" />
-            <span className={`text-[10px] font-mono ${activeTask?.allowAdult ? "text-red-400" : "text-neutral-600"}`}>成人</span>
+            <span className={`text-xs ${activeTask?.allowAdult ? "text-red-400" : "text-fog"}`}>成人</span>
           </label>
           <label className="flex items-center gap-1 cursor-pointer" title="干净模式">
             <input type="checkbox" checked={activeTask?.cleanMode || false}
               onChange={e => updateTask(activeTaskId!, { cleanMode: e.target.checked })}
               className="w-3 h-3 accent-blue-500" />
-            <span className={`text-[10px] font-mono ${activeTask?.cleanMode ? "text-blue-400" : "text-neutral-600"}`}>干净</span>
+            <span className={`text-xs ${activeTask?.cleanMode ? "text-blue-400" : "text-fog"}`}>干净</span>
           </label>
           {(status === "idle" || status === "completed" || status === "error") && (
             <button onClick={startWriting}
-              className="px-3 py-1 bg-orange-600 hover:bg-orange-500 text-white text-xs font-mono rounded transition-colors">
+              className="px-3 py-1 bg-primary hover:bg-primary text-white text-xs rounded transition-colors">
               {status === "completed" ? "重新生成" : "开始写作"}
             </button>
           )}
           {status === "generating" && (
-            <button onClick={stopWriting} className="px-3 py-1 bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 text-xs font-mono rounded transition-colors">
+            <button onClick={stopWriting} className="px-3 py-1 bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 text-xs rounded transition-colors">
               停止
             </button>
           )}
         </div>
-        <div className="bg-[#0c0c0c] border border-neutral-800/60 rounded-lg flex flex-col flex-1 overflow-hidden relative">
+        <div className="bg-card border border-border/80 rounded-lg flex flex-col flex-1 overflow-hidden relative">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800/40 bg-[#0e0e0e] shrink-0">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-border/60 bg-card shrink-0">
             <div className="flex items-center gap-3">
-              <h3 className="text-[10px] font-semibold text-neutral-400 font-mono uppercase tracking-widest">小说正文</h3>
-              {status === "completed" && !saved && <span className="text-[9px] text-orange-500/70 font-mono">有未保存内容</span>}
-              {status === "completed" && saved && <span className="text-[9px] text-green-500/70 font-mono">已保存</span>}
-              {status === "generating" && outputText && <span className="text-[9px] text-orange-500/70 font-mono flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" />修正中...</span>}
-              {status === "generating" && !outputText && <span className="text-[9px] text-orange-500/70 font-mono flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" />写作中...</span>}
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">小说正文</h3>
+              {status === "completed" && !saved && <span className="text-xs text-primary/70">有未保存内容</span>}
+              {status === "completed" && saved && <span className="text-xs text-green-500/70">已保存</span>}
+              {status === "generating" && outputText && <span className="text-xs text-primary/70 flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" />修正中...</span>}
+              {status === "generating" && !outputText && <span className="text-xs text-primary/70 flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" />写作中...</span>}
             </div>
             <div className="flex items-center gap-3">
               {status === "completed" && !saved && (
                 <button onClick={() => setShowSaveDialog(true)} disabled={saving}
-                  className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${saveError ? "text-red-400 hover:text-red-300" : "text-neutral-500 hover:text-green-400"}`}>
+                  className={`flex items-center gap-1 text-xs transition-colors ${saveError ? "text-red-400 hover:text-red-300" : "text-muted-foreground hover:text-green-400"}`}>
                   {saveError ? (
                     <><AlertCircle className="w-3 h-3 text-red-400" /> 保存失败，点击重试</>
                   ) : (
@@ -668,17 +668,17 @@ export default function WritingWorkspace({
                 </button>
               )}
               {status === "completed" && saved && (
-                <span className="flex items-center gap-1 text-[10px] text-green-500 font-mono">
+                <span className="flex items-center gap-1 text-xs text-green-500">
                   <Check className="w-3 h-3" /> 已保存
                 </span>
               )}
-              {outlinePrompt && <button onClick={() => setShowOutlinePrompt(!showOutlinePrompt)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showOutlinePrompt ? "text-neutral-300" : "text-neutral-500 hover:text-neutral-300"}`}>
+              {outlinePrompt && <button onClick={() => setShowOutlinePrompt(!showOutlinePrompt)} className={`flex items-center gap-1 text-xs transition-colors ${showOutlinePrompt ? "text-foreground/90" : "text-muted-foreground hover:text-foreground/90"}`}>
                 <ScrollText className="w-3 h-3" />大纲Prompt</button>}
-              {review && <button onClick={() => setShowReview(!showReview)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showReview ? "text-green-400" : "text-neutral-500 hover:text-green-400"}`}>
+              {review && <button onClick={() => setShowReview(!showReview)} className={`flex items-center gap-1 text-xs transition-colors ${showReview ? "text-green-400" : "text-muted-foreground hover:text-green-400"}`}>
                 <Shield className="w-3 h-3" />审查详情 ({review.findings.length})</button>}
-              {writerPrompt && <button onClick={() => setShowPrompt(!showPrompt)} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${showPrompt ? "text-neutral-300" : "text-neutral-500 hover:text-neutral-300"}`}>
+              {writerPrompt && <button onClick={() => setShowPrompt(!showPrompt)} className={`flex items-center gap-1 text-xs transition-colors ${showPrompt ? "text-foreground/90" : "text-muted-foreground hover:text-foreground/90"}`}>
                 <ScrollText className="w-3 h-3" />Writer Prompt</button>}
-              <button onClick={handleCopy} className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300 font-mono">{copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}</button>
+              <button onClick={handleCopy} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground/90">{copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}</button>
             </div>
           </div>
 
@@ -689,7 +689,7 @@ export default function WritingWorkspace({
                 <div className="flex items-center justify-center py-20">
                   <div className="text-center">
                     <Bot className="w-12 h-12 mx-auto mb-4 text-neutral-700 opacity-50" />
-                    <p className="text-base text-neutral-500 font-mono">大纲已就绪</p>
+                    <p className="text-base text-muted-foreground">大纲已就绪</p>
                     <p className="text-sm text-neutral-700 mt-2">编辑左侧大纲后点击「开始写作」</p>
                     <p className="text-xs text-neutral-700 mt-1">也可以点击「AI 生成大纲」让大纲 Agent 自动生成大纲</p>
                   </div>
@@ -698,91 +698,100 @@ export default function WritingWorkspace({
                 <>
                   {/* Full novel text (read-only, scrollable) */}
                   {initialFullNovel && (
-                    <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif max-w-[800px] mx-auto">
-                      {continuePoint && !outputText && status !== "generating" ? (
-                        <>
-                          {initialFullNovel.slice(0, continuePoint.offset)}
-                          <span className="inline-flex items-center gap-1 mx-1 align-middle">
-                            <span className="inline-block w-2 h-4 bg-orange-500 animate-pulse rounded-sm" />
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCreatingTask(true);
-                              }}
-                              className="text-[10px] bg-orange-600 hover:bg-orange-500 text-white px-1.5 py-0.5 rounded font-mono transition-colors"
-                            >
-                              续写
-                            </button>
-                          </span>
-                          {initialFullNovel.slice(continuePoint.offset)}
-                        </>
-                      ) : (
-                        initialFullNovel
-                      )}
+                    <div className="reader-frame">
+                      <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12 min-h-[50vh]">
+                        <div className="prose-novel text-paper-foreground whitespace-pre-wrap">
+                          {continuePoint && !outputText && status !== "generating" ? (
+                            <>
+                              {initialFullNovel.slice(0, continuePoint.offset)}
+                              <span className="inline-flex items-center gap-1.5 mx-1 align-middle">
+                                <span className="inline-block w-1.5 h-5 bg-primary animate-pulse rounded-sm" />
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCreatingTask(true);
+                                  }}
+                                  className="text-xs font-medium bg-primary hover:brightness-110 text-primary-foreground px-2.5 py-1 rounded-md transition-colors"
+                                >
+                                  续写
+                                </button>
+                              </span>
+                              {initialFullNovel.slice(continuePoint.offset)}
+                            </>
+                          ) : (
+                            initialFullNovel
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
 
                   {/* Continue point label + cancel */}
                   {continuePoint && !outputText && status !== "generating" && (
-                    <div className="max-w-[800px] mx-auto mt-2 flex items-center gap-2 text-[10px] text-orange-500 font-mono">
+                    <div className="reader-frame mt-2 flex items-center gap-2 text-xs text-primary">
                       <span>{continuePoint.label}</span>
-                      <button onClick={() => setContinuePoint(null)} className="text-neutral-600 hover:text-neutral-400">取消</button>
+                      <button onClick={() => setContinuePoint(null)} className="text-fog hover:text-muted-foreground">取消</button>
                     </div>
                   )}
 
                   {/* Unsaved generated prose */}
                   {outputText && !saved && (
                     <>
-                      <div className="max-w-[800px] mx-auto my-6 flex items-center gap-3">
-                        <div className="flex-1 h-px bg-orange-500/30" />
-                        <span className="text-xs text-orange-500 font-mono bg-orange-500/10 px-2 py-0.5 rounded shrink-0">待保存</span>
-                        <div className="flex-1 h-px bg-orange-500/30" />
+                      <div className="reader-frame my-6 flex items-center gap-3">
+                        <div className="flex-1 h-px bg-primary/30" />
+                        <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded shrink-0">待保存</span>
+                        <div className="flex-1 h-px bg-primary/30" />
                       </div>
-                      <div className="text-base text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif max-w-[800px] mx-auto bg-orange-500/[0.03] rounded-lg p-4 border border-orange-500/10">
-                        {outputText}
+                      <div className="reader-frame">
+                        <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12 min-h-[50vh] border-primary/25">
+                          <div className="prose-novel text-paper-foreground whitespace-pre-wrap">
+                            {outputText}
+                          </div>
+                        </div>
                       </div>
                     </>
                   )}
 
                   {/* Annotation cards — show before/after for each review finding */}
                   {annotations.length > 0 && !saved && (
-                    <div className="max-w-[800px] mx-auto mt-8 space-y-3">
+                    <div className="reader-frame mt-8 space-y-3">
                       <div className="flex items-center gap-2 mb-4">
                         <div className="flex-1 h-px bg-neutral-700/50" />
-                        <span className="text-xs text-neutral-500 font-mono shrink-0">审查修正 ({annotations.length} 处)</span>
+                        <span className="text-xs text-muted-foreground shrink-0">审查修正 ({annotations.length} 处)</span>
                         <div className="flex-1 h-px bg-neutral-700/50" />
                       </div>
                       {annotations.map((a) => (
                         <div key={a.id} className={`p-3 rounded border text-xs ${
                           a.finding.severity === "critical" ? "border-red-500/30 bg-red-500/5" :
                           a.finding.severity === "major" ? "border-yellow-500/30 bg-yellow-500/5" :
-                          "border-neutral-700 bg-neutral-800/20"
+                          "border-border bg-secondary/20"
                         }`}>
                           <div className="flex items-center gap-2 mb-2">
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono uppercase ${
+                            <span className={`px-1.5 py-0.5 rounded text-xs uppercase ${
                               a.finding.severity === "critical" ? "bg-red-500/20 text-red-300" :
                               a.finding.severity === "major" ? "bg-yellow-500/20 text-yellow-300" :
-                              "bg-neutral-600/30 text-neutral-400"
+                              "bg-neutral-600/30 text-muted-foreground"
                             }`}>{a.finding.severity}</span>
-                            <span className="text-neutral-500">{a.finding.dimension}</span>
+                            <span className="text-muted-foreground">{a.finding.dimension}</span>
                           </div>
-                          <p className="text-neutral-300 leading-relaxed mb-2">{a.finding.description}</p>
+                          <p className="text-foreground/90 leading-relaxed mb-2">{a.finding.description}</p>
                           {a.originalSnippet && (
                             <div className="space-y-1.5">
                               <div className="flex items-start gap-2">
-                                <span className="text-[9px] text-red-400 font-mono shrink-0 mt-0.5">问题</span>
-                                <span className="text-neutral-500 italic text-xs leading-relaxed">{a.originalSnippet}</span>
+                                <span className="text-xs text-red-400 shrink-0 mt-0.5">问题</span>
+                                <span className="text-muted-foreground italic text-xs leading-relaxed">{a.originalSnippet}</span>
                               </div>
                               {a.fixedSnippet && (
                                 <div className="flex items-start gap-2">
-                                  <span className="text-[9px] text-green-400 font-mono shrink-0 mt-0.5">修正</span>
-                                  <span className="text-neutral-300 text-xs leading-relaxed">{a.fixedSnippet}</span>
+                                  <span className="text-xs text-green-400 shrink-0 mt-0.5">修正</span>
+                                  <span className="text-foreground/90 text-xs leading-relaxed">{a.fixedSnippet}</span>
                                 </div>
                               )}
                             </div>
                           )}
                           {a.finding.suggestion && (
-                            <p className="text-neutral-600 mt-2 text-xs leading-relaxed border-t border-neutral-700/50 pt-2">{a.finding.suggestion}</p>
+                            <p className="text-fog mt-2 text-xs leading-relaxed border-t border-border/50 pt-2">{a.finding.suggestion}</p>
                           )}
                         </div>
                       ))}
@@ -793,8 +802,8 @@ export default function WritingWorkspace({
                   {status === "generating" && !outputText && (
                     <div className="flex items-center justify-center py-20">
                       <div className="flex flex-col items-center gap-3">
-                        <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
-                        <p className="text-sm text-neutral-500 font-mono">Writer 创作中...</p>
+                        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                        <p className="text-sm text-muted-foreground">Writer 创作中...</p>
                       </div>
                     </div>
                   )}
@@ -802,7 +811,7 @@ export default function WritingWorkspace({
                   {/* Comparison button — shown when prose is done and has a continue offset */}
                   {status === "completed" && activeTask?.continueFromOffset != null && (
                     <button onClick={() => setShowComparison(true)}
-                      className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-green-400 font-mono mt-4">
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-green-400 mt-4">
                       <Shield className="w-3 h-3" /> 对比原文
                     </button>
                   )}
@@ -818,7 +827,7 @@ export default function WritingWorkspace({
                   onClick={() => {
                     setSelectedText("");
                   }}
-                  className="px-3 py-2 bg-orange-600 hover:bg-orange-500 text-white text-xs font-mono rounded-lg shadow-lg transition-colors flex items-center gap-1">
+                  className="px-3 py-2 bg-primary hover:bg-primary text-white text-xs rounded-lg shadow-lg transition-colors flex items-center gap-1">
                   <Send className="w-3 h-3" /> 发给助手 ({selectedText.length}字)
                 </button>
               </div>
@@ -829,20 +838,20 @@ export default function WritingWorkspace({
         {error && <ErrorBanner error={error} onRetry={startWriting} />}
         {showSaveDialog && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-            <div className="w-full max-w-sm bg-[#0e0e0e] border border-neutral-800 rounded-lg p-6 shadow-2xl">
-              <h3 className="text-sm font-semibold text-neutral-300 font-mono mb-5">保存到</h3>
+            <div className="w-full max-w-sm bg-card border border-border rounded-lg p-6 shadow-2xl">
+              <h3 className="text-sm font-semibold text-foreground/90 mb-5">保存到</h3>
 
               <div className="space-y-3 mb-5">
-                <label className="flex items-center gap-3 p-3 rounded border border-neutral-700 hover:border-neutral-600 cursor-pointer">
+                <label className="flex items-center gap-3 p-3 rounded border border-border hover:border-neutral-600 cursor-pointer">
                   <input type="radio" name="saveTarget" checked={saveTarget === "main"}
                     onChange={() => setSaveTarget("main")} />
-                  <span className="text-sm text-neutral-300">正文（原文末尾）</span>
+                  <span className="text-sm text-foreground/90">正文（原文末尾）</span>
                 </label>
 
-                <label className="flex items-center gap-3 p-3 rounded border border-neutral-700 hover:border-neutral-600 cursor-pointer">
+                <label className="flex items-center gap-3 p-3 rounded border border-border hover:border-neutral-600 cursor-pointer">
                   <input type="radio" name="saveTarget" checked={saveTarget === "branch"}
                     onChange={() => setSaveTarget("branch")} />
-                  <span className="text-sm text-neutral-300">分支</span>
+                  <span className="text-sm text-foreground/90">分支</span>
                 </label>
 
                 {saveTarget === "branch" && (
@@ -850,18 +859,18 @@ export default function WritingWorkspace({
                     <input type="text" value={saveBranchName}
                       onChange={e => setSaveBranchName(e.target.value)}
                       placeholder="分支名称（可选：选择已有分支则无需输入）"
-                      className="w-full px-3 py-2 bg-[#111110] border border-neutral-800 rounded text-sm text-neutral-300 font-mono outline-none focus:border-orange-600/50" />
+                      className="w-full px-3 py-2 bg-secondary border border-border rounded text-sm text-foreground/90 outline-none focus:border-primary/50" />
 
                     {localBranches.length > 0 && (
                       <div className="space-y-1">
-                        <div className="text-[10px] text-neutral-600 font-mono uppercase mb-1 mt-3">已有分支</div>
+                        <div className="text-xs text-fog uppercase mb-1 mt-3">已有分支</div>
                         {localBranches.map(b => (
-                          <label key={b.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-neutral-800/30 cursor-pointer">
+                          <label key={b.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-panel-elevated cursor-pointer">
                             <input type="radio" name="existingBranch"
                               checked={saveBranchId === b.id}
                               onChange={() => { setSaveBranchId(b.id); setSaveBranchName(b.name); }} />
-                            <span className="text-xs text-neutral-400">{b.name}</span>
-                            <span className="text-[10px] text-neutral-600">({(b.text?.length || 0).toLocaleString()}字)</span>
+                            <span className="text-xs text-muted-foreground">{b.name}</span>
+                            <span className="text-xs text-fog">({(b.text?.length || 0).toLocaleString()}字)</span>
                           </label>
                         ))}
                       </div>
@@ -872,10 +881,10 @@ export default function WritingWorkspace({
 
               <div className="flex gap-3">
                 <button onClick={() => setShowSaveDialog(false)}
-                  className="flex-1 py-2 text-sm text-neutral-500 hover:text-neutral-300 font-mono border border-neutral-700 rounded-lg transition-colors">取消</button>
+                  className="flex-1 py-2 text-sm text-muted-foreground hover:text-foreground/90 border border-border rounded-lg transition-colors">取消</button>
                 <button onClick={handleSaveFromDialog}
                   disabled={saving || (saveTarget === "branch" && !saveBranchName && !saveBranchId)}
-                  className="flex-1 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-mono rounded-lg transition-colors">
+                  className="flex-1 py-2 bg-primary hover:bg-primary disabled:bg-secondary disabled:text-fog text-white text-sm rounded-lg transition-colors">
                   {saving ? "保存中..." : "保存"}
                 </button>
               </div>
@@ -890,7 +899,7 @@ export default function WritingWorkspace({
                 title={a.name + (a.status === "running" ? " (运行中)" : " (完成)")}
                 className={`rounded-full cursor-pointer transition-all hover:scale-125 ${
                   a.status === "running"
-                    ? "w-4 h-4 bg-orange-500 animate-pulse"
+                    ? "w-4 h-4 bg-primary animate-pulse"
                     : "w-3 h-3 bg-green-500"
                 }`}
               />
@@ -903,23 +912,23 @@ export default function WritingWorkspace({
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
               onClick={() => setSelectedAgentId(null)}>
-              <div className="w-full max-w-2xl max-h-[80vh] bg-[#0e0e0e] border border-neutral-800 rounded-lg shadow-2xl flex flex-col overflow-hidden"
+              <div className="w-full max-w-2xl max-h-[80vh] bg-card border border-border rounded-lg shadow-2xl flex flex-col overflow-hidden"
                 onClick={e => e.stopPropagation()}>
                 {/* Header */}
-                <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-800/40 shrink-0">
-                  <h3 className="text-sm font-semibold text-neutral-300 font-mono">{agent.name}</h3>
+                <div className="flex items-center justify-between px-5 py-3 border-b border-border/60 shrink-0">
+                  <h3 className="text-sm font-semibold text-foreground/90">{agent.name}</h3>
                   <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${agent.status === "running" ? "bg-orange-500 animate-pulse" : "bg-green-500"}`} />
-                    <span className={`text-[10px] font-mono ${agent.status === "running" ? "text-orange-500" : "text-green-500"}`}>
+                    <span className={`w-2 h-2 rounded-full ${agent.status === "running" ? "bg-primary animate-pulse" : "bg-green-500"}`} />
+                    <span className={`text-xs ${agent.status === "running" ? "text-primary" : "text-green-500"}`}>
                       {agent.status === "running" ? "运行中" : "完成"}
                     </span>
                     <button
                       onClick={() => setMarkdownMode(!markdownMode)}
-                      className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${markdownMode ? "bg-blue-500/20 text-blue-400" : "text-neutral-500 hover:text-neutral-400"}`}
+                      className={`text-xs px-2 py-0.5 rounded transition-colors ${markdownMode ? "bg-blue-500/20 text-blue-400" : "text-muted-foreground hover:text-muted-foreground"}`}
                     >
                       {markdownMode ? "预览" : "原文"}
                     </button>
-                    <button onClick={() => setSelectedAgentId(null)} className="text-neutral-500 hover:text-neutral-300 ml-2">
+                    <button onClick={() => setSelectedAgentId(null)} className="text-muted-foreground hover:text-foreground/90 ml-2">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
                   </div>
@@ -929,46 +938,46 @@ export default function WritingWorkspace({
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
                   {agent.messages && agent.messages.length > 0 ? agent.messages.map((msg, i) => (
                     <div key={i} className="space-y-1">
-                      <div className="text-[10px] text-neutral-600 font-mono uppercase">
+                      <div className="text-xs text-fog uppercase">
                         {msg.role === "system" ? "System" : msg.role === "user" ? "User" : "Assistant"}
                       </div>
                       {msg.role === "system" ? (
                         <details>
-                          <summary className="text-xs text-neutral-500 cursor-pointer hover:text-neutral-400">展开 system prompt ({String(msg.content).length} 字符)</summary>
+                          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-muted-foreground">展开 system prompt ({String(msg.content).length} 字符)</summary>
                           {markdownMode ? (
-                            <div className="mt-2 text-xs text-neutral-400 leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto">
+                            <div className="mt-2 text-xs text-muted-foreground leading-relaxed bg-background rounded p-4 border border-border/50 max-h-[400px] overflow-y-auto">
                               <Markdown>{String(msg.content)}</Markdown>
                             </div>
                           ) : (
-                            <pre className="mt-2 text-xs text-neutral-400 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto">{String(msg.content)}</pre>
+                            <pre className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed bg-background rounded p-4 border border-border/50 max-h-[400px] overflow-y-auto">{String(msg.content)}</pre>
                           )}
                         </details>
                       ) : markdownMode ? (
-                        <div className="text-sm text-neutral-300 leading-relaxed bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[500px] overflow-y-auto">
+                        <div className="text-sm text-foreground/90 leading-relaxed bg-background rounded-lg p-4 border border-border/50 max-h-[500px] overflow-y-auto">
                           <Markdown className="prose-sm">{String(msg.content)}</Markdown>
                         </div>
                       ) : (
-                        <pre className="text-sm text-neutral-300 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded-lg p-4 border border-neutral-800/30 max-h-[500px] overflow-y-auto">{String(msg.content)}</pre>
+                        <pre className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed bg-background rounded-lg p-4 border border-border/50 max-h-[500px] overflow-y-auto">{String(msg.content)}</pre>
                       )}
                     </div>
                   )) : (
-                    <div className="text-center py-12 text-neutral-600 text-sm font-mono">
+                    <div className="text-center py-12 text-fog text-sm">
                       {agent.status === "running" ? "等待完成..." : "无消息数据"}
                     </div>
                   )}
                 </div>
 
                 {/* Footer */}
-                <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-neutral-800/40 shrink-0">
+                <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-border/60 shrink-0">
                   <button onClick={() => {
                     const text = agent.messages?.map(m => `[${m.role}]\n${m.content}`).join("\n\n") || "";
                     navigator.clipboard.writeText(text);
                   }}
-                    className="px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200 font-mono border border-neutral-700 rounded transition-colors">
+                    className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded transition-colors">
                     复制全部
                   </button>
                   <button onClick={() => setSelectedAgentId(null)}
-                    className="px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200 font-mono border border-neutral-700 rounded transition-colors">
+                    className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded transition-colors">
                     关闭
                   </button>
                 </div>
@@ -979,22 +988,22 @@ export default function WritingWorkspace({
         {showComparison && activeTask && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
             onClick={() => setShowComparison(false)}>
-            <div className="w-[90vw] max-w-6xl max-h-[90vh] bg-[#0e0e0e] border border-neutral-800 rounded-lg shadow-2xl flex flex-col overflow-hidden"
+            <div className="w-[90vw] max-w-6xl max-h-[90vh] bg-card border border-border rounded-lg shadow-2xl flex flex-col overflow-hidden"
               onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-800/40 shrink-0">
-                <h3 className="text-sm font-semibold text-neutral-300 font-mono">原文对比</h3>
-                <button onClick={() => setShowComparison(false)} className="text-neutral-500 hover:text-neutral-300 text-lg leading-none">&times;</button>
+              <div className="flex items-center justify-between px-5 py-3 border-b border-border/60 shrink-0">
+                <h3 className="text-sm font-semibold text-foreground/90">原文对比</h3>
+                <button onClick={() => setShowComparison(false)} className="text-muted-foreground hover:text-foreground/90 text-lg leading-none">&times;</button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 <div className="flex" style={{ minHeight: "100%" }}>
                   {/* Left: full original with continue marker */}
-                  <div className="w-1/2 border-r border-neutral-700/50">
+                  <div className="w-1/2 border-r border-border/50">
                     <div className="p-4">
-                      <div className="text-[10px] text-neutral-500 font-mono uppercase mb-3">原文</div>
-                      <div className="text-sm text-neutral-400 leading-relaxed whitespace-pre-wrap font-serif">
+                      <div className="text-xs text-muted-foreground uppercase mb-3">原文</div>
+                      <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap font-prose">
                         {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
-                        <span className="inline-block w-full h-0.5 my-3 bg-orange-500/60" />
-                        <span className="text-[10px] text-orange-500 font-mono">— 续写点 —</span>
+                        <span className="inline-block w-full h-0.5 my-3 bg-primary/60" />
+                        <span className="text-xs text-primary">— 续写点 —</span>
                         {"\n"}
                         {initialFullNovel?.slice(activeTask.continueFromOffset)}
                       </div>
@@ -1003,11 +1012,11 @@ export default function WritingWorkspace({
                   {/* Right: branch version */}
                   <div className="w-1/2">
                     <div className="p-4">
-                      <div className="text-[10px] text-green-500/70 font-mono uppercase mb-3">续写版本</div>
-                      <div className="text-sm text-neutral-200 leading-relaxed whitespace-pre-wrap font-serif">
+                      <div className="text-xs text-green-500/70 uppercase mb-3">续写版本</div>
+                      <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap font-prose">
                         {initialFullNovel?.slice(0, activeTask.continueFromOffset)}
                         <span className="inline-block w-full h-0.5 my-3 bg-green-500/60" />
-                        <span className="text-[10px] text-green-500 font-mono">— 续写 —</span>
+                        <span className="text-xs text-green-500">— 续写 —</span>
                         {"\n"}
                         {outputText}
                       </div>
@@ -1025,23 +1034,23 @@ export default function WritingWorkspace({
 
 function ReviewSection({ review }: { review: ReviewReport }) {
   return (
-    <div className="border-t border-neutral-800/60 p-6">
-      <div className="flex items-center gap-2 mb-4 max-w-[800px] mx-auto">
+    <div className="border-t border-border/80 p-6">
+      <div className="flex items-center gap-2 mb-4 reader-frame">
         <Shield className="w-4 h-4 text-green-500" />
-        <h4 className="text-xs font-semibold text-neutral-400 font-mono uppercase tracking-widest">审查报告</h4>
-        <span className="text-[10px] text-green-500/80 font-mono">{review.findings.length} 个发现</span>
-        <span className="text-[10px] text-orange-500/80 font-mono">{review.needsHumanReview.length} 待确认</span>
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">审查报告</h4>
+        <span className="text-xs text-green-500/80">{review.findings.length} 个发现</span>
+        <span className="text-xs text-primary/80">{review.needsHumanReview.length} 待确认</span>
       </div>
-      <div className="space-y-2 max-w-[800px] mx-auto">
-        {review.findings.length === 0 ? <p className="text-sm text-green-500/70 font-mono">全部通过，无问题。</p> : (
+      <div className="space-y-2 reader-frame">
+        {review.findings.length === 0 ? <p className="text-sm text-green-500/70">全部通过，无问题。</p> : (
           review.findings.filter(f => f.severity !== "minor" || review.findings.length <= 8).map((f, i) => (
-            <div key={i} className={`p-3 rounded border text-xs ${f.severity === "critical" ? "border-red-500/30 bg-red-500/5" : f.severity === "major" ? "border-yellow-500/30 bg-yellow-500/5" : "border-neutral-700 bg-neutral-800/20"}`}>
+            <div key={i} className={`p-3 rounded border text-xs ${f.severity === "critical" ? "border-red-500/30 bg-red-500/5" : f.severity === "major" ? "border-yellow-500/30 bg-yellow-500/5" : "border-border bg-secondary/20"}`}>
               <div className="flex items-center gap-2 mb-1">
-                <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono uppercase ${f.severity === "critical" ? "bg-red-500/20 text-red-300" : f.severity === "major" ? "bg-yellow-500/20 text-yellow-300" : "bg-neutral-600/30 text-neutral-400"}`}>{f.severity}</span>
-                <span className="text-neutral-500">{f.dimension}</span>
+                <span className={`px-1.5 py-0.5 rounded text-xs uppercase ${f.severity === "critical" ? "bg-red-500/20 text-red-300" : f.severity === "major" ? "bg-yellow-500/20 text-yellow-300" : "bg-neutral-600/30 text-muted-foreground"}`}>{f.severity}</span>
+                <span className="text-muted-foreground">{f.dimension}</span>
               </div>
-              <p className="text-neutral-300 leading-relaxed">{f.description}</p>
-              {f.suggestion && <p className="text-neutral-500 mt-1 leading-relaxed">{f.suggestion}</p>}
+              <p className="text-foreground/90 leading-relaxed">{f.description}</p>
+              {f.suggestion && <p className="text-muted-foreground mt-1 leading-relaxed">{f.suggestion}</p>}
             </div>
           ))
         )}
@@ -1052,13 +1061,13 @@ function ReviewSection({ review }: { review: ReviewReport }) {
 
 function PromptSection({ label, systemPrompt, userPrompt }: { label: string; systemPrompt: string; userPrompt: string }) {
   return (
-    <div className="border-t border-neutral-800/60 p-6">
-      <h4 className="text-xs font-semibold text-neutral-400 font-mono uppercase tracking-widest mb-3 max-w-[800px] mx-auto">
-        {label} <span className="text-neutral-600 font-normal">({(systemPrompt.length + userPrompt.length).toLocaleString()} chars)</span>
+    <div className="border-t border-border/80 p-6">
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3 reader-frame">
+        {label} <span className="text-fog font-normal">({(systemPrompt.length + userPrompt.length).toLocaleString()} chars)</span>
       </h4>
-      <div className="max-w-[800px] mx-auto space-y-3">
-        <details open><summary className="text-xs text-neutral-500 font-mono cursor-pointer hover:text-neutral-300">System Prompt</summary><pre className="mt-2 text-xs text-neutral-500 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[400px] overflow-y-auto custom-scrollbar">{systemPrompt}</pre></details>
-        {userPrompt && <details><summary className="text-xs text-neutral-500 font-mono cursor-pointer hover:text-neutral-300">User Prompt</summary><pre className="mt-2 text-xs text-neutral-500 font-mono whitespace-pre-wrap leading-relaxed bg-[#080808] rounded p-4 border border-neutral-800/30 max-h-[200px] overflow-y-auto custom-scrollbar">{userPrompt}</pre></details>}
+      <div className="reader-frame space-y-3">
+        <details open><summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground/90">System Prompt</summary><pre className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed bg-background rounded p-4 border border-border/50 max-h-[400px] overflow-y-auto custom-scrollbar">{systemPrompt}</pre></details>
+        {userPrompt && <details><summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground/90">User Prompt</summary><pre className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed bg-background rounded p-4 border border-border/50 max-h-[200px] overflow-y-auto custom-scrollbar">{userPrompt}</pre></details>}
       </div>
     </div>
   );
@@ -1068,8 +1077,8 @@ function ErrorBanner({ error, onRetry }: { error: string; onRetry: () => void })
   return (
     <div className="mt-3 bg-red-500/5 border border-red-500/30 rounded-lg p-4 text-center">
       <AlertCircle className="w-5 h-5 text-red-400 mx-auto mb-2" />
-      <p className="text-sm text-red-400 font-mono">{error}</p>
-      <button onClick={onRetry} className="mt-3 px-4 py-1.5 bg-red-500/10 border border-red-500/30 text-red-400 rounded text-xs font-mono hover:bg-red-500/20 transition-colors">
+      <p className="text-sm text-red-400">{error}</p>
+      <button onClick={onRetry} className="mt-3 px-4 py-1.5 bg-red-500/10 border border-red-500/30 text-red-400 rounded text-xs hover:bg-red-500/20 transition-colors">
         <RefreshCw className="w-3 h-3 inline mr-1" /> 重试
       </button>
     </div>
