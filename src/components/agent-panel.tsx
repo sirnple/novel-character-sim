@@ -382,10 +382,40 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [status, setStatus] = useState<"idle" | "generating">("idle");
   const [input, setInput] = useState("");
+  const [fsStatus, setFsStatus] = useState<{
+    hasProseDraft: boolean;
+    proseLength: number;
+    pass: boolean | null;
+    hasRealization: boolean;
+    activeCount: number;
+    loading?: boolean;
+    message?: string;
+  } | null>(null);
+  const [accepting, setAccepting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<AgentMessage[]>([]);
-  const { setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas } = useNovel();
+  const { setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas, setNovelText } = useNovel();
+
+  const refreshFsStatus = useCallback(async () => {
+    if (!novelId || !branchId) return;
+    try {
+      const res = await fetch(
+        `/api/foreshadowing?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(branchId)}`,
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setFsStatus({
+        hasProseDraft: !!data.hasProseDraft,
+        proseLength: data.proseLength || 0,
+        pass: data.realization ? !!data.realization.pass : null,
+        hasRealization: !!data.realization,
+        activeCount: data.ledger?.active?.length || 0,
+      });
+    } catch {
+      /* ignore */
+    }
+  }, [novelId, branchId]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -394,6 +424,10 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    refreshFsStatus();
+  }, [refreshFsStatus, status]);
 
   const runChat = useCallback(async (history: AgentMessage[], userMsg: AgentMessage) => {
     setStatus("generating");
@@ -612,7 +646,65 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     }
     abortRef.current = null;
     setStatus("idle");
-  }, [branchId, novelId, setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas]);
+    refreshFsStatus();
+  }, [branchId, novelId, setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas, refreshFsStatus]);
+
+  const handleAccept = async (allowPartial: boolean) => {
+    if (!novelId || !branchId || accepting) return;
+    setAccepting(true);
+    setFsStatus(s => (s ? { ...s, message: undefined } : s));
+    try {
+      const res = await fetch("/api/continuation/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          novelId,
+          branchId,
+          allowPartialForeshadowing: allowPartial,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setFsStatus(s => ({
+          hasProseDraft: s?.hasProseDraft ?? false,
+          proseLength: s?.proseLength ?? 0,
+          pass: s?.pass ?? null,
+          hasRealization: s?.hasRealization ?? false,
+          activeCount: s?.activeCount ?? 0,
+          message: data.error || "接受失败",
+        }));
+        return;
+      }
+      if (data.branch?.text != null) {
+        setNovelText(data.branch.text);
+        setNovel({ novelText: data.branch.text, generatedProse: undefined });
+      }
+      setMessages(prev => [
+        ...prev,
+        {
+          id: Math.random().toString(36).slice(2),
+          role: "agent",
+          content:
+            `**已接受续写** 写入分支 \`${branchId}\`。` +
+            `伏笔账本已按 **realized** 更新（pass=${data.realizationPass}，partial=${allowPartial}）。` +
+            `活跃伏笔 ${data.ledger?.active?.length ?? "?"} 条。`,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+      await refreshFsStatus();
+    } catch (e) {
+      setFsStatus(s => ({
+        hasProseDraft: s?.hasProseDraft ?? false,
+        proseLength: s?.proseLength ?? 0,
+        pass: s?.pass ?? null,
+        hasRealization: s?.hasRealization ?? false,
+        activeCount: s?.activeCount ?? 0,
+        message: (e as Error).message,
+      }));
+    } finally {
+      setAccepting(false);
+    }
+  };
 
   const handleSend = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
@@ -887,6 +979,62 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         })}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Accept continuation — not save_prose */}
+      {branchId && novelId && (
+        <div className="px-3 py-2 border-t border-neutral-800/40 bg-[#0a0a0a] shrink-0 space-y-1.5">
+          <div className="flex items-center justify-between gap-2 text-[9px] font-mono text-neutral-500">
+            <span>
+              伏笔账本 active={fsStatus?.activeCount ?? "—"}
+              {fsStatus?.hasRealization
+                ? ` · 审查 ${fsStatus.pass ? "pass" : "fail"}`
+                : " · 未审"}
+              {fsStatus?.hasProseDraft ? ` · 草稿 ${fsStatus.proseLength} 字` : " · 无草稿"}
+            </span>
+            <button
+              type="button"
+              onClick={() => refreshFsStatus()}
+              className="text-neutral-600 hover:text-neutral-400"
+            >
+              刷新
+            </button>
+          </div>
+          {fsStatus?.message && (
+            <p className="text-[10px] text-amber-500/90 font-mono leading-snug">{fsStatus.message}</p>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              disabled={
+                accepting ||
+                status === "generating" ||
+                !fsStatus?.hasProseDraft ||
+                !fsStatus?.hasRealization ||
+                fsStatus.pass === false
+              }
+              onClick={() => handleAccept(false)}
+              title={!fsStatus?.hasRealization ? "请先跑伏笔审查" : fsStatus.pass === false ? "审查未通过，请改写或用「允许不全落实」" : "写入当前分支并按 realized 更新账本"}
+              className="px-2.5 py-1 rounded text-[10px] font-mono bg-emerald-700 hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-600 text-white transition-colors"
+            >
+              {accepting ? "写入中…" : "接受续写"}
+            </button>
+            <button
+              type="button"
+              disabled={
+                accepting ||
+                status === "generating" ||
+                !fsStatus?.hasProseDraft ||
+                !fsStatus?.hasRealization
+              }
+              onClick={() => handleAccept(true)}
+              title="正文可不全落实 plan；账本仍按 realized（实际做到的）更新"
+              className="px-2.5 py-1 rounded text-[10px] font-mono border border-neutral-600 text-neutral-400 hover:border-amber-600/50 hover:text-amber-300 disabled:opacity-40 transition-colors"
+            >
+              接受（允许不全落实）
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Input */}
       <div className="p-3 border-t border-neutral-800/40 shrink-0">

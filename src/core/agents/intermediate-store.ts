@@ -3,6 +3,7 @@
  * 大纲、审查发现等信息。主 agent 不再转达具体内容，只看 hint。
  * 进程重启即丢失，一次续写流程内足够。
  */
+import type { ForeshadowingPlan, ForeshadowingRealization } from "@/core/foreshadowing/types";
 
 type Outline = any;
 export interface ReviewFindings {
@@ -59,6 +60,8 @@ interface BranchStore {
   outline?: Outline;
   findings?: ReviewFindings[];
   prose?: string;
+  foreshadowPlan?: ForeshadowingPlan;
+  foreshadowRealization?: ForeshadowingRealization;
 }
 
 const store = new Map<string, BranchStore>();
@@ -100,10 +103,53 @@ export async function withBranchLock<T>(
 }
 
 export function saveOutline(novelId: string, branchId: string, outline: Outline): void {
-  // 新一轮续写以大纲为起点——清空旧 prose + findings
+  // 新一轮续写以大纲为起点——清空 prose / findings / plan / realization
+  // （plan 由 outline execute 在随后 saveForeshadowPlan 写回）
   const s: BranchStore = { outline };
   store.set(key(novelId, branchId), s);
-  console.log(`[Store] saveOutline ${novelId}/${branchId} -> cleared findings+prose`);
+  console.log(`[Store] saveOutline ${novelId}/${branchId} -> cleared findings+prose+plan+realization`);
+}
+
+export function saveForeshadowPlan(
+  novelId: string,
+  branchId: string,
+  plan: ForeshadowingPlan,
+): void {
+  const k = key(novelId, branchId);
+  const s = store.get(k) || {};
+  s.foreshadowPlan = plan;
+  store.set(k, s);
+  console.log(
+    `[Store] saveForeshadowPlan ${novelId}/${branchId} plant=${plan.plant?.length || 0} reveal=${plan.reveal?.length || 0}`,
+  );
+}
+
+export function getForeshadowPlan(
+  novelId: string,
+  branchId: string,
+): ForeshadowingPlan | undefined {
+  return store.get(key(novelId, branchId))?.foreshadowPlan;
+}
+
+export function saveForeshadowRealization(
+  novelId: string,
+  branchId: string,
+  realization: ForeshadowingRealization,
+): void {
+  const k = key(novelId, branchId);
+  const s = store.get(k) || {};
+  s.foreshadowRealization = realization;
+  store.set(k, s);
+  console.log(
+    `[Store] saveForeshadowRealization ${novelId}/${branchId} pass=${realization.pass}`,
+  );
+}
+
+export function getForeshadowRealization(
+  novelId: string,
+  branchId: string,
+): ForeshadowingRealization | undefined {
+  return store.get(key(novelId, branchId))?.foreshadowRealization;
 }
 
 export function getOutline(novelId: string, branchId: string): Outline | undefined {

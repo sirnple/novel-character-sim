@@ -1,20 +1,55 @@
 import type { AgentDef } from "../types";
 import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
 import { runSubAgentToolLoop } from "../tool-loop";
-import { saveOutline } from "../intermediate-store";
+import { saveOutline, saveForeshadowPlan, getForeshadowPlan } from "../intermediate-store";
 import { branchTools } from "./branch-tools";
 import { intermediateReadTools } from "./intermediate-tools";
 import { libraryTools } from "./library-tools";
-import { getIdea } from "@/lib/db";
+import { foreshadowTools } from "./foreshadow-tools";
+import { getIdea, getForeshadowingLedger } from "@/lib/db";
+import { formatLedgerForPrompt, type ForeshadowingPlan } from "@/core/foreshadowing/types";
+import { extractJSON } from "@/lib/utils";
 
-// Outline: branch context + idea library tools
+// Outline: branch context + idea library + foreshadow ledger/plan
 const TOOLS = [
   ...branchTools,
   ...intermediateReadTools.filter(t => t.name === "get_outline"),
   ...libraryTools.filter(t => t.name === "list_ideas" || t.name === "get_ideas"),
+  ...foreshadowTools.filter(t =>
+    t.name === "get_foreshadowing_ledger" || t.name === "save_foreshadowing_plan",
+  ),
 ].map(t => ({
   name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown>,
 }));
+
+function tryExtractPlan(text: string, novelId: string, branchId: string): ForeshadowingPlan | null {
+  // Prefer fenced block ```foreshadow_plan ... ``` or last JSON with plant/reveal keys
+  const fence = text.match(/```(?:foreshadow_plan|json)?\s*([\s\S]*?)```/gi);
+  const candidates = fence ? fence.map(f => f.replace(/```(?:foreshadow_plan|json)?/i, "").replace(/```$/, "").trim()) : [];
+  candidates.push(text);
+  for (const c of candidates) {
+    try {
+      const parsed = extractJSON<any>(c);
+      if (!parsed || typeof parsed !== "object") continue;
+      const body = parsed.foreshadowingPlan || parsed.foreshadow_plan || parsed;
+      if (!Array.isArray(body.plant) && !Array.isArray(body.reveal) && !Array.isArray(body.advance)) {
+        continue;
+      }
+      return {
+        novelId,
+        branchId,
+        createdAt: new Date().toISOString(),
+        source: "outline",
+        plant: Array.isArray(body.plant) ? body.plant : [],
+        advance: Array.isArray(body.advance) ? body.advance : [],
+        reveal: Array.isArray(body.reveal) ? body.reveal : [],
+        abandon: Array.isArray(body.abandon) ? body.abandon : [],
+        rationale: body.rationale || "",
+      };
+    } catch { /* try next */ }
+  }
+  return null;
+}
 
 export const outlineAgent: AgentDef = {
   execute: async (ctx, llm, onChunk, onTrail) => {
@@ -39,7 +74,18 @@ export const outlineAgent: AgentDef = {
       branchId: ctx.branchId,
       selectionInstruction: "",
     });
-    const uc = baseUser + ideaBlock;
+
+    const ledger = getForeshadowingLedger(ctx.userId, ctx.novelId, ctx.branchId);
+    const ledgerBlock =
+      "\n\n## 当前分支活跃伏笔账本\n" +
+      formatLedgerForPrompt(ledger) +
+      "\n\n## 伏笔 plan（必须）\n" +
+      "你可先 get_foreshadowing_ledger 核对。大纲正文写完后，必须用 save_foreshadowing_plan 保存本轮意图，" +
+      "或在文末附 ```foreshadow_plan\\n{JSON}\\n```，字段：plant[], advance[{id,how}], reveal[{id,how}], abandon[{id,reason}], rationale。\n" +
+      "plant 项含 description,type,importance,mustResolve,suggestedRevealWindow。\n" +
+      "注意：plan 只是意图；用户 Accept 时按正文实际落实（realized）记账，不会盲信 plan。";
+
+    const uc = baseUser + ideaBlock + ledgerBlock;
 
     const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, TOOLS, ctx, onChunk, onTrail);
 
@@ -52,8 +98,27 @@ export const outlineAgent: AgentDef = {
     }
     saveOutline(ctx.novelId, ctx.branchId, finalText);
 
+    // Prefer plan saved via tool; else parse from text; else empty plan
+    let p = getForeshadowPlan(ctx.novelId, ctx.branchId);
+    if (!p) {
+      p = tryExtractPlan(finalText, ctx.novelId, ctx.branchId) || {
+        novelId: ctx.novelId,
+        branchId: ctx.branchId,
+        createdAt: new Date().toISOString(),
+        source: "outline",
+        plant: [],
+        advance: [],
+        reveal: [],
+        abandon: [],
+        rationale: "大纲未产出结构化 plan（空 plan）",
+      };
+      saveForeshadowPlan(ctx.novelId, ctx.branchId, p);
+    }
+
     return {
-      content: "大纲已生成（已存储）。主 agent 可用 get_outline 工具获取。",
+      content:
+        `大纲已生成（已存储）。伏笔 plan: plant=${p.plant?.length || 0} reveal=${p.reveal?.length || 0}。` +
+        `主 agent 可用 get_outline 获取。`,
       messages: trail,
     };
   },

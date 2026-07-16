@@ -1,10 +1,16 @@
 import type { AgentDef, TrailMessage } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
-import { saveFindingsLocked } from "../intermediate-store";
+import {
+  saveFindingsLocked,
+  saveForeshadowRealization,
+  getProse,
+} from "../intermediate-store";
 import { extractJSON } from "@/lib/utils";
 import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
 import { branchTools } from "./branch-tools";
 import { intermediateReadTools } from "./intermediate-tools";
+import { foreshadowTools } from "./foreshadow-tools";
+import type { ForeshadowingRealization } from "@/core/foreshadowing/types";
 
 // Review: read prose + branch context only; findings saved by execute layer
 const TOOLS = [
@@ -13,6 +19,20 @@ const TOOLS = [
 ].map(t => ({
   name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown>,
 }));
+
+const FORESHADOW_TOOLS = [
+  ...TOOLS,
+  ...foreshadowTools
+    .filter(t =>
+      t.name === "get_foreshadowing_ledger" ||
+      t.name === "get_foreshadowing_plan",
+    )
+    .map(t => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters as Record<string, unknown>,
+    })),
+];
 
 const SEVERITIES = new Set(["critical", "major", "minor"]);
 
@@ -88,6 +108,80 @@ const REVIEW_AGENT_IDS: Record<string, string> = {
   pacing: "pacing_review",
 };
 
+function parseForeshadowRealization(
+  raw: string,
+  novelId: string,
+  branchId: string,
+): { realization: ForeshadowingRealization; ok: boolean; jsonSlice: string } {
+  try {
+    const parsed = extractJSON<any>(raw || "");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("not object");
+    }
+    const findings = Array.isArray(parsed.findings)
+      ? parsed.findings
+      : Array.isArray(parsed)
+        ? parsed
+        : [];
+    const realization: ForeshadowingRealization = {
+      novelId,
+      branchId,
+      reviewedAt: new Date().toISOString(),
+      proseFingerprint: String((getProse(novelId, branchId) || "").length),
+      pass: !!parsed.pass,
+      findings: findings.map((f: any) => ({
+        severity: (["critical", "major", "minor"].includes(f.severity)
+          ? f.severity
+          : "minor") as "critical" | "major" | "minor",
+        code: f.code,
+        description: String(f.description || ""),
+        suggestion: f.suggestion ? String(f.suggestion) : undefined,
+      })),
+      realized: {
+        planted: Array.isArray(parsed.realized?.planted) ? parsed.realized.planted : [],
+        advanced: Array.isArray(parsed.realized?.advanced) ? parsed.realized.advanced : [],
+        revealed: Array.isArray(parsed.realized?.revealed) ? parsed.realized.revealed : [],
+        abandoned: Array.isArray(parsed.realized?.abandoned) ? parsed.realized.abandoned : [],
+      },
+      gaps: {
+        planNotRealized: Array.isArray(parsed.gaps?.planNotRealized)
+          ? parsed.gaps.planNotRealized
+          : [],
+        realizedNotInPlan: Array.isArray(parsed.gaps?.realizedNotInPlan)
+          ? parsed.gaps.realizedNotInPlan
+          : [],
+      },
+    };
+    // If model only returned findings array legacy style, fail closed
+    if (parsed.pass === undefined && findings.length > 0) {
+      realization.pass = !findings.some(
+        (f: any) => f.severity === "critical" || f.severity === "major",
+      );
+    }
+    return {
+      realization,
+      ok: true,
+      jsonSlice: JSON.stringify(realization, null, 2),
+    };
+  } catch {
+    const realization: ForeshadowingRealization = {
+      novelId,
+      branchId,
+      reviewedAt: new Date().toISOString(),
+      pass: false,
+      findings: [
+        {
+          severity: "major",
+          description: "伏笔审查输出无法解析为 realization 对象，请重跑 review_foreshadowing",
+        },
+      ],
+      realized: { planted: [], advanced: [], revealed: [], abandoned: [] },
+      gaps: { planNotRealized: [], realizedNotInPlan: [] },
+    };
+    return { realization, ok: false, jsonSlice: JSON.stringify(realization) };
+  }
+}
+
 function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef {
   return {
     execute: async (ctx, llm, _onChunk, onTrail) => {
@@ -100,7 +194,34 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
         dimensionCode,
       });
 
-      const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, TOOLS, ctx, undefined, onTrail);
+      const isFs = dimensionCode === "foreshadowing";
+      const tools = isFs ? FORESHADOW_TOOLS : TOOLS;
+      const { finalText, trail } = await runSubAgentToolLoop(llm, sys, uc, tools, ctx, undefined, onTrail);
+
+      if (isFs) {
+        const { realization, ok, jsonSlice } = parseForeshadowRealization(
+          finalText || "",
+          ctx.novelId,
+          ctx.branchId,
+        );
+        saveForeshadowRealization(ctx.novelId, ctx.branchId, realization);
+        const findings = normalizeFindings(
+          realization.findings.map(f => ({
+            severity: f.severity,
+            description: f.description,
+            suggestion: f.suggestion || "",
+          })),
+          "foreshadowing",
+        );
+        await saveFindingsLocked(ctx.novelId, ctx.branchId, findings);
+        const cleanedTrail = cleanTrailJson(trail, jsonSlice);
+        return {
+          content: ok
+            ? `伏笔追踪: pass=${realization.pass}, findings=${findings.length}, realized plant=${realization.realized.planted.length}/reveal=${realization.realized.revealed.length}（已存 realization，Accept 后落定账本）`
+            : `伏笔追踪: realization 解析失败，pass=false。`,
+          messages: cleanedTrail,
+        };
+      }
 
       const { items, jsonSlice, ok } = parseFindingsArray(finalText || "");
       const findings = normalizeFindings(items, dimensionCode);

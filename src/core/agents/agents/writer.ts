@@ -4,6 +4,7 @@ import { getProse } from "../intermediate-store";
 import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
 import { branchTools } from "./branch-tools";
 import { intermediateReadTools, saveProseTool } from "./intermediate-tools";
+import { foreshadowTools } from "./foreshadow-tools";
 import { getStyle } from "@/lib/db";
 import {
   looksLikeFindingsNotProse,
@@ -31,7 +32,18 @@ const SAVE_SCHEMA = {
   parameters: saveProseTool.parameters as Record<string, unknown>,
 };
 
-/** Create: outline + branch + save_prose */
+const FS_READ = foreshadowTools
+  .filter(t =>
+    t.name === "get_foreshadowing_ledger" ||
+    t.name === "get_foreshadowing_plan",
+  )
+  .map(t => ({
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters as Record<string, unknown>,
+  }));
+
+/** Create: outline + branch + foreshadow + save_prose */
 const CREATE_TOOLS = [
   ...schemas([
     "get_outline",
@@ -40,12 +52,14 @@ const CREATE_TOOLS = [
     "get_branch_timeline",
     "get_branch_world",
   ]),
+  ...FS_READ,
   SAVE_SCHEMA,
 ];
 
 /** Rewrite: prose + findings + save_prose */
 const REWRITE_TOOLS = [
   ...schemas(["get_prose", "get_findings", "get_branch_text"]),
+  ...FS_READ,
   SAVE_SCHEMA,
 ];
 

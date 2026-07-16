@@ -4,6 +4,8 @@ import type {
   CharacterProfile, StoryInfo, SimulationState, ChapterTimeline, CharacterChapterState,
   StyleLibraryEntry, IdeaLibraryEntry, WritingStyle,
 } from "@/types";
+import type { ForeshadowingLedger } from "@/core/foreshadowing/types";
+import { emptyLedger } from "@/core/foreshadowing/types";
 
 const DB_PATH = path.join(process.cwd(), "data", "novels.db");
 
@@ -185,6 +187,16 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent_id);
     CREATE INDEX IF NOT EXISTS idx_token_usage_novel ON token_usage(novel_id);
     CREATE INDEX IF NOT EXISTS idx_token_usage_branch ON token_usage(branch_id);
+
+    CREATE TABLE IF NOT EXISTS foreshadowing_ledgers (
+      user_id TEXT NOT NULL,
+      novel_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, novel_id, branch_id)
+    );
 
     CREATE TABLE IF NOT EXISTS timelines (
       novel_id TEXT NOT NULL,
@@ -459,6 +471,7 @@ export function deleteNovel(userId: string, id: string): void {
     d.prepare("DELETE FROM timelines WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM chapter_states WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM branches WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM foreshadowing_ledgers WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM drafts WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM simulations WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM scenes WHERE novel_id = ? AND user_id = ?").run(id, userId);
@@ -1044,6 +1057,70 @@ export function saveBranch(
     `INSERT OR REPLACE INTO branches (id, novel_id, user_id, name, parent_offset, text, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(branchId, novelId, userId, name, parentOffset, text);
+}
+
+// ---- Foreshadowing ledger (per branch) ----
+
+export function getForeshadowingLedger(
+  userId: string,
+  novelId: string,
+  branchId: string,
+): ForeshadowingLedger {
+  const row = getDb()
+    .prepare(
+      "SELECT data FROM foreshadowing_ledgers WHERE user_id = ? AND novel_id = ? AND branch_id = ?",
+    )
+    .get(userId, novelId, branchId) as { data: string } | undefined;
+  if (!row?.data) return emptyLedger(userId, novelId, branchId);
+  try {
+    const parsed = JSON.parse(row.data) as ForeshadowingLedger;
+    return {
+      ...emptyLedger(userId, novelId, branchId),
+      ...parsed,
+      userId,
+      novelId,
+      branchId,
+      active: Array.isArray(parsed.active) ? parsed.active : [],
+      history: Array.isArray(parsed.history) ? parsed.history : [],
+    };
+  } catch {
+    return emptyLedger(userId, novelId, branchId);
+  }
+}
+
+export function saveForeshadowingLedger(ledger: ForeshadowingLedger): void {
+  getDb()
+    .prepare(
+      `INSERT OR REPLACE INTO foreshadowing_ledgers
+        (user_id, novel_id, branch_id, version, data, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+    )
+    .run(
+      ledger.userId,
+      ledger.novelId,
+      ledger.branchId,
+      ledger.version || 1,
+      JSON.stringify(ledger),
+    );
+}
+
+/** Copy ledger when forking a branch (snapshot). */
+export function copyForeshadowingLedger(
+  userId: string,
+  novelId: string,
+  fromBranchId: string,
+  toBranchId: string,
+): void {
+  const src = getForeshadowingLedger(userId, novelId, fromBranchId);
+  const copy: ForeshadowingLedger = {
+    ...src,
+    branchId: toBranchId,
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    active: JSON.parse(JSON.stringify(src.active || [])),
+    history: JSON.parse(JSON.stringify(src.history || [])),
+  };
+  saveForeshadowingLedger(copy);
 }
 
 export function appendBranchContent(

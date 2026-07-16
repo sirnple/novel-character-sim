@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { saveBranch, getBranch, listBranches, appendBranchContent } from "@/lib/db";
+import { saveBranch, getBranch, listBranches, appendBranchContent, copyForeshadowingLedger } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: rateLimitMessage(rate) }, { status: 429 });
   }
 
-  const { novelId, branchId, name, parentOffset, content, append } = await request.json();
+  const { novelId, branchId, name, parentOffset, content, append, parentBranchId } = await request.json();
 
   if (!novelId || !name) {
     return NextResponse.json({ error: "novelId and name are required" }, { status: 400 });
@@ -48,6 +48,12 @@ export async function POST(request: NextRequest) {
 
   const id = branchId || `branch_${Date.now()}`;
   saveBranch(userId, id, novelId, name, parentOffset || 0, content || "");
+  // Snapshot foreshadowing ledger from parent (default main)
+  try {
+    copyForeshadowingLedger(userId, novelId, parentBranchId || "main", id);
+  } catch (e) {
+    console.warn("[branches] copy foreshadowing ledger failed:", (e as Error).message);
+  }
   const branch = getBranch(userId, novelId, id);
   return NextResponse.json({ success: true, branch });
 }
