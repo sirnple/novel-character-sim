@@ -395,6 +395,16 @@ export function saveNovel(userId: string, id: string, title: string, text: strin
     `INSERT OR REPLACE INTO novels (id, user_id, title, text, total_length, language, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(id, userId, title, text, text.length, "zh");
+  // Keep main branch in sync when it is missing or still empty (import / re-extract).
+  // Do not touch main if it already has content (may include continuations).
+  const main = getBranchByNovelAndId(d, userId, id, "main");
+  if (!main) {
+    saveBranch(userId, "main", id, "主线", 0, text);
+  } else if (!(main.text || "").trim() && (text || "").trim()) {
+    d.prepare(
+      "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = ? AND user_id = ?"
+    ).run(text, id, "main", userId);
+  }
 }
 
 export function getNovel(userId: string, id: string): { title: string; text: string } | null {
@@ -1059,13 +1069,60 @@ export function listBranches(
   ).all(novelId, userId) as BranchRow[];
 }
 
+/**
+ * Ensure main branch exists. If it was created empty (common race:
+ * branch row before novel text landed, or re-import only updated novels),
+ * heal by copying novels.text into main when main is empty.
+ */
 export function ensureMainBranch(userId: string, novelId: string): void {
   const d = getDb();
   const existing = getBranchByNovelAndId(d, userId, novelId, "main");
-  if (existing) return;
   const novel = getNovel(userId, novelId);
-  const text = novel?.text || "";
-  saveBranch(userId, "main", novelId, "主线", 0, text);
+  const novelText = novel?.text || "";
+  if (existing) {
+    const branchText = existing.text || "";
+    // Heal empty main only — never overwrite branch that already has content
+    // (may include AI continuations beyond the imported novel).
+    if (!branchText.trim() && novelText.trim()) {
+      d.prepare(
+        "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = ? AND user_id = ?"
+      ).run(novelText, novelId, "main", userId);
+      console.log(
+        `[DB] Healed empty main branch from novel text (${novelText.length} chars) novel=${novelId} user=${userId}`,
+      );
+    }
+    return;
+  }
+  saveBranch(userId, "main", novelId, "主线", 0, novelText);
+}
+
+/**
+ * Resolve readable branch prose for agents/UI.
+ * Prefer branch.text; if empty, fall back to novels.text (import source).
+ */
+export function getBranchProse(
+  userId: string,
+  novelId: string,
+  branchId: string,
+): { text: string; source: "branch" | "novel" | "empty"; branch: BranchRow | null } {
+  ensureMainBranch(userId, novelId);
+  const branch = getBranch(userId, novelId, branchId);
+  if (!branch) {
+    return { text: "", source: "empty", branch: null };
+  }
+  const branchText = branch.text || "";
+  if (branchText.trim()) {
+    return { text: branchText, source: "branch", branch };
+  }
+  // Empty non-main branches stay empty; only main can fall back to novel import
+  if (branchId === "main") {
+    const novel = getNovel(userId, novelId);
+    const novelText = novel?.text || "";
+    if (novelText.trim()) {
+      return { text: novelText, source: "novel", branch };
+    }
+  }
+  return { text: "", source: "empty", branch };
 }
 
 // ---- Drafts ----

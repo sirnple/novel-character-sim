@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listNovels, getNovel, getStoryInfo, getCharacters, deleteNovel, getBranch, ensureMainBranch, listBranches } from "@/lib/db";
+import { listNovels, getNovel, getStoryInfo, getCharacters, deleteNovel, getBranchProse, listBranches } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
@@ -12,17 +12,13 @@ export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId") || "main";
 
   if (id) {
-    let branch = getBranch(userId, id, branchId);
-    if (!branch && branchId === "main") {
-      ensureMainBranch(userId, id);
-      branch = getBranch(userId, id, "main");
-    }
+    const { text, branch } = getBranchProse(userId, id, branchId);
     if (!branch) return NextResponse.json({ error: "Branch not found" }, { status: 404 });
     const novel = getNovel(userId, id);
     const storyInfo = getStoryInfo(userId, id);
     const characters = getCharacters(userId, id);
     const branches = listBranches(userId, id);
-    return NextResponse.json({ id, title: novel?.title || "", text: branch.text, storyInfo, characters, branches });
+    return NextResponse.json({ id, title: novel?.title || "", text, storyInfo, characters, branches });
   }
 
   const novels = listNovels(userId);

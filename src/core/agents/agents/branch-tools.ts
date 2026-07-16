@@ -1,5 +1,5 @@
 import type { ToolDefinition } from "../types";
-import { getBranch, getCharacters, getTimeline, getStoryInfo } from "@/lib/db";
+import { getBranchProse, getCharacters, getTimeline, getStoryInfo } from "@/lib/db";
 
 const TEXT_TAIL = 30000;
 
@@ -16,10 +16,23 @@ export const branchTools: ToolDefinition[] = [
       required: ["novelId", "branchId"],
     },
     execute: async (args, ctx) => {
-      const branch = getBranch(ctx.userId || "guest", args.novelId as string, args.branchId as string);
+      const userId = ctx.userId || "guest";
+      // Prefer ctx ids (authoritative from request); args may be hallucinated by LLM
+      const novelId = (ctx.novelId || args.novelId || "") as string;
+      const branchId = (ctx.branchId || args.branchId || "main") as string;
+      if (!novelId) return { content: "缺少 novelId", messages: [] };
+      const { text, source, branch } = getBranchProse(userId, novelId, branchId);
       if (!branch) return { content: "分支不存在", messages: [] };
-      const text = branch.text || "";
-      return { content: text.slice(-TEXT_TAIL) || "无前文", messages: [] };
+      const tail = text.slice(-TEXT_TAIL);
+      if (!tail) return { content: "无前文", messages: [] };
+      // Source hint helps debug empty-branch / novel-fallback cases without polluting prose much
+      if (source === "novel") {
+        return {
+          content: `【说明：分支正文为空，已回退到导入的小说原文尾部】\n${tail}`,
+          messages: [],
+        };
+      }
+      return { content: tail, messages: [] };
     },
   },
   {
@@ -34,7 +47,9 @@ export const branchTools: ToolDefinition[] = [
       required: ["novelId", "branchId"],
     },
     execute: async (args, ctx) => {
-      const chars = getCharacters(ctx.userId || "guest", args.novelId as string) || [];
+      const userId = ctx.userId || "guest";
+      const novelId = (ctx.novelId || args.novelId || "") as string;
+      const chars = getCharacters(userId, novelId) || [];
       return {
         content: JSON.stringify(chars.map((c: any) => ({ name: c.name, desc: c.personality?.description?.slice(0, 200) })), null, 2),
         messages: [],
@@ -53,7 +68,9 @@ export const branchTools: ToolDefinition[] = [
       required: ["novelId", "branchId"],
     },
     execute: async (args, ctx) => {
-      const tl = getTimeline(ctx.userId || "guest", args.novelId as string);
+      const userId = ctx.userId || "guest";
+      const novelId = (ctx.novelId || args.novelId || "") as string;
+      const tl = getTimeline(userId, novelId);
       return { content: JSON.stringify((tl?.chapters || []).slice(-10), null, 2) || "无数据", messages: [] };
     },
   },
@@ -69,7 +86,9 @@ export const branchTools: ToolDefinition[] = [
       required: ["novelId", "branchId"],
     },
     execute: async (args, ctx) => {
-      const info = getStoryInfo(ctx.userId || "guest", args.novelId as string);
+      const userId = ctx.userId || "guest";
+      const novelId = (ctx.novelId || args.novelId || "") as string;
+      const info = getStoryInfo(userId, novelId);
       return { content: JSON.stringify((info as any)?.worldSetting || {}, null, 2), messages: [] };
     },
   },
@@ -85,12 +104,18 @@ export const branchTools: ToolDefinition[] = [
       required: ["novelId", "branchId"],
     },
     execute: async (args, ctx) => {
-      const branch = getBranch(ctx.userId || "guest", args.novelId as string, args.branchId as string);
+      const userId = ctx.userId || "guest";
+      const novelId = (ctx.novelId || args.novelId || "") as string;
+      const branchId = (ctx.branchId || args.branchId || "main") as string;
+      const { text, source, branch } = getBranchProse(userId, novelId, branchId);
       if (!branch) return { content: "分支不存在", messages: [] };
       return {
         content: JSON.stringify({
-          name: branch.name, parent_offset: branch.parent_offset,
-          novel_id: branch.novel_id, total_chars: (branch.text || "").length,
+          name: branch.name,
+          parent_offset: branch.parent_offset,
+          novel_id: branch.novel_id,
+          total_chars: text.length,
+          text_source: source,
         }, null, 2),
         messages: [],
       };
