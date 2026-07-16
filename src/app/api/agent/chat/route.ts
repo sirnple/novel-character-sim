@@ -62,6 +62,31 @@ export async function POST(request: NextRequest) {
         send({ type: "tool_call", tool, status, toolCallId, result, messages: msgs });
       };
 
+      /** Sub-agent critical get miss → ask user directly (not via master re-ask). */
+      const emitAskUser = (
+        askUser: { question: string; options?: string[] },
+        sourceToolCallId: string,
+      ) => {
+        const askId = `${sourceToolCallId}__ask_user`;
+        const question = String(askUser.question || "").trim() || "关键数据缺失，是否继续？";
+        const options = Array.isArray(askUser.options)
+          ? askUser.options.map((o) => String(o).trim()).filter(Boolean).slice(0, 8)
+          : [];
+        send({
+          type: "ask_question",
+          toolCallId: askId,
+          tool: "ask_question",
+          question,
+          options,
+        });
+        sendTool(
+          "ask_question",
+          "awaiting_user",
+          askId,
+          JSON.stringify({ question, options }),
+        );
+      };
+
       const runAgent = async (agentType: string, prompt: string, toolCallId: string) => {
         sendTool(agentType, "running", toolCallId);
         const agentDef = getAgent(agentType);
@@ -90,6 +115,11 @@ export async function POST(request: NextRequest) {
         logSession({ ts: new Date().toISOString(), type: "tool_exec", tool: agentType, elapsed: Date.now() - t0, resultPreview: result.content.slice(0, 300) });
         sendTool(agentType, "done", toolCallId, result.content.slice(0, 5000), result.messages);
 
+        // Critical miss from sub-agent: stop here and ask user (skip outline review etc.)
+        if (result.askUser) {
+          return result;
+        }
+
         // After outline: open a separate visible card for outline review (not buried in generate_outline)
         if (agentType === "generate_outline") {
           const reviewId = `${toolCallId}__outline_review`;
@@ -117,6 +147,17 @@ export async function POST(request: NextRequest) {
                 resultPreview: rev.content.slice(0, 300),
               });
               sendTool("review_outline", "done", reviewId, rev.content.slice(0, 5000), rev.messages);
+              // Outline review critical miss → ask user directly
+              if (rev.askUser) {
+                return {
+                  content:
+                    result.content +
+                    "\n\n---\n【大纲审核】" +
+                    rev.content.slice(0, 2000),
+                  messages: [...(result.messages || []), ...(rev.messages || [])],
+                  askUser: rev.askUser,
+                };
+              }
               // Append review into master's conversation so it must surface findings
               return {
                 content:
@@ -272,6 +313,12 @@ export async function POST(request: NextRequest) {
                     role: "user",
                     content: [{ type: "tool_result", tool_use_id: toolId, content: batch.content.slice(0, 8000) }],
                   });
+                  // Any review dimension critical miss → ask user directly
+                  if (batch.askUser) {
+                    emitAskUser(batch.askUser, toolId);
+                    stopForUser = true;
+                    break;
+                  }
                 } catch (e) {
                   const err = "并行审查失败: " + (e as Error).message;
                   sendTool("run_reviews", "done", toolId, err);
@@ -300,6 +347,12 @@ export async function POST(request: NextRequest) {
                   role: "user",
                   content: [{ type: "tool_result", tool_use_id: toolId, content: result.content.slice(0, 5000) }],
                 });
+                // Sub-agent critical get miss → ask user now (do not wait for master)
+                if (result.askUser) {
+                  emitAskUser(result.askUser, toolId);
+                  stopForUser = true;
+                  break;
+                }
               } else if (toolName === "accept_continuation") {
                 // Special: run accept and notify UI with new branch text
                 sendTool("accept_continuation", "running", toolId);

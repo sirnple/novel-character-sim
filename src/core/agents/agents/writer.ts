@@ -90,14 +90,25 @@ export const writerAgent: AgentDef = {
     if (isRewrite) {
       if (!existingProse || existingProse.length < 50) {
         return {
-          content: "修改失败：store 中没有可改的正文。请先 [MODE:create] 完成 write_prose。",
+          content: "修改失败：store 中没有可改的正文。",
           messages: [],
+          askUser: {
+            question: "写手无法获取待改正文草稿，是否继续？",
+            options: ["先写正文再改", "取消", "仍要继续（不推荐）"],
+            missKind: "prose",
+            toolName: "get_prose",
+          },
         };
       }
       if (looksLikeFindingsNotProse(existingProse) || looksLikeRevisionPlanNotProse(existingProse)) {
         return {
-          content: "修改失败：store 中的「正文」无效（像清单或修改计划）。请重新 [MODE:create] 后再 rewrite。",
+          content: "修改失败：store 中的「正文」无效（像清单或修改计划）。",
           messages: [],
+          askUser: {
+            question: "待改正文无效（不像叙事正文），是否重新创作？",
+            options: ["重新 MODE:create 写作", "取消"],
+            missKind: "prose",
+          },
         };
       }
     }
@@ -137,7 +148,15 @@ export const writerAgent: AgentDef = {
         { maxTokens: isRewrite ? 8192 : 6144, temperature: isRewrite ? 0.4 : 0.5 },
       );
 
-    let { trail } = await run(uc);
+    let loop = await run(uc);
+    if (loop.askUser) {
+      return {
+        content: loop.finalText || "关键数据缺失，已请求用户确认。",
+        messages: loop.trail,
+        askUser: loop.askUser,
+      };
+    }
+    let { trail } = loop;
     let outcome = findSaveProseOutcome(trail);
 
     // One retry if agent forgot save or content was rejected
@@ -157,6 +176,13 @@ ${why}。
 禁止只输出修改计划或闲聊而不 save。`;
 
       const second = await run(retryUc);
+      if (second.askUser) {
+        return {
+          content: second.finalText || "关键数据缺失，已请求用户确认。",
+          messages: trail.concat(second.trail),
+          askUser: second.askUser,
+        };
+      }
       trail = trail.concat(
         { role: "assistant", content: `（系统：${why}，已要求重新 save_prose）` } as TrailMessage,
         ...second.trail.filter(m => m.role !== "system"),

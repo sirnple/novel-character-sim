@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../types";
 import { getBranchProse, getCharacters, getTimeline, getStoryInfo } from "@/lib/db";
+import { formatCriticalMiss } from "../critical-miss";
 
 const TEXT_TAIL = 30000;
 
@@ -45,11 +46,32 @@ export const branchTools: ToolDefinition[] = [
       // Prefer ctx ids (authoritative from request); args may be hallucinated by LLM
       const novelId = (ctx.novelId || args.novelId || "") as string;
       const branchId = (ctx.branchId || args.branchId || "main") as string;
-      if (!novelId) return { content: "缺少 novelId", messages: [] };
+      if (!novelId) {
+        return {
+          content: formatCriticalMiss("novelId", "缺少 novelId，无法读取分支前文。"),
+          messages: [],
+        };
+      }
       const { text, branch } = getBranchProse(userId, novelId, branchId);
-      if (!branch) return { content: "分支不存在", messages: [] };
+      if (!branch) {
+        return {
+          content: formatCriticalMiss(
+            "branch",
+            `分支不存在（novelId=${novelId}, branchId=${branchId}）。请检查写作页分支选择。`,
+          ),
+          messages: [],
+        };
+      }
       const tail = text.slice(-TEXT_TAIL);
-      return { content: tail || "无前文", messages: [] };
+      // Empty IF branch is allowed (new fork); only miss when no branch row
+      if (!tail) {
+        return {
+          content:
+            "（本分支暂无正文，可从空分支续写。若应有前文，请检查是否选错分支。）",
+          messages: [],
+        };
+      }
+      return { content: tail, messages: [] };
     },
   },
   {

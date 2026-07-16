@@ -28,6 +28,7 @@ export interface OutlineReviewResult {
     dimension: string;
   }>;
   summary: string;
+  askUser?: import("../types").AskUserRequest;
 }
 
 /**
@@ -63,13 +64,30 @@ export async function runOutlineReview(
       temperature: 0.2,
     });
 
-  let { trail } = await run(uc);
+  let loop = await run(uc);
+  if (loop.askUser) {
+    return {
+      pass: false,
+      findings: [],
+      summary: loop.finalText || "大纲审核因关键数据缺失已询问用户",
+      askUser: loop.askUser,
+    };
+  }
+  let { trail } = loop;
   let saved = toolSaveSucceeded(trail, "save_findings", SAVE_FINDINGS_OK);
   if (!saved.ok) {
     const second = await run(
       uc +
         `\n\n## 系统纠错\n请立刻 save_findings，dimension=outline，findings 为 JSON 数组。`,
     );
+    if (second.askUser) {
+      return {
+        pass: false,
+        findings: [],
+        summary: second.finalText || "大纲审核因关键数据缺失已询问用户",
+        askUser: second.askUser,
+      };
+    }
     trail = trail.concat(
       { role: "assistant", content: "（系统：请 save_findings）" } as TrailMessage,
       ...second.trail.filter((m) => m.role !== "system"),
@@ -113,6 +131,7 @@ export const outlineReviewAgent: AgentDef = {
     return {
       content: result.summary + "（主 agent 可用 get_findings 查看 outline 维）",
       messages: [],
+      askUser: result.askUser,
     };
   },
 };

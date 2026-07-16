@@ -10,6 +10,7 @@ import {
   SAVE_PROSE_REJECT_PREFIX,
   looksLikeFindingsNotProse,
 } from "../prose-guard";
+import { formatCriticalMiss } from "../critical-miss";
 
 /** Prefixes so execute layer can verify tool save without parsing free text */
 export const SAVE_OUTLINE_OK = "大纲已存";
@@ -24,7 +25,10 @@ export const intermediateReadTools: ToolDefinition[] = [
     execute: async (args, ctx) => {
       const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
       if (!novelId) {
-        return { content: "大纲未生成（缺少 novelId）", messages: [] };
+        return {
+          content: formatCriticalMiss("novelId", "缺少 novelId，无法读取大纲。"),
+          messages: [],
+        };
       }
       const o = getOutline(novelId, branchId);
       if (!o || (typeof o === "string" && o.trim().length < 20)) {
@@ -32,11 +36,13 @@ export const intermediateReadTools: ToolDefinition[] = [
           `[Store] get_outline miss ${novelId}::${branchId}; keys=[${debugStoreKeys().join(", ")}]`,
         );
         return {
-          content:
+          content: formatCriticalMiss(
+            "outline",
             `大纲未生成（key=${novelId}::${branchId}）。请先 generate_outline 并成功 save_outline。` +
-            (debugStoreKeys().length
-              ? ` 当前 store 有：${debugStoreKeys().join(", ")}`
-              : " 当前 store 为空。"),
+              (debugStoreKeys().length
+                ? ` 当前 store 有：${debugStoreKeys().join(", ")}`
+                : " 当前 store 为空。"),
+          ),
           messages: [],
         };
       }
@@ -50,7 +56,15 @@ export const intermediateReadTools: ToolDefinition[] = [
     execute: async (args, ctx) => {
       const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
       const p = getProse(novelId, branchId);
-      if (!p) return { content: "正文未生成", messages: [] };
+      if (!p || p.trim().length < 20) {
+        return {
+          content: formatCriticalMiss(
+            "prose",
+            `正文草稿未生成（key=${novelId}::${branchId}）。请先 write_prose 并成功 save_prose。`,
+          ),
+          messages: [],
+        };
+      }
       return {
         content: `【当前正文 · 共 ${p.length} 字 · 以下为小说叙事】\n\n${p}`,
         messages: [],

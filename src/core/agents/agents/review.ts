@@ -92,7 +92,15 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
           temperature: 0.2,
         });
 
-      let { trail } = await run(uc);
+      let loop = await run(uc);
+      if (loop.askUser) {
+        return {
+          content: loop.finalText || "关键数据缺失，已直接询问用户。",
+          messages: loop.trail,
+          askUser: loop.askUser,
+        };
+      }
+      let { trail } = loop;
       const marker = isFs ? SAVE_FS_REALIZATION_OK : SAVE_FINDINGS_OK;
       const toolName = isFs ? "save_foreshadowing_realization" : "save_findings";
       let saved = toolSaveSucceeded(trail, toolName, marker);
@@ -103,6 +111,13 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
 ## 系统纠错
 你尚未成功 ${toolName}。请立刻调用该工具提交本维结果（无问题也要 findings=[] 或对应空结构）。`;
         const second = await run(retryUc);
+        if (second.askUser) {
+          return {
+            content: second.finalText || "关键数据缺失，已直接询问用户。",
+            messages: trail.concat(second.trail),
+            askUser: second.askUser,
+          };
+        }
         trail = trail.concat(
           { role: "assistant", content: `（系统：请调用 ${toolName}）` } as TrailMessage,
           ...second.trail.filter((m) => m.role !== "system"),

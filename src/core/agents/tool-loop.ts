@@ -1,10 +1,17 @@
 import { getTool } from "./registry";
 import type { LLMProvider, LLMMessage, AssistantMessage, ToolSchema } from "@/types";
-import type { ToolContext, TrailMessage } from "./types";
+import type { AskUserRequest, ToolContext, TrailMessage } from "./types";
+import {
+  askUserForCriticalMiss,
+  isCriticalGetTool,
+  isCriticalMissContent,
+} from "./critical-miss";
 
 export interface ToolLoopResult {
   finalText: string;
   trail: TrailMessage[];
+  /** Critical get_* failed — UI should ask user; do not continue agent work */
+  askUser?: AskUserRequest;
 }
 
 const TRAIL_TOOL_PREVIEW = 4000;
@@ -158,6 +165,16 @@ export async function runToolLoop(
           toolName,
           content: previewToolBody(resultContent),
         });
+
+        // Critical get miss → stop sub-agent and ask user directly (not via master)
+        if (isCriticalGetTool(toolName) && isCriticalMissContent(resultContent)) {
+          const askUser = askUserForCriticalMiss(toolName, resultContent);
+          return {
+            finalText: resultContent,
+            trail,
+            askUser,
+          };
+        }
       }
     }
 

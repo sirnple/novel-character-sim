@@ -68,7 +68,15 @@ export const outlineAgent: AgentDef = {
         temperature: 0.4,
       });
 
-    let { trail } = await run(uc);
+    let loop = await run(uc);
+    if (loop.askUser) {
+      return {
+        content: loop.finalText || "关键数据缺失，已直接询问用户。",
+        messages: loop.trail,
+        askUser: loop.askUser,
+      };
+    }
+    let { trail } = loop;
     let outlineOk = toolSaveSucceeded(trail, "save_outline", SAVE_OUTLINE_OK);
     let planOk = toolSaveSucceeded(trail, "save_foreshadowing_plan", SAVE_FS_PLAN_OK);
 
@@ -86,6 +94,13 @@ export const outlineAgent: AgentDef = {
 你尚未成功调用：${missing}。
 请立刻调用缺失的 save 工具。大纲正文只通过 save_outline 提交；伏笔意图只通过 save_foreshadowing_plan 提交。`;
       const second = await run(retryUc);
+      if (second.askUser) {
+        return {
+          content: second.finalText || "关键数据缺失，已直接询问用户。",
+          messages: trail.concat(second.trail),
+          askUser: second.askUser,
+        };
+      }
       trail = trail.concat(
         { role: "assistant", content: `（系统：请补全 ${missing}）` } as TrailMessage,
         ...second.trail.filter((m) => m.role !== "system"),

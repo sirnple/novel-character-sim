@@ -30,9 +30,20 @@ export interface TrailMessage {
   toolName?: string;
 }
 
+/** Sub-agent wants the UI to ask the user (e.g. critical get_* failed). */
+export interface AskUserRequest {
+  question: string;
+  options: string[];
+  missKind?: string;
+  toolName?: string;
+  detail?: string;
+}
+
 export interface ToolResult {
   content: string;
   messages: TrailMessage[];
+  /** If set, chat route should emit ask_question and pause for user — not master re-ask */
+  askUser?: AskUserRequest;
 }
 
 export interface AgentDef {
