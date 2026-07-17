@@ -124,7 +124,9 @@ export function runAcceptChapterMetaTests(): void {
           chapterBoundary: "closed",
         });
 
-        const draft = BODY;
+        // Draft starts with a chapter title so a regressing (non-early-return)
+        // updateChapterMetaAfterAccept would catalog it via extractChapterCatalog.
+        const draft = `第99章 不该入库\n${BODY}`;
         saveProse(novelId, "main", draft);
         const r = acceptContinuation({
           userId,
@@ -137,6 +139,15 @@ export function runAcceptChapterMetaTests(): void {
         const meta = getBranchChapterMeta(userId, novelId, "main");
         // updateChapterMetaAfterAccept should early-return when disabled
         assert.equal(meta.chapters.length, 0);
+        assert.ok(
+          !meta.chapters.some(
+            (c) =>
+              c.number === 99 ||
+              c.title.includes("不该入库") ||
+              c.title.includes("第99章"),
+          ),
+          `disabled chaptering must not catalog draft title: ${JSON.stringify(meta.chapters)}`,
+        );
       } finally {
         deleteNovel(userId, novelId);
         _resetStore();
