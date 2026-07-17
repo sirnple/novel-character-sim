@@ -1,7 +1,7 @@
 # Spec: 分析（肉/骨）· 章法 · 时间线 · 阅读竖轨
 
 **Status:** Accepted design (grill frozen); implementation **partial**  
-**Last updated:** 2026-07-17  
+**Last updated:** 2026-07-18  
 **Related commits (implementation so far):**  
 `1c4441c` form/catalog/rail · `04578b1` async timeline job · `6758ba5` UI 分析 rename · earlier perf CoW/virtual scroll  
 
@@ -164,9 +164,9 @@ Legend: **done** | **partial** | **todo**
 | Program catalog | **done** | `chapter-catalog.ts` + tests |
 | Form analyzer + LLM QA | **partial** | Works; QA not a separate strict schema contract |
 | Analysis UI rename + defaults | **done** | 分析 / DEFAULT_ANALYSIS_MODULES |
-| Outline/writer prompt text | **partial** | Prose instructions only; no structured chapterPlan |
-| Accept boundary + catalog | **partial** | Heuristic outline keywords; brittle |
-| **Agent tools load form/boundary** | **todo** | **Critical gap:** agents do not call getNovelForm |
+| Outline/writer prompt text | **partial** (improved) | Tool-required form context; still no structured chapterPlan JSON |
+| Accept boundary + catalog | **partial** | Tests cover happy paths; outline keyword still heuristic |
+| **Agent tools load form/boundary** | **done** | `get_novel_form` + `get_branch_meta.form` |
 | Reader rail + click + scroll-sync | **partial** | Desktop only; jump uses scroll ratio not true layout |
 | Async timeline job | **partial** | In-memory jobs (lost on restart); works in one process |
 | Timeline **per branch** storage | **todo** | Still novel-scoped in DB helpers |
@@ -193,9 +193,9 @@ Legend: **done** | **partial** | **todo**
 - [ ] Accept after draft starting with `第K章 …` updates catalog and boundary per D4.
 - [ ] Accept on non-chaptering novel does not force new chapter titles in meta.
 
-### C. Agents (P0 gap)
-- [ ] Outline and/or writer path can **read** form.continuationRules + chaptering.samples + boundary (tool or injected context).
-- [ ] When chaptering disabled, writer system constraints forbid inventing 第N章 unless user asks.
+### C. Agents (P0 — form consumption)
+- [x] Outline and/or writer path can **read** form.continuationRules + chaptering.samples + boundary (tool or injected context).
+- [x] When chaptering disabled, writer system constraints forbid inventing 第N章 unless user asks.
 
 ### D. Timeline async
 - [ ] Selecting timeline returns quickly with `timelineJobId` (no multi-minute HTTP).
