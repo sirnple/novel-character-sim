@@ -19,7 +19,7 @@ export function runChapterCatalogTests(): void {
 
     test("extractChapterCatalog finds 第N章 titles", () => {
       const text =
-        "序章忽略\n\n第1章 开端\n正文甲".repeat(1) +
+        "前文铺垫不匹配\n\n第1章 开端\n正文甲" +
         "\n\n第2章 发展\n" +
         "乙".repeat(100) +
         "\n\n第3章 高潮\n" +
@@ -29,6 +29,33 @@ export function runChapterCatalogTests(): void {
       assert.equal(cat[0].number, 1);
       assert.ok(cat[0].title.includes("开端") || cat[0].title.includes("第1章"));
       assert.ok((cat[0].endOffset ?? 0) > cat[0].startOffset);
+    });
+
+    test("extractChapterCatalog finds 第一章 without space", () => {
+      const text = ["第一章", "第二章", "第三章"]
+        .map((t, i) => `${t}\n` + "文".repeat(60 + i))
+        .join("\n\n");
+      const cat = extractChapterCatalog(text);
+      assert.ok(cat.length >= 3, `got ${cat.length}`);
+      assert.equal(cat[0].number, 1);
+      assert.equal(cat[1].number, 2);
+    });
+
+    test("extractChapterCatalog finds 【书名】一、标题 style", () => {
+      const text = [
+        "【欲孽灼心】一、兄嫂弟攻的家庭生活",
+        "【欲孽灼心】二、妈的贴身高手",
+        "【欲孽灼心】三、我的高傲校花女友才不可能成为乡下小鬼的专属游乐园",
+      ]
+        .map((t) => `${t}\n` + "叙述内容。" + "字".repeat(80))
+        .join("\n\n");
+      const cat = extractChapterCatalog(text);
+      assert.ok(cat.length >= 3, `got ${cat.length}: ${cat.map((c) => c.title).join(" | ")}`);
+      assert.equal(cat[0].number, 1);
+      assert.ok(cat[0].title.includes("兄嫂") || cat[0].title.includes("家庭"));
+      assert.equal(cat[2].number, 3);
+      const style = inferChapteringFromCatalog(text, cat);
+      assert.equal(style.enabled, true);
     });
 
     test("inferChaptering enables when enough chapters", () => {
