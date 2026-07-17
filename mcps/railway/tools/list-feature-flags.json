@@ -1,0 +1,22 @@
+{
+  "name": "list-feature-flags",
+  "description": "List Railway feature flags (Signals) for a project and optionally the parent workspace. Project flags are editable with admin access; workspace flags are read-only from project context.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectId": {
+        "type": "string",
+        "description": "The project ID"
+      },
+      "includeWorkspace": {
+        "type": "boolean",
+        "description": "Include workspace-scoped flags inherited by the project (default true)"
+      }
+    },
+    "required": [
+      "projectId"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "get-feature-flag",
+  "description": "Get a Railway feature flag (Signal) by name for a project or its parent workspace scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectId": {
+        "type": "string",
+        "description": "The project ID"
+      },
+      "name": {
+        "type": "string",
+        "description": "Feature flag name"
+      },
+      "scope": {
+        "type": "string",
+        "enum": [
+          "project",
+          "workspace"
+        ],
+        "description": "Owner scope to read from (default \"project\")"
+      }
+    },
+    "required": [
+      "projectId",
+      "name"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

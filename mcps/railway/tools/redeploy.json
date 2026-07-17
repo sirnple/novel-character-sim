@@ -1,0 +1,28 @@
+{
+  "name": "redeploy",
+  "description": "Trigger a redeployment of a service in a given environment",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectId": {
+        "type": "string",
+        "description": "The project ID"
+      },
+      "serviceId": {
+        "type": "string",
+        "description": "The service ID to redeploy"
+      },
+      "environmentId": {
+        "type": "string",
+        "description": "The environment ID to redeploy in"
+      }
+    },
+    "required": [
+      "projectId",
+      "serviceId",
+      "environmentId"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

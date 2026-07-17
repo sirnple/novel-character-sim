@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { useNovel } from "@/lib/novel-context";
-import { BookOpen, Play, PanelRight, X } from "lucide-react";
+import { Play, PanelRight, X } from "lucide-react";
 import dynamic from "next/dynamic";
 
 const AgentPanel = dynamic(() => import("@/components/agent-panel"), { ssr: false });
@@ -89,7 +89,6 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
   const base = `/novel/${id}`;
   const nav = [
     { href: base, label: "概览", match: pathname === base },
-    { href: `${base}/read`, label: "阅读", match: pathname.endsWith("/read") },
     { href: `${base}/write`, label: "写作", match: pathname.endsWith("/write") },
   ];
 
@@ -105,7 +104,6 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
               n.match ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            {n.label === "阅读" && <BookOpen className="w-3 h-3 inline mr-1 -mt-0.5" />}
             {n.label === "写作" && <Play className="w-3 h-3 inline mr-1 -mt-0.5" />}
             {n.label}
           </Link>

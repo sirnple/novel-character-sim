@@ -1,0 +1,8 @@
+{
+  "name": "whoami",
+  "description": "Get the current authenticated Railway user's profile information",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  }
+}

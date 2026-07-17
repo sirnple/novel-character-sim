@@ -1,0 +1,22 @@
+{
+  "name": "get-status",
+  "description": "Get the deployment status of a Railway project environment. Returns project + environment metadata and, for each service in the environment, its latest deployment status, replica count, and cron schedule. If environmentId is omitted, the project's `production` environment is used when present, otherwise the oldest environment.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectId": {
+        "type": "string",
+        "description": "The project ID"
+      },
+      "environmentId": {
+        "type": "string",
+        "description": "Environment to report on. Defaults to `production` if present, otherwise the project's oldest environment."
+      }
+    },
+    "required": [
+      "projectId"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

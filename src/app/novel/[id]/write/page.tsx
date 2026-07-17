@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useNovel } from "@/lib/novel-context";
-import { GitBranch, BookOpen, Sparkles, Trash2, Download } from "lucide-react";
+import { GitBranch, BookOpen, Download, ListTree } from "lucide-react";
 import ScrollEdgeButtons from "@/components/scroll-edge-buttons";
 import {
   TextFindBar,
@@ -15,6 +15,12 @@ import VirtualNovelBody, {
   absoluteOffsetFromClick,
   type VirtualChunk,
 } from "@/components/virtual-novel-body";
+import ReaderTimelineRail, {
+  catalogToRailUnits,
+  useApproxScrollOffset,
+  type RailUnit,
+} from "@/components/reader-timeline-rail";
+import type { ChapterCatalogEntry } from "@/types";
 
 /** Branch list metadata (no full text). */
 interface BranchInfo {
@@ -28,6 +34,7 @@ interface BranchInfo {
 export default function WritePage() {
   const {
     novelId, novelTitle, novelLength, setNovel, generatedProse, setActiveBranchId, setNovelText,
+    timeline,
   } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [activeBranchId, setLocalBranchId] = useState<string | null>(null);
@@ -37,22 +44,43 @@ export default function WritePage() {
   // Click-to-fork state — offsets are absolute in full branch body
   const [forkPoint, setForkPoint] = useState<{ offset: number; label: string; context: string } | null>(null);
   const [showForkDialog, setShowForkDialog] = useState(false);
-  /** Mobile: branch list drawer (desktop uses permanent rail) */
-  const [branchDrawerOpen, setBranchDrawerOpen] = useState(false);
 
   /** Full resolved body of the selected branch (virtual scroll mounts only viewport). */
   const [fullBody, setFullBody] = useState("");
   const [bodyLoading, setBodyLoading] = useState(false);
 
+  /** Timeline / chapter rail (from form catalog + async job) */
+  const [catalog, setCatalog] = useState<ChapterCatalogEntry[]>([]);
+  const [jobUnits, setJobUnits] = useState<RailUnit[] | null>(null);
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
+  const [latestJobId, setLatestJobId] = useState<string | null>(null);
+  const [retryingUnitId, setRetryingUnitId] = useState<string | null>(null);
+  const [pollTick, setPollTick] = useState(0);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+
   const activeBranch = branches.find(b => b.id === activeBranchId);
   const hasSelection = freeMode || activeBranchId === "main" || !!activeBranch;
-
   // Always full novel text — VirtualNovelBody handles long-scroll DOM cost
   const bodyText = fullBody;
   const proseText = generatedProse || "";
   const find = useTextFindSegments([bodyText, proseText]);
   useFindShortcut(find.searchInputRef, hasSelection);
   useScrollToMatch(readerRef, find.currentIndex, find.matchCount, [find.debouncedQuery, bodyText, proseText]);
+  const scrollOffset = useApproxScrollOffset(readerRef, bodyText.length);
+
+  const railUnits: RailUnit[] = useMemo(() => {
+    if (jobUnits && jobUnits.length > 0) return jobUnits;
+    if (catalog.length > 0) return catalogToRailUnits(catalog);
+    const chs = timeline?.chapters || [];
+    if (!chs.length) return [];
+    return chs.map((c, i) => ({
+      id: `tl_${c.chapterNumber}_${i}`,
+      label: c.title ? `第${c.chapterNumber}章 ${c.title}` : `第${c.chapterNumber}章`,
+      startOffset: 0,
+      summary: c.events?.[0]?.description?.slice(0, 80),
+      status: "ready" as const,
+    }));
+  }, [jobUnits, catalog, timeline]);
 
   const [queryOffset, setQueryOffset] = useState<string | null>(null);
   const [queryLabel, setQueryLabel] = useState<string | null>(null);
@@ -79,6 +107,95 @@ export default function WritePage() {
       })
       .catch(() => {});
   }, [novelId]);
+
+  // Chapter catalog for current branch
+  useEffect(() => {
+    if (!novelId || freeMode) return;
+    const bid = activeBranchId || "main";
+    fetch(
+      `/api/chapter-meta?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(bid)}`,
+    )
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.meta?.chapters) setCatalog(d.meta.chapters);
+        else setCatalog([]);
+      })
+      .catch(() => setCatalog([]));
+  }, [novelId, activeBranchId, freeMode]);
+
+  // Poll timeline job for branch
+  useEffect(() => {
+    if (!novelId || freeMode) return;
+    const bid = activeBranchId || "main";
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(
+          `/api/timeline/job?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(bid)}`,
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const job = data.latest;
+        if (!job || cancelled) return;
+        setLatestJobId(job.id || null);
+        setJobStatus(
+          job.status === "running" || job.status === "queued"
+            ? `${job.completed}/${job.total}`
+            : job.status,
+        );
+        if (Array.isArray(job.units)) {
+          const anyActive = job.units.some(
+            (u: { status?: string }) => u.status === "running" || u.status === "pending",
+          );
+          if (!anyActive) setRetryingUnitId(null);
+          setJobUnits(
+            job.units.map((u: {
+              unitId: string;
+              label: string;
+              startOffset?: number;
+              endOffset?: number;
+              summary?: string;
+              error?: string;
+              status?: string;
+            }) => ({
+              id: u.unitId,
+              label: u.label,
+              startOffset: u.startOffset ?? 0,
+              endOffset: u.endOffset,
+              summary: u.summary,
+              error: u.error,
+              status:
+                u.status === "done"
+                  ? "ready"
+                  : u.status === "error"
+                    ? "error"
+                    : u.status === "running" || u.status === "pending"
+                      ? "pending"
+                      : "ready",
+            })),
+          );
+        }
+        const keepPolling =
+          job.status === "running" ||
+          job.status === "queued" ||
+          (Array.isArray(job.units) &&
+            job.units.some(
+              (u: { status?: string }) =>
+                u.status === "running" || u.status === "pending",
+            ));
+        if (keepPolling) timer = setTimeout(poll, 2500);
+      } catch {
+        /* ignore */
+      }
+    };
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [novelId, activeBranchId, freeMode, pollTick]);
 
   const applyBody = useCallback((text: string) => {
     setFullBody(text || "");
@@ -205,26 +322,6 @@ export default function WritePage() {
     }
   }, [activeBranchId, activeBranch?.name, freeMode, fullBody.length, novelLength, queryOffset, queryLabel]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const deleteBranchById = async (branchId: string, name: string) => {
-    if (branchId === "main") return;
-    if (!confirm(`确定删除分支「${name}」？此操作不可恢复。`)) return;
-    const res = await fetch(
-      `/api/branches?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(branchId)}`,
-      { method: "DELETE" },
-    );
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      alert(data.error || "删除失败");
-      return;
-    }
-    setBranches((prev) => prev.filter((b) => b.id !== branchId));
-    if (activeBranchId === branchId) {
-      setLocalBranchId(null);
-      setFreeMode(false);
-      setActiveBranchId(undefined);
-    }
-  };
-
   const handleDownloadBranch = async (branchId: string, name: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!novelId || !branchId) return;
@@ -300,18 +397,74 @@ export default function WritePage() {
   const selectMain = () => {
     setLocalBranchId("main");
     setFreeMode(false);
-    setBranchDrawerOpen(false);
   };
   const selectBranch = (id: string) => {
     setLocalBranchId(id);
     setFreeMode(false);
-    setBranchDrawerOpen(false);
   };
   const selectFree = () => {
     setFreeMode(true);
     setLocalBranchId(null);
-    setBranchDrawerOpen(false);
   };
+
+  const onBranchSelectChange = (value: string) => {
+    if (value === "__free__") selectFree();
+    else if (value === "main") selectMain();
+    else selectBranch(value);
+  };
+
+  const branchSelectValue = freeMode
+    ? "__free__"
+    : activeBranchId || "";
+
+  const jumpToOffset = useCallback(
+    (startOffset: number) => {
+      const el = readerRef.current;
+      if (!el || !bodyText.length) return;
+      const max = el.scrollHeight - el.clientHeight;
+      const ratio = Math.min(1, Math.max(0, startOffset / bodyText.length));
+      el.scrollTo({ top: max * ratio, behavior: "smooth" });
+      setTimelineOpen(false);
+    },
+    [bodyText.length],
+  );
+
+  const handleRetryUnit = useCallback(
+    async (unitId: string) => {
+      if (!latestJobId || !unitId) return;
+      setRetryingUnitId(unitId);
+      try {
+        const res = await fetch("/api/timeline/job", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "retry_unit",
+            jobId: latestJobId,
+            unitId,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          alert((data as { error?: string }).error || "重试失败");
+          setRetryingUnitId(null);
+          return;
+        }
+        setPollTick((t) => t + 1);
+      } catch {
+        alert("重试失败");
+        setRetryingUnitId(null);
+      }
+    },
+    [latestJobId],
+  );
+
+  const railTitle =
+    jobStatus &&
+    (jobStatus.includes("/") || jobStatus === "running" || jobStatus === "queued")
+      ? `时间线 ${jobStatus}`
+      : catalog.length || jobUnits?.length
+        ? "目录 / 时间线"
+        : "时间线";
 
   const localMatches = useCallback(
     (global: number[], base: number, len: number) => {
@@ -406,152 +559,109 @@ export default function WritePage() {
   const charLabel = (b: BranchInfo) =>
     (typeof b.char_count === "number" ? b.char_count : 0).toLocaleString();
 
-  const branchList = (
-    <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-      {branches.length === 0 && (
-        <button
-          type="button"
-          onClick={selectMain}
-          className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors ${
-            activeBranchId === "main" && !freeMode
-              ? "bg-primary/10 border-l-2 border-primary text-foreground"
-              : "text-muted-foreground hover:bg-panel-elevated hover:text-foreground"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span>主线</span>
-            <span className="text-xs text-fog">{(novelLength || 0).toLocaleString()}字</span>
-          </div>
-        </button>
-      )}
-      {branches.map(b => (
-        <div
-          key={b.id}
-          className={`group flex items-stretch rounded-lg transition-colors ${
-            activeBranchId === b.id
-              ? "bg-primary/10 border-l-2 border-primary"
-              : "border-l-2 border-transparent hover:bg-panel-elevated"
-          }`}
-        >
-          <button
-            type="button"
-            onClick={() => selectBranch(b.id)}
-            className={`flex-1 min-w-0 text-left px-3 py-2.5 text-sm ${
-              activeBranchId === b.id
-                ? "text-foreground"
-                : "text-muted-foreground group-hover:text-foreground"
-            }`}
-          >
-            <div className="flex items-center justify-between gap-1">
-              <span className="truncate">{b.name || b.id}</span>
-              <span className="text-xs text-fog shrink-0">
-                {charLabel(b)}字
-              </span>
-            </div>
-          </button>
-          <button
-            type="button"
-            title="下载为 TXT"
-            aria-label={`下载分支 ${b.name || b.id}`}
-            onClick={(e) => handleDownloadBranch(b.id, b.name || b.id, e)}
-            className="px-1.5 text-fog hover:text-primary shrink-0 opacity-70 hover:opacity-100"
-          >
-            <Download className="w-3.5 h-3.5" />
-          </button>
-          {b.id !== "main" && (
-            <button
-              type="button"
-              title="删除分支"
-              aria-label={`删除分支 ${b.name}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteBranchById(b.id, b.name || b.id);
-              }}
-              className="px-2 text-fog hover:text-red-400 shrink-0 opacity-70 hover:opacity-100"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-      ))}
-      <button
-        type="button"
-        onClick={selectFree}
-        className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors ${
-          freeMode
-            ? "bg-blue-500/10 border-l-2 border-blue-500 text-blue-400"
-            : "text-muted-foreground hover:bg-panel-elevated hover:text-muted-foreground"
-        }`}
-      >
-        <div className="flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> 自由创作</div>
-      </button>
-    </div>
+  const timelineRail = (
+    <ReaderTimelineRail
+      title={railTitle}
+      units={railUnits}
+      scrollOffset={scrollOffset}
+      onJump={jumpToOffset}
+      onRetryUnit={latestJobId ? handleRetryUnit : undefined}
+      retryingUnitId={retryingUnitId}
+    />
   );
 
   return (
     <div className="flex flex-1 overflow-hidden min-h-0">
-      {/* Desktop: branch rail */}
-      <aside className="hidden lg:flex w-[200px] shrink-0 border-r border-border/80 bg-card flex-col">
-        <div className="p-3 border-b border-border/60">
-          <h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
-            <GitBranch className="w-4 h-4" /> 分支
-          </h3>
+      {/* Desktop: timeline rail (left) */}
+      {!freeMode && hasSelection && (
+        <div className="hidden md:flex flex-col shrink-0 border-r border-border/60 bg-card/40">
+          {timelineRail}
+          <p className="px-2 pb-2 text-[10px] text-fog leading-snug max-w-[180px]">
+            跳转按字数比例估算
+          </p>
         </div>
-        {branchList}
-      </aside>
+      )}
 
-      {/* Mobile branch drawer */}
-      {branchDrawerOpen && (
-        <div className="lg:hidden fixed inset-0 z-30 flex safe-drawer-pad">
+      {/* Mobile timeline drawer */}
+      {timelineOpen && !freeMode && (
+        <div className="md:hidden fixed inset-0 z-30 flex safe-drawer-pad">
           <button
             type="button"
-            className="absolute inset-0 bg-black/60"
-            aria-label="关闭分支列表"
-            onClick={() => setBranchDrawerOpen(false)}
+            className="absolute inset-0 bg-black/50"
+            aria-label="关闭时间线"
+            onClick={() => setTimelineOpen(false)}
           />
-          <aside className="relative z-10 w-[min(100vw-3rem,220px)] h-full bg-card border-r border-border/80 flex flex-col shadow-2xl">
-            <div className="p-3 border-b border-border/60 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
-                <GitBranch className="w-4 h-4" /> 分支
-              </h3>
+          <div className="relative z-10 h-full max-w-[85vw] w-[220px] bg-card border-r border-border shadow-xl flex flex-col">
+            <div className="flex items-center justify-between px-2 py-2 border-b border-border/60">
+              <span className="text-xs font-semibold text-muted-foreground">{railTitle}</span>
               <button
                 type="button"
-                onClick={() => setBranchDrawerOpen(false)}
-                className="text-muted-foreground text-sm px-2 py-1 rounded-lg hover:bg-panel-elevated"
+                className="text-xs text-fog px-2 py-1"
+                onClick={() => setTimelineOpen(false)}
               >
                 关闭
               </button>
             </div>
-            {branchList}
-          </aside>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <ReaderTimelineRail
+                className="w-full h-full border-0"
+                title=""
+                units={railUnits}
+                scrollOffset={scrollOffset}
+                onJump={jumpToOffset}
+                onRetryUnit={latestJobId ? handleRetryUnit : undefined}
+                retryingUnitId={retryingUnitId}
+              />
+            </div>
+          </div>
         </div>
       )}
 
       {/* Center: Editor */}
       <div className="flex-1 flex flex-col min-w-0 relative">
-        <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-border/60 bg-card shrink-0">
-          <div className="flex items-center gap-2 text-sm min-w-0">
-            <button
-              type="button"
-              onClick={() => setBranchDrawerOpen(true)}
-              className="lg:hidden p-1.5 -ml-1 rounded-lg text-primary hover:bg-primary/10 shrink-0"
-              title="选择分支"
-              aria-label="打开分支列表"
-            >
-              <GitBranch className="w-4 h-4" />
-            </button>
-            <BookOpen className="w-4 h-4 text-primary shrink-0 hidden sm:block" />
-            <span className="text-muted-foreground truncate">
-              {freeMode ? "自由创作" : activeBranch ? activeBranch.name : activeBranchId === "main" ? "主线" : "未选择分支"}
+        <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-border/60 bg-card shrink-0">
+          <GitBranch className="w-4 h-4 text-primary shrink-0" />
+          <select
+            value={branchSelectValue}
+            onChange={(e) => onBranchSelectChange(e.target.value)}
+            className="min-w-0 max-w-[min(100%,16rem)] sm:max-w-xs flex-1 sm:flex-none bg-secondary border border-border rounded-lg px-2.5 py-1.5 text-sm text-foreground outline-none focus:border-primary/50"
+            aria-label="选择分支"
+          >
+            <option value="" disabled>
+              选择分支…
+            </option>
+            {(branches.length === 0
+              ? [{ id: "main", name: "主线", parent_offset: 0, updated_at: "", char_count: novelLength || 0 }]
+              : branches
+            ).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.id === "main" ? "主线" : b.name || b.id}
+                {" · "}
+                {charLabel(b)}字
+              </option>
+            ))}
+            <option value="__free__">✦ 自由创作</option>
+          </select>
+
+          {hasSelection && (
+            <span className="text-fog shrink-0 hidden sm:inline text-xs tabular-nums">
+              {(fullBody.length || novelLength || 0).toLocaleString()} 字
+              {bodyLoading ? " · 加载中" : ""}
             </span>
-            {hasSelection && (
-              <span className="text-fog shrink-0 hidden sm:inline text-xs">
-                {(fullBody.length || novelLength || 0).toLocaleString()} 字
-                {bodyLoading ? " · 加载中" : ""}
-              </span>
+          )}
+
+          <div className="flex items-center gap-1.5 min-w-0 ml-auto shrink">
+            {!freeMode && hasSelection && (
+              <button
+                type="button"
+                onClick={() => setTimelineOpen(true)}
+                className="md:hidden p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10"
+                title="时间线"
+                aria-label="打开时间线"
+              >
+                <ListTree className="w-4 h-4" />
+              </button>
             )}
-          </div>
-          <div className="flex items-center gap-2 min-w-0 shrink">
             {hasSelection && (
               <TextFindBar
                 compact
@@ -584,27 +694,33 @@ export default function WritePage() {
                 <span className="hidden sm:inline">下载</span>
               </button>
             )}
-            <a href={`/novel/${novelId}/read`} className="text-sm text-muted-foreground hover:text-foreground shrink-0 px-1">
-              阅读
-            </a>
           </div>
         </div>
 
         {!hasSelection ? (
           <div className="flex-1 flex items-center justify-center min-h-0">
-            <div className="text-center px-6">
+            <div className="text-center px-6 max-w-sm">
               <GitBranch className="w-10 h-10 mx-auto mb-3 text-fog" />
               <p className="text-sm text-muted-foreground mb-1">请先选择写作分支</p>
               <p className="text-sm text-fog leading-relaxed mb-4">
-                点选「主线」、某个分支或「自由创作」后，才会打开助手面板。
+                使用顶部下拉选择「主线」、分支或「自由创作」。
               </p>
-              <button
-                type="button"
-                onClick={() => setBranchDrawerOpen(true)}
-                className="lg:hidden inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm bg-primary hover:brightness-110 text-primary-foreground"
+              <select
+                value=""
+                onChange={(e) => onBranchSelectChange(e.target.value)}
+                className="bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground"
               >
-                <GitBranch className="w-4 h-4" /> 选择分支
-              </button>
+                <option value="" disabled>
+                  选择分支…
+                </option>
+                <option value="main">主线</option>
+                {branches.filter((b) => b.id !== "main").map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name || b.id}
+                  </option>
+                ))}
+                <option value="__free__">✦ 自由创作</option>
+              </select>
             </div>
           </div>
         ) : (

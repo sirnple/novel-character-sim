@@ -1,0 +1,8 @@
+{
+  "name": "list-projects",
+  "description": "List all Railway projects accessible to the authenticated user",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  }
+}

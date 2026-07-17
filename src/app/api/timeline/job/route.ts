@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     const job = startTimelineJob({ userId, novelId, branchId });
     return NextResponse.json({
       job,
-      message: `时间线任务已启动（共 ${job.total} 个单元，后台运行，可在阅读页查看进度）`,
+      message: `时间线任务已启动（共 ${job.total} 个单元，后台运行，可在写作页时间线查看进度）`,
     });
   } catch (e) {
     return NextResponse.json(

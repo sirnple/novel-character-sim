@@ -1,0 +1,60 @@
+{
+  "name": "get-logs",
+  "description": "Get logs from Railway for a deployment — covers deploy (runtime), build, and http (proxy request) contexts. Pass a specific deploymentId, or pass serviceId + environmentId to resolve the latest deployment. Use `types` to choose which streams to return (default: ['deploy']).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectId": {
+        "type": "string",
+        "description": "The project ID"
+      },
+      "deploymentId": {
+        "type": "string",
+        "description": "A specific deployment ID. If omitted, serviceId and environmentId must be provided to resolve the most recent deployment."
+      },
+      "serviceId": {
+        "type": "string",
+        "description": "Service ID (used together with environmentId when deploymentId is not given)"
+      },
+      "environmentId": {
+        "type": "string",
+        "description": "Environment ID (used together with serviceId when deploymentId is not given)"
+      },
+      "types": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "build",
+            "deploy",
+            "http"
+          ]
+        },
+        "description": "Which log streams to fetch. Defaults to ['deploy']. Pass any combination of 'build', 'deploy', and 'http'."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "description": "Max log entries per stream (default 100, max 500)"
+      },
+      "filter": {
+        "type": "string",
+        "description": "Optional log filter expression (Loki-style, same syntax as the Railway dashboard). Applies to build and deploy streams."
+      },
+      "startDate": {
+        "type": "string",
+        "description": "ISO timestamp for the start of the log window"
+      },
+      "endDate": {
+        "type": "string",
+        "description": "ISO timestamp for the end of the log window (defaults to now)"
+      }
+    },
+    "required": [
+      "projectId"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

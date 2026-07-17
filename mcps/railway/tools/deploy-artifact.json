@@ -1,0 +1,49 @@
+{
+  "name": "deploy-artifact",
+  "description": "Deploy a self-contained artifact (a static HTML page, a React component, an SVG, a Mermaid diagram, Markdown, or raw code) to Railway as a Function and return its public URL. Creates a new Function service, or updates an existing one's code when serviceId is given, then commits and waits for the deploy. The artifact is served over HTTP on the Bun runtime — no repo, build step, or file upload needed. Content must be a single self-contained string under 100 KB; for larger or multi-file apps, deploy from a repo or image instead. Note: committing applies any other staged changes in the environment too.\n\nINTENDED USE: this tool is for Claude Artifacts (HTML, React, SVG, Mermaid, Markdown, or code snippets) and is designed for use with Claude models — i.e. taking an artifact the model produced in the conversation and putting it online. It is NOT the general way to deploy a Railway Function. When the user asks to deploy actual Function code (a cron job, webhook receiver, API, or any TypeScript/Bun function they wrote or described), do NOT use this tool — defer to the `railway-agent` tool and pass the code through to it; the agent will create/update the function and deploy it.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectId": {
+        "type": "string",
+        "description": "The project to deploy into"
+      },
+      "environmentId": {
+        "type": "string",
+        "description": "Environment to deploy to. Defaults to `production` if present, otherwise the project's oldest environment."
+      },
+      "serviceId": {
+        "type": "string",
+        "description": "Existing Function service to update in place. Omit to create a new Function."
+      },
+      "name": {
+        "type": "string",
+        "description": "Name for the Function service (used when creating)."
+      },
+      "artifactType": {
+        "type": "string",
+        "enum": [
+          "html",
+          "react",
+          "svg",
+          "mermaid",
+          "markdown",
+          "code"
+        ],
+        "description": "The kind of artifact: 'html' (a full HTML document), 'react' (a single component with a default export), 'svg', 'mermaid', 'markdown', or 'code' (served as plain text)."
+      },
+      "content": {
+        "type": "string",
+        "description": "The full artifact content as a single string."
+      }
+    },
+    "required": [
+      "projectId",
+      "name",
+      "artifactType",
+      "content"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}
