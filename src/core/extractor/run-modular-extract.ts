@@ -277,10 +277,35 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
 
   // ---- Phase 2: timeline (async full job — does not block HTTP) ----
   if (want("timeline")) {
-    // Prefer form before timeline so units use real chapters when available
-    if (!result.form && !want("form")) {
+    // Hard dependency (D7): form/catalog before timeline units when possible
+    if (!result.form) {
       result.form = getNovelForm(userId, novelId);
     }
+    if (!result.form) {
+      // Auto-run form once when missing (e.g. timeline-only selection).
+      // Skip when phase1 already ran form (result.form would be set).
+      console.log("[Extract] timeline requires form first — analyzing form...");
+      const llm = createLLMProvider();
+      const formResult = await runWithTokenContext({ agentId: "extract_form" }, () =>
+        analyzeNovelForm(novelId, text, llm),
+      );
+      saveNovelForm(userId, novelId, formResult.profile);
+      ensureMainBranch(userId, novelId);
+      if (formResult.profile.chaptering.enabled && formResult.catalog.length > 0) {
+        const existing = getBranchChapterMeta(userId, novelId, branchId);
+        saveBranchChapterMeta(userId, {
+          ...existing,
+          novelId,
+          branchId,
+          chapters: formResult.catalog,
+          chapterBoundary: existing.chapterBoundary || "closed",
+        });
+      }
+      result.form = formResult.profile;
+      result.chapterCatalogCount = formResult.catalog.length;
+      if (!result.ran.includes("form")) result.ran.push("form");
+    }
+
     const cached = !forceRefresh ? getTimeline(userId, novelId) : null;
     if (cached && cached.chapters?.length && !forceRefresh) {
       result.timeline = cached;
