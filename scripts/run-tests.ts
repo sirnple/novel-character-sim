@@ -13,6 +13,7 @@ import { runTextWindowTests } from "./tests/text-window.test";
 import { runBranchCowTests } from "./tests/branch-cow.test";
 import { runChapterCatalogTests } from "./tests/chapter-catalog.test";
 import { runFormContextTests } from "./tests/form-context.test";
+import { runAcceptChapterMetaTests } from "./tests/accept-chapter-meta.test";
 
 function main() {
   resetCounters();
@@ -28,6 +29,7 @@ function main() {
   runBranchCowTests();
   runChapterCatalogTests();
   runFormContextTests();
+  runAcceptChapterMetaTests();
 
   const { failed } = summary();
   if (failed > 0) process.exitCode = 1;
