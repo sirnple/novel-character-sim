@@ -1,6 +1,6 @@
 /**
- * Modular analysis: user selects modules (UI: 分析).
- * modules: story | characters | form | timeline | style | ideas
+ * Modular analysis (UI: 分析). Product default: run all modules.
+ * Optional modules[] for API/ops; omitted/empty → ALL modules.
  *
  * Parallelism:
  * - Phase 1: story / characters / style / ideas / form
@@ -71,10 +71,11 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
   const forceRefresh = !!input.forceRefresh;
   let modules: ExtractModule[] = Array.isArray(input.modules)
     ? input.modules.filter((m) => ALL.includes(m))
-    : ["story", "characters"];
+    : [...ALL];
 
+  // Empty selection → full analysis (product default; partial pick is ops-only later)
   if (modules.length === 0) {
-    throw new Error("请至少选择一个分析模块");
+    modules = [...ALL];
   }
   const branchId = input.branchId || "main";
 

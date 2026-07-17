@@ -240,16 +240,24 @@ export const EXTRACT_MODULES: { id: ExtractModule; label: string; hint: string }
   { id: "form", label: "形态/章法", hint: "本书：是否分章、章名格式样例、叙事骨架（契约·骨；不进文笔库）" },
   { id: "style", label: "文笔", hint: "写入文笔库：句式/语气/范文，可嫁接到其他书（契约·肌理）" },
   { id: "ideas", label: "点子", hint: "写入点子库：可迁移续写火花（非正典，选用）" },
-  { id: "timeline", label: "时间线", hint: "本书/分支：按章或段的事件进度（较慢，异步；默认不勾）" },
+  { id: "timeline", label: "时间线", hint: "本书/分支：按章或段的事件进度（较慢，异步后台）" },
 ];
 
-/** Smart defaults for 分析 panel (timeline off by design). */
-export const DEFAULT_ANALYSIS_MODULES: ExtractModule[] = [
+/** All analysis modules — product default is one-click full run (no user checkboxes). */
+export const ALL_ANALYSIS_MODULES: ExtractModule[] = [
   "story",
   "characters",
   "form",
   "style",
+  "ideas",
+  "timeline",
 ];
+
+/**
+ * @deprecated Prefer ALL_ANALYSIS_MODULES. Kept as alias for callers.
+ * Ops may later reintroduce partial selection; until then UI always runs all.
+ */
+export const DEFAULT_ANALYSIS_MODULES: ExtractModule[] = ALL_ANALYSIS_MODULES;
 
 // --- Form / chaptering (novel-level bone) ---
 

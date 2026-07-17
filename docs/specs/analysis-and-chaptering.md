@@ -46,7 +46,7 @@ Internal code may still use `style` / `style_library` IDs; UI says **文笔库**
 | # | Topic | Decision |
 |---|--------|----------|
 | D1 | Naming | User-facing: **「分析」** only. Internal may use form/extract. |
-| D2 | Analysis UI | Checkbox center + **smart defaults**. Default on: story, characters, form, style. **Timeline default off**. |
+| D2 | Analysis UI | **One-click full analysis** (all modules). Module checkboxes deferred to ops; not user-facing for now. |
 | D3 | Uncertain form | **Conservative:** `chaptering.enabled = false` (no forced chapter titles). |
 | D4 | Chapter boundary after accept | **Hybrid:** outline intent first; if conflicts with prose evidence, **prose wins**. |
 | D5 | Storage layers | **Form profile @ novel**. **Boundary + `chapters[]` catalog @ branch** (copy on fork). |
