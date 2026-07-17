@@ -65,7 +65,10 @@ export default function ExtractModulesPanel({
           : data.ran?.includes("form")
             ? "；章法：弱分章/不分章（保守）"
             : "";
-      setLastResult(`完成：${ran}${skipped ? `；跳过：${skipped}` : ""}${formNote}`);
+      const tlNote = data.timelineJobId
+        ? `；时间线已后台启动（任务 ${String(data.timelineJobId).slice(0, 12)}…，可在阅读页查看进度）`
+        : "";
+      setLastResult(`完成：${ran}${skipped ? `；跳过：${skipped}` : ""}${formNote}${tlNote}`);
       // Refresh global library sidebar (styles / ideas / novels) without full page reload
       notifyLibrariesRefresh();
       onDone?.(data);

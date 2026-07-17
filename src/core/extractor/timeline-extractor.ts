@@ -119,27 +119,64 @@ export class TimelineExtractor {
       const ch = chapters[ci];
       console.log(`[TimelineExtractor] Ch ${ci + 1}/${chapters.length}: ${ch.title} (${ch.content.length} chars)`);
 
-      // Extract events
-      const events = await this.extractChapterEvents(llm, ch.title, ci + 1, ch.content, globalSequence);
-      globalSequence += events.length;
-
-      // Extract end-of-chapter character states
-      const charStates = await this.extractCharacterStates(llm, ch.title, ci + 1, ch.content, prevStates);
-
-      snapshots.push({
-        chapterNumber: ci + 1,
-        title: ch.title,
-        events,
-        characterStates: charStates
-      });
-
-      prevStates = charStates;
+      const { snapshot, nextSeq, nextStates } = await this.extractOneUnit(
+        llm,
+        ch.title,
+        ci + 1,
+        ch.content,
+        globalSequence,
+        prevStates,
+      );
+      globalSequence = nextSeq;
+      snapshots.push(snapshot);
+      prevStates = nextStates;
     }
 
     return {
       novelId: "",
       totalChapters: chapters.length,
       chapters: snapshots
+    };
+  }
+
+  /**
+   * Process a single narrative unit (chapter / scene / window) for async jobs.
+   */
+  async extractOneUnit(
+    llm: ReturnType<typeof createLLMProvider>,
+    unitTitle: string,
+    unitNumber: number,
+    unitText: string,
+    startSeq: number,
+    prevStates: CharacterChapterState[],
+  ): Promise<{
+    snapshot: import("@/types").ChapterSnapshot;
+    nextSeq: number;
+    nextStates: CharacterChapterState[];
+  }> {
+    const events = await this.extractChapterEvents(
+      llm,
+      unitTitle,
+      unitNumber,
+      unitText,
+      startSeq,
+    );
+    const charStates = await this.extractCharacterStates(
+      llm,
+      unitTitle,
+      unitNumber,
+      unitText,
+      prevStates,
+    );
+    return {
+      snapshot: {
+        chapterNumber: unitNumber,
+        title: unitTitle,
+        events,
+        characterStates: charStates,
+      },
+      nextSeq: startSeq + events.length,
+      nextStates: charStates,
     };
   }
 

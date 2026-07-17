@@ -38,6 +38,8 @@ export default function ReadPage() {
   const [loadingText, setLoadingText] = useState(false);
   const [branchList, setBranchList] = useState<BranchMeta[]>([]);
   const [catalog, setCatalog] = useState<ChapterCatalogEntry[]>([]);
+  const [jobUnits, setJobUnits] = useState<RailUnit[] | null>(null);
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
 
   const displayText = fullBody;
   const find = useTextFind(displayText);
@@ -46,8 +48,8 @@ export default function ReadPage() {
   const scrollOffset = useApproxScrollOffset(readerRef, displayText.length);
 
   const railUnits: RailUnit[] = useMemo(() => {
+    if (jobUnits && jobUnits.length > 0) return jobUnits;
     if (catalog.length > 0) return catalogToRailUnits(catalog);
-    // Fallback: timeline chapter titles without offsets (jump disabled via offset 0)
     const chs = timeline?.chapters || [];
     if (!chs.length) return [];
     return chs.map((c, i) => ({
@@ -57,7 +59,7 @@ export default function ReadPage() {
       summary: c.events?.[0]?.description?.slice(0, 80),
       status: "ready" as const,
     }));
-  }, [catalog, timeline]);
+  }, [catalog, timeline, jobUnits]);
 
   useEffect(() => {
     if (!novelId) return;
@@ -79,6 +81,59 @@ export default function ReadPage() {
         if (d.meta?.chapters) setCatalog(d.meta.chapters);
       })
       .catch(() => {});
+  }, [novelId, selectedBranchId]);
+
+  // Poll latest timeline job for this branch (async full analysis)
+  useEffect(() => {
+    if (!novelId || !selectedBranchId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(
+          `/api/timeline/job?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(selectedBranchId)}`,
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const job = data.latest;
+        if (!job || cancelled) return;
+        setJobStatus(
+          job.status === "running" || job.status === "queued"
+            ? `${job.completed}/${job.total}`
+            : job.status,
+        );
+        if (Array.isArray(job.units)) {
+          setJobUnits(
+            job.units.map((u: any) => ({
+              id: u.unitId,
+              label: u.label,
+              startOffset: u.startOffset ?? 0,
+              endOffset: u.endOffset,
+              summary: u.summary,
+              status:
+                u.status === "done"
+                  ? "ready"
+                  : u.status === "error"
+                    ? "error"
+                    : u.status === "running" || u.status === "pending"
+                      ? "pending"
+                      : "ready",
+            })),
+          );
+        }
+        if (job.status === "running" || job.status === "queued") {
+          timer = setTimeout(poll, 2500);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [novelId, selectedBranchId]);
 
   const branches = branchList.length ? branchList : (ctxBranches as BranchMeta[]);
@@ -252,7 +307,13 @@ export default function ReadPage() {
       <div ref={scrollRef} className="flex-1 flex min-h-0 overflow-hidden">
         <div className="hidden sm:flex">
           <ReaderTimelineRail
-            title={catalog.length ? "目录 / 时间线" : "时间线"}
+            title={
+              jobStatus && (jobStatus.includes("/") || jobStatus === "running")
+                ? `时间线 ${jobStatus}`
+                : catalog.length || jobUnits?.length
+                  ? "目录 / 时间线"
+                  : "时间线"
+            }
             units={railUnits}
             scrollOffset={scrollOffset}
             onJump={jumpToOffset}

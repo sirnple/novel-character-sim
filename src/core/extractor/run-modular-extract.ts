@@ -9,12 +9,12 @@
 import { parseNovel } from "@/core/parser/novel-parser";
 import { CharacterExtractor } from "@/core/extractor/character-extractor";
 import { StoryExtractor } from "@/core/extractor/story-extractor";
-import { TimelineExtractor } from "@/core/extractor/timeline-extractor";
 import { extractWritingStyle } from "@/core/extractor/style-extractor";
 import { extractIdeas } from "@/core/extractor/idea-extractor";
 import { analyzeNovelForm } from "@/core/form/form-analyzer";
+import { startTimelineJob } from "@/core/form/timeline-job";
 import {
-  saveNovel, saveStoryInfo, saveCharacters, saveTimeline, saveChapterStates,
+  saveNovel, saveStoryInfo, saveCharacters,
   getStoryInfo, getCharacters, getTimeline, getChapterStates, getNovel,
   saveGenerationLog,
   upsertExtractedStyle, replaceExtractedIdeas, listStyles, listIdeas,
@@ -49,6 +49,8 @@ export interface ModularExtractResult {
   ideas?: IdeaLibraryEntry[];
   form?: NovelFormProfile | null;
   chapterCatalogCount?: number;
+  /** Async timeline job id when timeline module selected */
+  timelineJobId?: string;
   ran: ExtractModule[];
   skipped: { module: ExtractModule; reason: string }[];
 }
@@ -273,34 +275,43 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
     }
   }
 
-  // ---- Phase 2: timeline (needs character names) ----
+  // ---- Phase 2: timeline (async full job — does not block HTTP) ----
   if (want("timeline")) {
+    // Prefer form before timeline so units use real chapters when available
+    if (!result.form && !want("form")) {
+      result.form = getNovelForm(userId, novelId);
+    }
     const cached = !forceRefresh ? getTimeline(userId, novelId) : null;
-    if (cached && !forceRefresh) {
+    if (cached && cached.chapters?.length && !forceRefresh) {
       result.timeline = cached;
       result.lastChapterStates = getChapterStates(userId, novelId);
-      result.skipped.push({ module: "timeline", reason: "已有缓存" });
-    } else {
-      console.log("[Extract] timeline...");
-      const names = (result.characters || getCharacters(userId, novelId)).map((c) => c.name);
-      const timeline = await runWithTokenContext({ agentId: "extract_timeline" }, () =>
-        new TimelineExtractor(parsed, names).extract(),
-      );
-      saveTimeline(userId, novelId, timeline);
-      const lastChapterStates =
-        timeline.chapters.length > 0
-          ? timeline.chapters[timeline.chapters.length - 1].characterStates
-          : [];
-      saveChapterStates(userId, novelId, lastChapterStates);
-      saveGenerationLog({
-        id: crypto.randomUUID(), userId, novelId, category: "extract", label: "时间线提取",
-        inputSummary: text.slice(0, 200),
-        outputPreview: `${timeline.totalChapters}章`,
-        fullOutput: JSON.stringify(timeline),
-      });
-      result.timeline = timeline;
-      result.lastChapterStates = lastChapterStates;
+      result.skipped.push({ module: "timeline", reason: "已有缓存（仍可后台重跑）" });
+    }
+    try {
+      console.log("[Extract] timeline → async job");
+      const job = startTimelineJob({ userId, novelId, branchId });
+      result.timelineJobId = job.id;
       result.ran.push("timeline");
+      saveGenerationLog({
+        id: crypto.randomUUID(),
+        userId,
+        novelId,
+        category: "extract",
+        label: "时间线异步任务",
+        inputSummary: text.slice(0, 200),
+        outputPreview: `job=${job.id} units=${job.total}`,
+        fullOutput: JSON.stringify({ jobId: job.id, total: job.total }),
+      });
+    } catch (e) {
+      console.warn("[Extract] timeline job failed to start:", (e as Error).message);
+      result.skipped.push({
+        module: "timeline",
+        reason: (e as Error).message || "启动失败",
+      });
+    }
+    if (!result.timeline) {
+      result.timeline = getTimeline(userId, novelId);
+      result.lastChapterStates = getChapterStates(userId, novelId);
     }
   } else {
     result.timeline = getTimeline(userId, novelId);
