@@ -5,18 +5,23 @@ import {
   appendBranchContent,
   ensureMainBranch,
   getBranch,
+  getBranchChapterMeta,
   getBranchProse,
   getForeshadowingLedger,
+  getNovelForm,
   resolveBranchText,
+  saveBranchChapterMeta,
   saveForeshadowingLedger,
 } from "@/lib/db";
 import {
   getForeshadowRealization,
+  getOutline,
   getProse,
   saveProse,
 } from "@/core/agents/intermediate-store";
 import { commitRealization } from "@/core/foreshadowing/commit";
 import type { ForeshadowingRealization } from "@/core/foreshadowing/types";
+import { extractChapterCatalog } from "@/core/form/chapter-catalog";
 
 export interface AcceptContinuationInput {
   userId: string;
@@ -114,6 +119,13 @@ export function acceptContinuation(input: AcceptContinuationInput): AcceptContin
   );
   const afterText = resolveBranchText(userId, novelId, branchId);
 
+  // Chapter boundary + catalog (D: outline intent + prose evidence)
+  try {
+    updateChapterMetaAfterAccept(userId, novelId, branchId, content, afterText);
+  } catch (e) {
+    console.warn("[accept] chapter meta update failed:", (e as Error).message);
+  }
+
   const ledger = getForeshadowingLedger(userId, novelId, branchId);
   const next = commitRealization(ledger, realization);
   saveForeshadowingLedger(next);
@@ -129,6 +141,66 @@ export function acceptContinuation(input: AcceptContinuationInput): AcceptContin
     activeCount: next.active.length,
     ledgerVersion: next.version,
   };
+}
+
+/**
+ * Hybrid chapter boundary: outline keywords + whether draft starts with a chapter title.
+ * If novel form says chaptering disabled, skip.
+ */
+function updateChapterMetaAfterAccept(
+  userId: string,
+  novelId: string,
+  branchId: string,
+  draftChunk: string,
+  fullText: string,
+): void {
+  const form = getNovelForm(userId, novelId);
+  if (form && !form.chaptering.enabled) return;
+
+  const meta = getBranchChapterMeta(userId, novelId, branchId);
+  const outline = (getOutline(novelId, branchId) || "").toString();
+  const outlineWantsClose =
+    /收束|完成本章|章末|新开一章|下一章|第\s*\d+\s*章|分为\s*\d+\s*章/.test(outline);
+  const outlineWantsContinue =
+    /续写本章|接续本章|同一章|不新开章|章内/.test(outline);
+
+  const draftHead = draftChunk.trim().slice(0, 80);
+  const proseLooksNewChapter = /^第\s*[\d一二三四五六七八九十百千零〇两]+\s*章/.test(draftHead);
+
+  // D: outline first, conflict → prose
+  let boundary: "open" | "closed" = meta.chapterBoundary || "closed";
+  if (outlineWantsContinue && !outlineWantsClose) boundary = "open";
+  else if (outlineWantsClose) boundary = "closed";
+  if (proseLooksNewChapter) boundary = "closed";
+  else if (outlineWantsContinue) boundary = "open";
+
+  // Rebuild catalog from full text (program); keep it cheap
+  const catalog = extractChapterCatalog(fullText, form?.chaptering);
+  const last = catalog[catalog.length - 1];
+
+  saveBranchChapterMeta(userId, {
+    ...meta,
+    novelId,
+    branchId,
+    chapterBoundary: boundary,
+    chapters: catalog.length ? catalog : meta.chapters,
+    lastClosedChapter:
+      boundary === "closed" && last
+        ? {
+            number: last.number,
+            title: last.title,
+            endOffset: last.endOffset ?? fullText.length,
+          }
+        : meta.lastClosedChapter,
+    openChapter:
+      boundary === "open" && last
+        ? {
+            number: last.number,
+            title: last.title,
+            startedAtOffset: last.startOffset,
+          }
+        : undefined,
+  });
 }
 
 export function formatAcceptHint(r: AcceptContinuationResult): string {

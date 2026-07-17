@@ -62,7 +62,11 @@ export default function NovelPage() {
         <div className="bg-card border border-border rounded-xl p-5 sm:p-6">
           <ExtractModulesPanel
             novelId={novelId}
-            defaultModules={storyInfo ? ["style", "ideas"] : ["story", "characters", "style", "ideas"]}
+            defaultModules={
+              storyInfo
+                ? ["form", "style", "ideas"]
+                : undefined /* DEFAULT_ANALYSIS_MODULES in panel */
+            }
             onDone={(data) => {
               setNovel({
                 characters: data.characters ?? characters,

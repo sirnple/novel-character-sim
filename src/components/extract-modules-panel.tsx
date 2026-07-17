@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
-import { EXTRACT_MODULES, type ExtractModule } from "@/types";
+import { DEFAULT_ANALYSIS_MODULES, EXTRACT_MODULES, type ExtractModule } from "@/types";
 import { notifyLibrariesRefresh } from "@/lib/library-events";
 
 interface ExtractModulesPanelProps {
@@ -16,7 +16,7 @@ interface ExtractModulesPanelProps {
 export default function ExtractModulesPanel({
   novelId,
   novelText,
-  defaultModules = ["story", "characters"],
+  defaultModules = DEFAULT_ANALYSIS_MODULES,
   onDone,
   compact,
 }: ExtractModulesPanelProps) {
@@ -56,15 +56,21 @@ export default function ExtractModulesPanel({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "拆解失败");
+      if (!res.ok) throw new Error(data.error || "分析失败");
       const ran = (data.ran || []).join("、") || "无";
       const skipped = (data.skipped || []).map((s: any) => `${s.module}(${s.reason})`).join("、");
-      setLastResult(`完成：${ran}${skipped ? `；跳过：${skipped}` : ""}`);
+      const formNote =
+        data.form?.chaptering?.enabled
+          ? `；章法：已分章（目录约 ${data.chapterCatalogCount ?? "?"} 条）`
+          : data.ran?.includes("form")
+            ? "；章法：弱分章/不分章（保守）"
+            : "";
+      setLastResult(`完成：${ran}${skipped ? `；跳过：${skipped}` : ""}${formNote}`);
       // Refresh global library sidebar (styles / ideas / novels) without full page reload
       notifyLibrariesRefresh();
       onDone?.(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "拆解失败");
+      setError(e instanceof Error ? e.message : "分析失败");
     } finally {
       setLoading(false);
     }
@@ -75,9 +81,12 @@ export default function ExtractModulesPanel({
       <div className="flex items-center gap-2">
         <Sparkles className="w-3.5 h-3.5 text-primary" />
         <h3 className="text-sm font-semibold text-muted-foreground">
-          拆解模块
+          分析
         </h3>
       </div>
+      <p className="text-xs text-fog leading-relaxed">
+        智能默认已勾选续写常用项；时间线较慢，默认不勾，可按需开启。
+      </p>
       <div className="space-y-2">
         {EXTRACT_MODULES.map(m => (
           <label

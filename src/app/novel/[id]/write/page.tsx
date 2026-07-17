@@ -11,13 +11,6 @@ import {
   useTextFindSegments,
 } from "@/components/text-find";
 import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
-import {
-  BODY_WINDOW_CHARS,
-  expandEarlier,
-  loadFullWindow,
-  takeTailWindow,
-  type TextWindow,
-} from "@/lib/text-window";
 import VirtualNovelBody, {
   absoluteOffsetFromClick,
   type VirtualChunk,
@@ -47,16 +40,15 @@ export default function WritePage() {
   /** Mobile: branch list drawer (desktop uses permanent rail) */
   const [branchDrawerOpen, setBranchDrawerOpen] = useState(false);
 
-  /** Full body of the selected branch (only one loaded at a time). */
+  /** Full resolved body of the selected branch (virtual scroll mounts only viewport). */
   const [fullBody, setFullBody] = useState("");
   const [bodyLoading, setBodyLoading] = useState(false);
-  const [win, setWin] = useState<TextWindow>(() => takeTailWindow(""));
 
   const activeBranch = branches.find(b => b.id === activeBranchId);
   const hasSelection = freeMode || activeBranchId === "main" || !!activeBranch;
 
-  // Display = windowed body (tail by default for long novels)
-  const bodyText = win.text;
+  // Always full novel text — VirtualNovelBody handles long-scroll DOM cost
+  const bodyText = fullBody;
   const proseText = generatedProse || "";
   const find = useTextFindSegments([bodyText, proseText]);
   useFindShortcut(find.searchInputRef, hasSelection);
@@ -82,9 +74,8 @@ export default function WritePage() {
       .catch(() => {});
   }, [novelId]);
 
-  const applyBody = useCallback((text: string, preferFull = false) => {
-    setFullBody(text);
-    setWin(preferFull || text.length <= BODY_WINDOW_CHARS ? loadFullWindow(text) : takeTailWindow(text));
+  const applyBody = useCallback((text: string) => {
+    setFullBody(text || "");
   }, []);
 
   const loadBranchBody = useCallback(
@@ -149,7 +140,7 @@ export default function WritePage() {
         );
       }
       // Prefer full text if small payload sent; else refetch
-      if (detail.text != null && detail.text.length > 0 && detail.text.length <= BODY_WINDOW_CHARS * 2) {
+      if (detail.text != null && detail.text.length > 0 && detail.text.length <= 200_000) {
         if (activeBranchId === bid || (freeMode && bid === "main")) {
           applyBody(detail.text);
         }
@@ -172,7 +163,7 @@ export default function WritePage() {
 
   // Sync writing target to context — ids/offset only (no full sessionNovelText)
   useEffect(() => {
-    const total = fullBody.length || win.totalLength;
+    const total = fullBody.length;
     if (activeBranchId && activeBranch && !freeMode) {
       setNovel({
         sessionContinueOffset: total,
@@ -206,7 +197,7 @@ export default function WritePage() {
       });
       setActiveBranchId(undefined);
     }
-  }, [activeBranchId, activeBranch?.name, freeMode, fullBody.length, win.totalLength, novelLength, queryOffset, queryLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeBranchId, activeBranch?.name, freeMode, fullBody.length, novelLength, queryOffset, queryLabel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const deleteBranchById = async (branchId: string, name: string) => {
     if (branchId === "main") return;
@@ -279,19 +270,18 @@ export default function WritePage() {
     }
   };
 
-  // Click handler for fork — virtual chunks report absolute offset within bodyText window
+  // Click handler for fork — absolute offset in full novel body
   const handleEditorClick = (e: React.MouseEvent) => {
     if (!bodyText || freeMode) return;
     const el = readerRef.current;
     if (!el) return;
-    const localInWindow = absoluteOffsetFromClick(
+    const abs = absoluteOffsetFromClick(
       el,
       e.clientX,
       e.clientY,
       bodyText.length,
     );
-    if (localInWindow == null) return;
-    const abs = win.baseOffset + localInWindow;
+    if (abs == null) return;
     const ctxStart = Math.max(0, abs - 100);
     const ctxEnd = Math.min(fullBody.length, abs + 100);
     setForkPoint({
@@ -317,24 +307,6 @@ export default function WritePage() {
     setBranchDrawerOpen(false);
   };
 
-  const forkNode =
-    forkPoint && !freeMode ? (
-      <span key="fork" className="inline-flex items-center gap-1.5 mx-1 align-middle">
-        <span className="inline-block w-1.5 h-5 bg-primary animate-pulse rounded-sm" />
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowForkDialog(true);
-            setNewBranchName("");
-          }}
-          className="text-xs font-medium bg-primary hover:brightness-110 text-primary-foreground px-2.5 py-1 rounded-md"
-        >
-          分叉
-        </button>
-      </span>
-    ) : null;
-
   const localMatches = useCallback(
     (global: number[], base: number, len: number) => {
       const out: number[] = [];
@@ -356,13 +328,28 @@ export default function WritePage() {
       let cont: number | null = null;
       let node: React.ReactNode = null;
       if (forkPoint && !freeMode) {
-        const absInWindow = forkPoint.offset - win.baseOffset;
+        const abs = forkPoint.offset;
         if (
-          absInWindow >= chunk.baseOffset &&
-          absInWindow <= chunk.baseOffset + chunk.text.length
+          abs >= chunk.baseOffset &&
+          abs <= chunk.baseOffset + chunk.text.length
         ) {
-          cont = absInWindow - chunk.baseOffset;
-          node = forkNode;
+          cont = abs - chunk.baseOffset;
+          node = (
+            <span key="fork" className="inline-flex items-center gap-1.5 mx-1 align-middle">
+              <span className="inline-block w-1.5 h-5 bg-primary animate-pulse rounded-sm" />
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowForkDialog(true);
+                  setNewBranchName("");
+                }}
+                className="text-xs font-medium bg-primary hover:brightness-110 text-primary-foreground px-2.5 py-1 rounded-md"
+              >
+                分叉
+              </button>
+            </span>
+          );
         }
       }
       return (
@@ -383,15 +370,14 @@ export default function WritePage() {
         </div>
       );
     },
+    // find object identity changes each render; primitive fields listed via usage inside
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable enough: match arrays + query
     [
       find.segmentMatches,
       find.queryLen,
       find.currentIndex,
-      find.matchIndexBase,
       forkPoint,
       freeMode,
-      win.baseOffset,
-      forkNode,
       localMatches,
     ],
   );
@@ -407,7 +393,8 @@ export default function WritePage() {
             matchIndexBase: find.matchIndexBase(1),
           })
         : null,
-    [proseText, find.segmentMatches, find.queryLen, find.currentIndex, find.matchIndexBase],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [proseText, find.segmentMatches, find.queryLen, find.currentIndex],
   );
 
   const charLabel = (b: BranchInfo) =>
@@ -553,7 +540,7 @@ export default function WritePage() {
             </span>
             {hasSelection && (
               <span className="text-fog shrink-0 hidden sm:inline text-xs">
-                {(win.totalLength || novelLength || 0).toLocaleString()} 字
+                {(fullBody.length || novelLength || 0).toLocaleString()} 字
                 {bodyLoading ? " · 加载中" : ""}
               </span>
             )}
@@ -616,28 +603,6 @@ export default function WritePage() {
           </div>
         ) : (
           <div className="flex-1 flex flex-col min-h-0 relative">
-            {win.hasEarlier && (
-              <div className="shrink-0 px-3 sm:px-4 py-2 flex flex-wrap items-center gap-2 text-xs text-fog border-b border-border/40">
-                <span>
-                  全文 {win.totalLength.toLocaleString()} 字，当前窗口{" "}
-                  {bodyText.length.toLocaleString()} 字（虚拟滚动）
-                </span>
-                <button
-                  type="button"
-                  className="text-primary hover:underline"
-                  onClick={() => setWin(expandEarlier(fullBody, win))}
-                >
-                  加载更早内容
-                </button>
-                <button
-                  type="button"
-                  className="text-primary hover:underline"
-                  onClick={() => setWin(loadFullWindow(fullBody))}
-                >
-                  加载全文
-                </button>
-              </div>
-            )}
             {bodyText || freeMode ? (
               <div className="flex-1 flex flex-col min-h-0">
                 <VirtualNovelBody

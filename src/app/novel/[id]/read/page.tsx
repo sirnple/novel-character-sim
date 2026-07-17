@@ -9,17 +9,16 @@ import {
   useScrollToMatch,
   useTextFind,
 } from "@/components/text-find";
-import {
-  BODY_WINDOW_CHARS,
-  expandEarlier,
-  loadFullWindow,
-  takeTailWindow,
-  type TextWindow,
-} from "@/lib/text-window";
 import VirtualNovelBody, {
   absoluteOffsetFromClick,
   type VirtualChunk,
 } from "@/components/virtual-novel-body";
+import ReaderTimelineRail, {
+  catalogToRailUnits,
+  useApproxScrollOffset,
+  type RailUnit,
+} from "@/components/reader-timeline-rail";
+import type { ChapterCatalogEntry } from "@/types";
 
 interface BranchMeta {
   id: string;
@@ -34,15 +33,31 @@ export default function ReadPage() {
   const [continueOffset, setContinueOffset] = useState<number | null>(null);
   const [continueLabel, setContinueLabel] = useState("");
   const [selectedBranchId, setSelectedBranchId] = useState<string>(activeBranchId || "main");
+  /** Full branch text — virtual scroll only mounts viewport chunks. */
   const [fullBody, setFullBody] = useState("");
-  const [win, setWin] = useState<TextWindow>(() => takeTailWindow(""));
   const [loadingText, setLoadingText] = useState(false);
   const [branchList, setBranchList] = useState<BranchMeta[]>([]);
+  const [catalog, setCatalog] = useState<ChapterCatalogEntry[]>([]);
 
-  const displayText = win.text;
+  const displayText = fullBody;
   const find = useTextFind(displayText);
   useFindShortcut(find.searchInputRef);
   useScrollToMatch(readerRef, find.currentIndex, find.matchCount, [find.debouncedQuery, displayText]);
+  const scrollOffset = useApproxScrollOffset(readerRef, displayText.length);
+
+  const railUnits: RailUnit[] = useMemo(() => {
+    if (catalog.length > 0) return catalogToRailUnits(catalog);
+    // Fallback: timeline chapter titles without offsets (jump disabled via offset 0)
+    const chs = timeline?.chapters || [];
+    if (!chs.length) return [];
+    return chs.map((c, i) => ({
+      id: `tl_${c.chapterNumber}_${i}`,
+      label: c.title ? `第${c.chapterNumber}章 ${c.title}` : `第${c.chapterNumber}章`,
+      startOffset: 0,
+      summary: c.events?.[0]?.description?.slice(0, 80),
+      status: "ready" as const,
+    }));
+  }, [catalog, timeline]);
 
   useEffect(() => {
     if (!novelId) return;
@@ -54,7 +69,30 @@ export default function ReadPage() {
       .catch(() => {});
   }, [novelId]);
 
+  useEffect(() => {
+    if (!novelId || !selectedBranchId) return;
+    fetch(
+      `/api/chapter-meta?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(selectedBranchId)}`,
+    )
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.meta?.chapters) setCatalog(d.meta.chapters);
+      })
+      .catch(() => {});
+  }, [novelId, selectedBranchId]);
+
   const branches = branchList.length ? branchList : (ctxBranches as BranchMeta[]);
+
+  const jumpToOffset = useCallback(
+    (startOffset: number) => {
+      const el = readerRef.current;
+      if (!el || !displayText.length) return;
+      const max = el.scrollHeight - el.clientHeight;
+      const ratio = Math.min(1, Math.max(0, startOffset / displayText.length));
+      el.scrollTo({ top: max * ratio, behavior: "smooth" });
+    },
+    [displayText.length],
+  );
 
   const fetchBranchText = useCallback(async (branchId: string) => {
     setLoadingText(true);
@@ -64,18 +102,14 @@ export default function ReadPage() {
       );
       if (res.ok) {
         const data = await res.json();
-        const text = String(data.text || "");
-        setFullBody(text);
-        setWin(text.length <= BODY_WINDOW_CHARS ? loadFullWindow(text) : takeTailWindow(text));
+        setFullBody(String(data.text || ""));
       } else if (branchId !== "main") {
         const mainRes = await fetch(
           `/api/novels?novelId=${encodeURIComponent(novelId)}&branchId=main`,
         );
         if (mainRes.ok) {
           const d = await mainRes.json();
-          const text = String(d.text || "");
-          setFullBody(text);
-          setWin(text.length <= BODY_WINDOW_CHARS ? loadFullWindow(text) : takeTailWindow(text));
+          setFullBody(String(d.text || ""));
           setSelectedBranchId("main");
         }
       }
@@ -87,23 +121,17 @@ export default function ReadPage() {
     fetchBranchText(selectedBranchId);
   }, [selectedBranchId, fetchBranchText]);
 
-  const openWriter = () => {
-    if (continueOffset == null) return;
-    window.location.href = `/novel/${novelId}/write?offset=${continueOffset}&label=${encodeURIComponent(continueLabel)}`;
-  };
-
   const handleClick = (e: React.MouseEvent) => {
     if (!displayText) return;
     const el = readerRef.current;
     if (!el) return;
-    const localInWindow = absoluteOffsetFromClick(
+    const abs = absoluteOffsetFromClick(
       el,
       e.clientX,
       e.clientY,
       displayText.length,
     );
-    if (localInWindow == null) return;
-    const abs = win.baseOffset + localInWindow;
+    if (abs == null) return;
     let chapterNum = 1;
     if (timeline?.chapters) {
       let cum = 0;
@@ -119,18 +147,19 @@ export default function ReadPage() {
 
   const renderChunk = useCallback(
     (chunk: VirtualChunk) => {
-      const matches = (find.matches || []).filter(
-        (m) => m >= chunk.baseOffset && m < chunk.baseOffset + chunk.text.length,
-      ).map((m) => m - chunk.baseOffset);
+      const matches = (find.matches || [])
+        .filter(
+          (m) => m >= chunk.baseOffset && m < chunk.baseOffset + chunk.text.length,
+        )
+        .map((m) => m - chunk.baseOffset);
       let cont: number | null = null;
       let node: React.ReactNode = null;
       if (continueOffset != null) {
-        const absInWindow = continueOffset - win.baseOffset;
         if (
-          absInWindow >= chunk.baseOffset &&
-          absInWindow <= chunk.baseOffset + chunk.text.length
+          continueOffset >= chunk.baseOffset &&
+          continueOffset <= chunk.baseOffset + chunk.text.length
         ) {
-          cont = absInWindow - chunk.baseOffset;
+          cont = continueOffset - chunk.baseOffset;
           node = (
             <span key="continue" className="inline-flex items-center gap-1.5 mx-1 align-middle">
               <span className="inline-block w-1.5 h-5 bg-primary animate-pulse rounded-sm" />
@@ -138,7 +167,8 @@ export default function ReadPage() {
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  openWriter();
+                  if (continueOffset == null) return;
+                  window.location.href = `/novel/${novelId}/write?offset=${continueOffset}&label=${encodeURIComponent(continueLabel)}`;
                 }}
                 className="text-xs font-medium bg-primary hover:brightness-110 text-primary-foreground px-2.5 py-1 rounded-md"
               >
@@ -165,8 +195,14 @@ export default function ReadPage() {
         </div>
       );
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [find.matches, find.queryLen, find.currentIndex, continueOffset, win.baseOffset, openWriter],
+    [
+      find.matches,
+      find.queryLen,
+      find.currentIndex,
+      continueOffset,
+      continueLabel,
+      novelId,
+    ],
   );
 
   return (
@@ -213,39 +249,29 @@ export default function ReadPage() {
         />
       </div>
 
-      {win.hasEarlier && (
-        <div className="shrink-0 px-4 py-2 flex flex-wrap items-center gap-2 text-xs text-fog border-b border-border/40">
-          <span>
-            全文 {win.totalLength.toLocaleString()} 字，窗口{" "}
-            {displayText.length.toLocaleString()} 字（虚拟滚动）
-          </span>
-          <button
-            type="button"
-            className="text-primary hover:underline"
-            onClick={() => setWin(expandEarlier(fullBody, win))}
-          >
-            加载更早内容
-          </button>
-          <button
-            type="button"
-            className="text-primary hover:underline"
-            onClick={() => setWin(loadFullWindow(fullBody))}
-          >
-            加载全文
-          </button>
+      <div ref={scrollRef} className="flex-1 flex min-h-0 overflow-hidden">
+        <div className="hidden sm:flex">
+          <ReaderTimelineRail
+            title={catalog.length ? "目录 / 时间线" : "时间线"}
+            units={railUnits}
+            scrollOffset={scrollOffset}
+            onJump={jumpToOffset}
+          />
         </div>
-      )}
-
-      <div ref={scrollRef} className="flex-1 flex flex-col min-h-0">
-        <VirtualNovelBody
-          text={displayText}
-          scrollerRef={readerRef}
-          onBodyClick={handleClick}
-          renderChunk={renderChunk}
-        />
-        <p className="shrink-0 py-2 text-center text-xs text-fog">
-          点击正文任意位置可插入续写标记
-        </p>
+        <div className="flex-1 flex flex-col min-h-0 min-w-0">
+          <VirtualNovelBody
+            text={displayText}
+            scrollerRef={readerRef}
+            onBodyClick={handleClick}
+            renderChunk={renderChunk}
+          />
+          <p className="shrink-0 py-2 text-center text-xs text-fog">
+            点击正文任意位置可插入续写标记
+            {displayText.length > 0
+              ? ` · 共 ${displayText.length.toLocaleString()} 字`
+              : ""}
+          </p>
+        </div>
       </div>
       <ScrollEdgeButtons scrollRef={readerRef} />
     </div>

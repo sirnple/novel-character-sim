@@ -1,10 +1,10 @@
 /**
- * Modular extraction: user selects which modules to run.
- * modules: story | characters | timeline | style | ideas
+ * Modular analysis: user selects modules (UI: 分析).
+ * modules: story | characters | form | timeline | style | ideas
  *
  * Parallelism:
- * - Phase 1 (independent): story / characters / style / ideas in Promise.all
- * - Phase 2 (depends on character names): timeline after characters ready
+ * - Phase 1: story / characters / style / ideas / form
+ * - Phase 2: timeline after unit split (and characters if needed)
  */
 import { parseNovel } from "@/core/parser/novel-parser";
 import { CharacterExtractor } from "@/core/extractor/character-extractor";
@@ -12,19 +12,24 @@ import { StoryExtractor } from "@/core/extractor/story-extractor";
 import { TimelineExtractor } from "@/core/extractor/timeline-extractor";
 import { extractWritingStyle } from "@/core/extractor/style-extractor";
 import { extractIdeas } from "@/core/extractor/idea-extractor";
+import { analyzeNovelForm } from "@/core/form/form-analyzer";
 import {
   saveNovel, saveStoryInfo, saveCharacters, saveTimeline, saveChapterStates,
   getStoryInfo, getCharacters, getTimeline, getChapterStates, getNovel,
   saveGenerationLog,
   upsertExtractedStyle, replaceExtractedIdeas, listStyles, listIdeas,
+  saveNovelForm, getNovelForm,
+  saveBranchChapterMeta, getBranchChapterMeta, ensureMainBranch,
 } from "@/lib/db";
+import { createLLMProvider } from "@/core/llm/factory";
 import { runWithTokenContext } from "@/lib/token-usage-context";
 import type {
   ExtractModule, StoryInfo, CharacterProfile, ChapterTimeline,
   CharacterChapterState, StyleLibraryEntry, IdeaLibraryEntry, WritingStyle,
+  NovelFormProfile,
 } from "@/types";
 
-const ALL: ExtractModule[] = ["story", "characters", "timeline", "style", "ideas"];
+const ALL: ExtractModule[] = ["story", "characters", "form", "timeline", "style", "ideas"];
 
 export interface ModularExtractInput {
   userId: string;
@@ -32,6 +37,7 @@ export interface ModularExtractInput {
   text?: string;
   modules?: ExtractModule[];
   forceRefresh?: boolean;
+  branchId?: string;
 }
 
 export interface ModularExtractResult {
@@ -41,6 +47,8 @@ export interface ModularExtractResult {
   lastChapterStates?: CharacterChapterState[];
   styles?: StyleLibraryEntry[];
   ideas?: IdeaLibraryEntry[];
+  form?: NovelFormProfile | null;
+  chapterCatalogCount?: number;
   ran: ExtractModule[];
   skipped: { module: ExtractModule; reason: string }[];
 }
@@ -64,8 +72,9 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
     : ["story", "characters"];
 
   if (modules.length === 0) {
-    throw new Error("请至少选择一个拆解模块");
+    throw new Error("请至少选择一个分析模块");
   }
+  const branchId = input.branchId || "main";
 
   const existingNovel = getNovel(userId, novelId);
   let text = input.text;
@@ -95,7 +104,7 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
   const want = (m: ExtractModule) => modules.includes(m);
 
   // ---- resolve cache / skip for phase-1 modules ----
-  type Phase1Key = "story" | "characters" | "style" | "ideas";
+  type Phase1Key = "story" | "characters" | "style" | "ideas" | "form";
   const runPhase1: Phase1Key[] = [];
 
   if (want("story")) {
@@ -120,6 +129,18 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
     }
   } else {
     result.characters = getCharacters(userId, novelId);
+  }
+
+  if (want("form")) {
+    const cached = !forceRefresh ? getNovelForm(userId, novelId) : null;
+    if (cached) {
+      result.form = cached;
+      result.skipped.push({ module: "form", reason: "已有缓存" });
+    } else {
+      runPhase1.push("form");
+    }
+  } else {
+    result.form = getNovelForm(userId, novelId);
   }
 
   if (want("style")) {
@@ -181,6 +202,32 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
       return { mod, writingStyle } as const;
     }
 
+    if (mod === "form") {
+      console.log("[Extract] form (chaptering / architecture)...");
+      const llm = createLLMProvider();
+      const formResult = await runWithTokenContext({ agentId: "extract_form" }, () =>
+        analyzeNovelForm(novelId, text, llm),
+      );
+      saveNovelForm(userId, novelId, formResult.profile);
+      ensureMainBranch(userId, novelId);
+      // Seed main branch catalog when chaptering enabled
+      if (formResult.profile.chaptering.enabled && formResult.catalog.length > 0) {
+        const existing = getBranchChapterMeta(userId, novelId, branchId);
+        saveBranchChapterMeta(userId, {
+          ...existing,
+          novelId,
+          branchId,
+          chapters: formResult.catalog,
+          chapterBoundary: "closed",
+        });
+      }
+      return {
+        mod,
+        form: formResult.profile,
+        chapterCatalogCount: formResult.catalog.length,
+      } as const;
+    }
+
     // ideas
     console.log("[Extract] ideas...");
     const novel = getNovel(userId, novelId);
@@ -201,6 +248,10 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
     } else if (r.mod === "characters") {
       result.characters = r.characters;
       result.ran.push("characters");
+    } else if (r.mod === "form") {
+      result.form = r.form;
+      result.chapterCatalogCount = r.chapterCatalogCount;
+      result.ran.push("form");
     } else if (r.mod === "style") {
       const writingStyle = r.writingStyle;
       if (writingStyle && result.storyInfo) {

@@ -9,6 +9,7 @@ import {
   deleteBranch,
   createCowBranch,
   resolveBranchText,
+  copyBranchChapterMeta,
 } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
@@ -124,6 +125,11 @@ export async function POST(request: NextRequest) {
     copyForeshadowingLedger(userId, novelId, parentId, id);
   } catch (e) {
     console.warn("[branches] copy foreshadowing ledger failed:", (e as Error).message);
+  }
+  try {
+    copyBranchChapterMeta(userId, novelId, parentId, id);
+  } catch (e) {
+    console.warn("[branches] copy chapter meta failed:", (e as Error).message);
   }
   const fullText = resolveBranchText(userId, novelId, id);
   return NextResponse.json({

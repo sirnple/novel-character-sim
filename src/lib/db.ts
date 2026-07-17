@@ -3,6 +3,7 @@ import path from "path";
 import type {
   CharacterProfile, StoryInfo, SimulationState, ChapterTimeline, CharacterChapterState,
   StyleLibraryEntry, IdeaLibraryEntry, WritingStyle,
+  NovelFormProfile, BranchChapterMeta, ChapterCatalogEntry,
 } from "@/types";
 import type { ForeshadowingLedger } from "@/core/foreshadowing/types";
 import { emptyLedger } from "@/core/foreshadowing/types";
@@ -261,6 +262,23 @@ function initSchema(db: Database.Database) {
       PRIMARY KEY (novel_id)
     );
 
+    CREATE TABLE IF NOT EXISTS novel_form (
+      novel_id TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT 'guest',
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (novel_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS branch_chapter_meta (
+      novel_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT 'guest',
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (novel_id, branch_id, user_id)
+    );
+
     CREATE TABLE IF NOT EXISTS branches (
       id TEXT NOT NULL,
       novel_id TEXT NOT NULL,
@@ -503,6 +521,8 @@ export function deleteNovel(userId: string, id: string): void {
     d.prepare("DELETE FROM timelines WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM chapter_states WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM branches WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM novel_form WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM branch_chapter_meta WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM foreshadowing_ledgers WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM drafts WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM simulations WHERE novel_id = ? AND user_id = ?").run(id, userId);
@@ -533,6 +553,104 @@ export function getStoryInfo(userId: string, novelId: string): StoryInfo | null 
   const d = getDb();
   const row = d.prepare("SELECT data FROM story_info WHERE novel_id = ? AND user_id = ?").get(novelId, userId) as any;
   return row ? JSON.parse(row.data) : null;
+}
+
+// ---- Novel form (bone / chaptering) ----
+
+export function saveNovelForm(
+  userId: string,
+  novelId: string,
+  profile: NovelFormProfile,
+): void {
+  const d = getDb();
+  const data = { ...profile, novelId, updatedAt: new Date().toISOString() };
+  d.prepare(
+    `INSERT OR REPLACE INTO novel_form (novel_id, user_id, data, updated_at)
+     VALUES (?, ?, ?, datetime('now'))`,
+  ).run(novelId, userId, JSON.stringify(data));
+}
+
+export function getNovelForm(userId: string, novelId: string): NovelFormProfile | null {
+  const d = getDb();
+  const row = d
+    .prepare("SELECT data FROM novel_form WHERE novel_id = ? AND user_id = ?")
+    .get(novelId, userId) as { data: string } | undefined;
+  if (!row?.data) return null;
+  try {
+    return JSON.parse(row.data) as NovelFormProfile;
+  } catch {
+    return null;
+  }
+}
+
+// ---- Branch chapter meta (boundary + catalog) ----
+
+export function emptyBranchChapterMeta(
+  novelId: string,
+  branchId: string,
+): BranchChapterMeta {
+  return {
+    novelId,
+    branchId,
+    chapterBoundary: "closed",
+    chapters: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function saveBranchChapterMeta(
+  userId: string,
+  meta: BranchChapterMeta,
+): void {
+  const d = getDb();
+  const data = { ...meta, updatedAt: new Date().toISOString() };
+  d.prepare(
+    `INSERT OR REPLACE INTO branch_chapter_meta
+      (novel_id, branch_id, user_id, data, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))`,
+  ).run(meta.novelId, meta.branchId, userId, JSON.stringify(data));
+}
+
+export function getBranchChapterMeta(
+  userId: string,
+  novelId: string,
+  branchId: string,
+): BranchChapterMeta {
+  const d = getDb();
+  const row = d
+    .prepare(
+      "SELECT data FROM branch_chapter_meta WHERE novel_id = ? AND branch_id = ? AND user_id = ?",
+    )
+    .get(novelId, branchId, userId) as { data: string } | undefined;
+  if (!row?.data) return emptyBranchChapterMeta(novelId, branchId);
+  try {
+    const parsed = JSON.parse(row.data) as BranchChapterMeta;
+    return {
+      ...emptyBranchChapterMeta(novelId, branchId),
+      ...parsed,
+      novelId,
+      branchId,
+      chapters: Array.isArray(parsed.chapters) ? parsed.chapters : [],
+    };
+  } catch {
+    return emptyBranchChapterMeta(novelId, branchId);
+  }
+}
+
+/** Copy chapter meta when forking a branch. */
+export function copyBranchChapterMeta(
+  userId: string,
+  novelId: string,
+  fromBranchId: string,
+  toBranchId: string,
+): void {
+  const src = getBranchChapterMeta(userId, novelId, fromBranchId);
+  saveBranchChapterMeta(userId, {
+    ...src,
+    branchId: toBranchId,
+    chapters: JSON.parse(JSON.stringify(src.chapters || [])) as ChapterCatalogEntry[],
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 // ---- Characters ----

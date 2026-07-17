@@ -86,7 +86,11 @@ export default function VirtualNovelBody({
   const [range, setRange] = useState({ start: 0, end: Math.min(chunks.length, 6) });
 
   const recompute = useCallback(() => {
-    const el = scrollerRef.current;
+    // Prefer live prop ref, fall back to inner scroller
+    const el =
+      (scrollerRefProp && "current" in scrollerRefProp
+        ? scrollerRefProp.current
+        : null) || innerRef.current;
     if (!el || chunks.length === 0) return;
     const viewTop = el.scrollTop;
     const viewBottom = viewTop + el.clientHeight;
@@ -102,7 +106,7 @@ export default function VirtualNovelBody({
     if (onScrollOffsetChange && chunks[start]) {
       onScrollOffsetChange(chunks[start].baseOffset);
     }
-  }, [chunks, prefixHeights, onScrollOffsetChange]);
+  }, [chunks, prefixHeights, onScrollOffsetChange, scrollerRefProp]);
 
   useEffect(() => {
     recompute();

@@ -217,16 +217,133 @@ export interface IdeaLibraryEntry {
   createdAt?: string;
 }
 
-/** Modular extraction modules user can select. */
-export type ExtractModule = "story" | "characters" | "timeline" | "style" | "ideas";
+/** Modular analysis modules (user-facing name: 分析). */
+export type ExtractModule =
+  | "story"
+  | "characters"
+  | "timeline"
+  | "style"
+  | "ideas"
+  | "form";
 
 export const EXTRACT_MODULES: { id: ExtractModule; label: string; hint: string }[] = [
-  { id: "story", label: "故事/世界观", hint: "情节摘要、主线、世界观" },
+  { id: "story", label: "故事/世界观", hint: "情节摘要、主线、世界观（故事之肉）" },
   { id: "characters", label: "角色", hint: "角色档案与关系" },
-  { id: "timeline", label: "时间线", hint: "章节事件与末章状态" },
-  { id: "style", label: "风格", hint: "写入全局风格库（原著文风）" },
+  { id: "form", label: "形态/章法", hint: "是否分章、章名风格、叙事骨架（文本之骨）" },
+  { id: "style", label: "文笔", hint: "句式、修辞、文风样例（语言肌理）" },
   { id: "ideas", label: "点子", hint: "写入全局点子库（续写火花）" },
+  { id: "timeline", label: "时间线", hint: "按章/段事件（较慢，异步；默认不勾）" },
 ];
+
+/** Smart defaults for 分析 panel (timeline off by design). */
+export const DEFAULT_ANALYSIS_MODULES: ExtractModule[] = [
+  "story",
+  "characters",
+  "form",
+  "style",
+];
+
+// --- Form / chaptering (novel-level bone) ---
+
+export type NovelFormType =
+  | "web_novel"
+  | "trad_novel"
+  | "novella"
+  | "short_story"
+  | "essay_prose"
+  | "epistolary"
+  | "script_like"
+  | "mixed"
+  | "unknown";
+
+export type UnitPresence = "present" | "absent" | "weak";
+
+export interface ChapterTitleStyle {
+  enabled: boolean;
+  /** Confidence 0–1; below threshold → treat as disabled (conservative). */
+  confidence: number;
+  numbering:
+    | "arabic_di_n_zhang"
+    | "chinese_di_n_zhang"
+    | "volume_chapter"
+    | "none"
+    | "other";
+  titlePattern: string;
+  separator: string;
+  samples: string[];
+  chapterEndTendency?: "cliffhanger" | "closure" | "mixed" | "unknown";
+  avgChapterLengthChars?: number;
+}
+
+export interface NovelFormProfile {
+  novelId: string;
+  formType: NovelFormType;
+  unitHierarchy: {
+    volume: UnitPresence;
+    chapter: UnitPresence;
+    section: UnitPresence;
+  };
+  chaptering: ChapterTitleStyle;
+  narrativeArchitecture: {
+    primaryTemplate:
+      | "three_act"
+      | "episodic"
+      | "multi_plot"
+      | "chronicle"
+      | "quest"
+      | "slice_of_life"
+      | "loose"
+      | "unknown";
+    genreHints: string[];
+    evidenceNotes: string;
+    povScheme: string;
+    timeScheme: "linear" | "nonlinear" | "mixed" | "unknown";
+  };
+  /** Short executable rules for outline/writer agents. */
+  continuationRules: string[];
+  updatedAt?: string;
+}
+
+// --- Branch chapter progress (branch-level) ---
+
+export type ChapterBoundary = "open" | "closed";
+
+export interface ChapterCatalogEntry {
+  id: string;
+  number?: number;
+  title: string;
+  startOffset: number;
+  endOffset?: number;
+  /** How this entry was produced */
+  source: "regex" | "llm_patch" | "accept" | "manual";
+}
+
+export interface BranchChapterMeta {
+  novelId: string;
+  branchId: string;
+  /** open = mid-chapter; closed = ready for new chapter title */
+  chapterBoundary: ChapterBoundary;
+  openChapter?: { number?: number; title?: string; startedAtOffset: number };
+  lastClosedChapter?: { number?: number; title?: string; endOffset: number };
+  chapters: ChapterCatalogEntry[];
+  updatedAt?: string;
+}
+
+/** Unified narrative unit for timeline (chapter | window | scene | …). */
+export type NarrativeUnitKind =
+  | "chapter"
+  | "window"
+  | "scene"
+  | "date_marker"
+  | "anchor";
+
+export interface NarrativeUnit {
+  unitId: string;
+  unitKind: NarrativeUnitKind;
+  startOffset: number;
+  endOffset: number;
+  label: string;
+}
 
 export interface ContentRating {
   /** e.g., "无", "轻度暧昧", "情色描写", "露骨色情" */
