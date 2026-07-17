@@ -12,6 +12,7 @@ import { runAcceptContinuationTests } from "./tests/accept-continuation.test";
 import { runTextWindowTests } from "./tests/text-window.test";
 import { runBranchCowTests } from "./tests/branch-cow.test";
 import { runChapterCatalogTests } from "./tests/chapter-catalog.test";
+import { runFormContextTests } from "./tests/form-context.test";
 
 function main() {
   resetCounters();
@@ -26,6 +27,7 @@ function main() {
   runTextWindowTests();
   runBranchCowTests();
   runChapterCatalogTests();
+  runFormContextTests();
 
   const { failed } = summary();
   if (failed > 0) process.exitCode = 1;
