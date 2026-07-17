@@ -8,9 +8,10 @@ import {
   Users,
   Check,
   Minus,
-  ChevronRight,
 } from "lucide-react";
-import StoryInfoPanel from "@/components/story-info-panel";
+import StoryInfoPanel, {
+  CharacterPreviewCard,
+} from "@/components/story-info-panel";
 import ExtractModulesPanel from "@/components/extract-modules-panel";
 import FormSummaryCard from "@/components/form-summary-card";
 import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
@@ -23,8 +24,9 @@ interface BranchInfo {
 }
 
 /**
- * Overview = browse book materials (原著资料).
- * Navigation (read/write) is quiet text links; analysis is a footer maintenance action.
+ * Overview = browse book materials.
+ * Large preview cards; details open in floating sheets (no accordion clutter).
+ * Analysis is footer maintenance only.
  */
 export default function NovelPage() {
   const {
@@ -90,53 +92,45 @@ export default function NovelPage() {
 
   return (
     <div className="flex-1 overflow-y-auto custom-scrollbar bg-background">
-      <div className="max-w-5xl mx-auto px-4 py-5 sm:px-6 sm:py-6">
-        {/* ── 1. Identity + quiet navigation (not a CTA bar) ── */}
-        <header className="pb-4 border-b border-border/60">
-          <div className="min-w-0 border-l-2 border-primary/70 pl-3">
-            <h1 className="text-xl sm:text-2xl font-semibold text-foreground tracking-tight truncate leading-snug">
+      <div className="max-w-5xl mx-auto px-4 py-6 sm:px-8 sm:py-8">
+        {/* Identity */}
+        <header className="mb-8">
+          <div className="min-w-0 border-l-[3px] border-primary pl-4">
+            <h1 className="text-2xl sm:text-[1.75rem] font-semibold text-foreground tracking-tight truncate leading-snug">
               {novelTitle || "未命名"}
             </h1>
-            <p className="mt-1.5 text-xs text-muted-foreground tabular-nums">
+            <p className="mt-2 text-sm text-muted-foreground tabular-nums">
               {(novelLength || 0).toLocaleString()} 字
-              <span className="mx-1.5 text-border">·</span>
+              <span className="mx-2 text-border">·</span>
               {characters.length} 角色
-              <span className="mx-1.5 text-border">·</span>
+              <span className="mx-2 text-border">·</span>
               资料 {readyCount}/{statusItems.length}
             </p>
           </div>
+          <div className="flex flex-wrap gap-2 mt-4 pl-4">
+            {statusItems.map((c) => (
+              <span
+                key={c.id}
+                className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full ${
+                  c.ok
+                    ? "bg-secondary text-muted-foreground"
+                    : "border border-dashed border-border/80 text-fog"
+                }`}
+              >
+                {c.ok ? (
+                  <Check className="w-3.5 h-3.5 text-primary" />
+                ) : (
+                  <Minus className="w-3.5 h-3.5 opacity-40" />
+                )}
+                {c.label}
+              </span>
+            ))}
+          </div>
         </header>
 
-        {/* ── 2. Information browse (main body) ── */}
-        <div className="mt-5 space-y-5">
-          {/* Status legend — read-only, not buttons */}
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-fog mb-2">
-              本书资料
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {statusItems.map((c) => (
-                <span
-                  key={c.id}
-                  className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md ${
-                    c.ok
-                      ? "bg-secondary/80 text-muted-foreground"
-                      : "bg-transparent border border-dashed border-border/70 text-fog"
-                  }`}
-                >
-                  {c.ok ? (
-                    <Check className="w-3 h-3 text-primary" />
-                  ) : (
-                    <Minus className="w-3 h-3 opacity-40" />
-                  )}
-                  {c.label}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Content grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+        {/* Browse: large cards */}
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
             <FormSummaryCard
               novelId={novelId}
               branchId="main"
@@ -145,67 +139,54 @@ export default function NovelPage() {
             {storyInfo ? (
               <StoryInfoPanel storyInfo={storyInfo} />
             ) : (
-              <div className="rounded-xl border border-dashed border-border/60 bg-card/30 p-4 min-h-[8rem] flex flex-col justify-center">
-                <p className="text-xs font-medium text-muted-foreground">故事 / 世界</p>
-                <p className="text-xs text-fog mt-1 leading-relaxed">
-                  分析完成后在此浏览情节与世界观。
+              <div className="min-h-[11rem] sm:min-h-[12.5rem] rounded-2xl border border-dashed border-border/70 bg-card/20 p-5 flex flex-col justify-center">
+                <p className="text-sm font-medium text-muted-foreground">故事 / 世界</p>
+                <p className="text-sm text-fog mt-2 leading-relaxed">
+                  分析完成后点此区域可查看详情。
                 </p>
               </div>
             )}
           </div>
 
-          {/* Characters */}
           <section>
-            <div className="flex items-center gap-2 mb-2">
-              <Users className="w-3.5 h-3.5 text-fog" />
-              <h2 className="text-xs font-medium text-muted-foreground">
-                角色
-              </h2>
-              <span className="text-[10px] text-fog">{characters.length}</span>
+            <div className="flex items-center gap-2 mb-3">
+              <Users className="w-4 h-4 text-fog" />
+              <h2 className="text-sm font-medium text-muted-foreground">角色</h2>
+              <span className="text-xs text-fog">{characters.length}</span>
+              {characters.length > 0 && (
+                <span className="text-xs text-fog">· 点击查看详情</span>
+              )}
             </div>
             {characters.length === 0 ? (
-              <p className="text-xs text-fog py-3 px-1 border border-dashed border-border/50 rounded-lg text-center">
-                暂无角色资料
+              <p className="text-sm text-fog py-8 text-center border border-dashed border-border/50 rounded-2xl">
+                暂无角色
               </p>
             ) : (
-              <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar -mx-0.5 px-0.5">
-                {characters.slice(0, 20).map((c) => (
-                  <div
-                    key={c.id || c.name}
-                    className="shrink-0 w-28 rounded-lg border border-border/50 bg-card px-2.5 py-2"
-                  >
-                    <p className="text-xs font-medium text-foreground truncate">
-                      {c.name}
-                    </p>
-                    <p className="text-[10px] text-fog truncate mt-0.5">
-                      {c.aliases?.[0] ||
-                        c.drive?.goal?.slice(0, 18) ||
-                        "—"}
-                    </p>
-                  </div>
+              <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+                {characters.map((c) => (
+                  <CharacterPreviewCard key={c.id || c.name} character={c} />
                 ))}
               </div>
             )}
           </section>
 
-          {/* Branches */}
           {branches.length > 0 && (
             <section>
-              <div className="flex items-center gap-2 mb-2">
-                <GitBranch className="w-3.5 h-3.5 text-fog" />
-                <h2 className="text-xs font-medium text-muted-foreground">分支</h2>
-                <span className="text-[10px] text-fog">{branches.length}</span>
+              <div className="flex items-center gap-2 mb-3">
+                <GitBranch className="w-4 h-4 text-fog" />
+                <h2 className="text-sm font-medium text-muted-foreground">分支</h2>
+                <span className="text-xs text-fog">{branches.length}</span>
               </div>
-              <ul className="rounded-xl border border-border/60 bg-card divide-y divide-border/40 overflow-hidden">
+              <ul className="rounded-2xl border border-border/70 bg-card divide-y divide-border/40 overflow-hidden">
                 {branches.map((b) => (
                   <li
                     key={b.id}
-                    className="flex items-center gap-2 px-3 py-2.5 text-sm"
+                    className="flex items-center gap-3 px-4 py-3.5"
                   >
-                    <span className="flex-1 min-w-0 truncate text-foreground text-xs sm:text-sm">
+                    <span className="flex-1 min-w-0 truncate text-sm text-foreground">
                       {b.id === "main" ? "主线" : b.name || b.id}
                     </span>
-                    <span className="text-[10px] text-fog tabular-nums shrink-0">
+                    <span className="text-xs text-fog tabular-nums shrink-0">
                       {(typeof b.char_count === "number"
                         ? b.char_count
                         : 0
@@ -216,7 +197,7 @@ export default function NovelPage() {
                       type="button"
                       title="下载 TXT"
                       disabled={downloadingId === b.id}
-                      className="p-1.5 text-fog hover:text-foreground disabled:opacity-40"
+                      className="p-2 text-fog hover:text-foreground disabled:opacity-40 rounded-lg hover:bg-secondary"
                       onClick={() =>
                         handleDownloadBranch(
                           b.id,
@@ -226,13 +207,13 @@ export default function NovelPage() {
                         )
                       }
                     >
-                      <Download className="w-3.5 h-3.5" />
+                      <Download className="w-4 h-4" />
                     </button>
                     {b.id !== "main" && (
                       <button
                         type="button"
                         title="删除"
-                        className="p-1.5 text-fog hover:text-red-400"
+                        className="p-2 text-fog hover:text-red-400 rounded-lg hover:bg-secondary"
                         onClick={async () => {
                           if (!confirm(`确定删除分支「${b.name || b.id}」？`))
                             return;
@@ -250,7 +231,7 @@ export default function NovelPage() {
                           );
                         }}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     )}
                   </li>
@@ -260,16 +241,14 @@ export default function NovelPage() {
           )}
         </div>
 
-        {/* ── 3. Analysis = maintenance, separated at bottom ── */}
-        <footer className="mt-8 pt-5 border-t border-border/50">
-          <p className="text-[10px] uppercase tracking-wider text-fog mb-2">
-            维护
-          </p>
-          <div className="rounded-xl border border-border/50 bg-card/50 px-3 py-3 sm:px-4">
-            <p className="text-xs text-muted-foreground mb-2.5 leading-relaxed">
+        {/* Maintenance */}
+        <footer className="mt-12 pt-6 border-t border-border/40">
+          <p className="text-xs text-fog mb-3">维护 · 资料不全时运行分析</p>
+          <div className="rounded-2xl border border-border/50 bg-card/40 px-4 py-4">
+            <p className="text-sm text-muted-foreground mb-3 leading-relaxed">
               {needsAnalysis
-                ? "部分资料尚未齐全。分析会写入本书形态/故事/角色等，文笔与点子进入侧栏库。"
-                : "资料已齐。需要更新时再重新分析（可勾选强制重跑）。"}
+                ? "部分资料尚未齐全。分析写入本书资料；文笔与点子进入侧栏库。"
+                : "资料已齐。需要更新时再运行分析。"}
             </p>
             <ExtractModulesPanel
               novelId={novelId}
@@ -288,11 +267,6 @@ export default function NovelPage() {
               }}
             />
           </div>
-          <p className="mt-3 text-[11px] text-fog flex items-center gap-1">
-            写作用侧栏文笔库 / 点子库
-            <ChevronRight className="w-3 h-3" />
-            形态与角色以本书为准
-          </p>
         </footer>
       </div>
     </div>
