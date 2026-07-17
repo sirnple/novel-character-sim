@@ -63,7 +63,7 @@ export const libraryTools: ToolDefinition[] = [
   },
   {
     name: "list_styles",
-    description: "列出风格库。默认本书来源；scope=all 看全部。写作时单选一种。",
+    description: "列出文笔库（可跨书嫁接的语言肌理，非形态章法）。默认本书来源；scope=all 看全部。写作时单选一种。",
     parameters: {
       type: "object",
       properties: {
@@ -82,7 +82,7 @@ export const libraryTools: ToolDefinition[] = [
           `${n + 1}. [${s.id}] ${s.name} — ${(s.description || s.style?.styleDescription || "").slice(0, 60)}`,
       );
       return {
-        content: lines.length ? `风格库\n${lines.join("\n")}` : "风格库为空。可分析「文笔」模块。",
+        content: lines.length ? `文笔库\n${lines.join("\n")}` : "文笔库为空。可分析「文笔」模块。",
         messages: [],
       };
     },

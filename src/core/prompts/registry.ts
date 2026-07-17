@@ -86,7 +86,7 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
   {
     agentId: "style_extract",
     name: "风格提取",
-    description: "提取文风指纹写入风格库：说明、手法、节奏、范例片段、内容尺度",
+    description: "提取文笔写入文笔库（可跨书嫁接）：说明、手法、节奏、范例片段、内容尺度；不含形态章法",
     category: "extraction",
     variables: ["title", "novelContext"],
     bilingual: true,

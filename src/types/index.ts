@@ -228,13 +228,19 @@ export type ExtractModule =
   | "ideas"
   | "form";
 
+/**
+ * Analysis modules ↔ product concepts (user-facing):
+ * - story / characters / form / timeline → 本书资料（原著契约的肉/骨/进度）
+ * - style → 文笔库（可跨书嫁接的语言肌理；≠ 形态章法）
+ * - ideas → 点子库（可跨书选用的火花；默认非正典）
+ */
 export const EXTRACT_MODULES: { id: ExtractModule; label: string; hint: string }[] = [
-  { id: "story", label: "故事/世界观", hint: "情节摘要、主线、世界观（故事之肉）" },
-  { id: "characters", label: "角色", hint: "角色档案与关系" },
-  { id: "form", label: "形态/章法", hint: "是否分章、章名风格、叙事骨架（文本之骨）" },
-  { id: "style", label: "文笔", hint: "句式、修辞、文风样例（语言肌理）" },
-  { id: "ideas", label: "点子", hint: "写入全局点子库（续写火花）" },
-  { id: "timeline", label: "时间线", hint: "按章/段事件（较慢，异步；默认不勾）" },
+  { id: "story", label: "故事/世界观", hint: "本书：情节摘要、主线、世界观（契约·肉）" },
+  { id: "characters", label: "角色", hint: "本书：角色档案与关系（契约·肉）" },
+  { id: "form", label: "形态/章法", hint: "本书：是否分章、章名格式样例、叙事骨架（契约·骨；不进文笔库）" },
+  { id: "style", label: "文笔", hint: "写入文笔库：句式/语气/范文，可嫁接到其他书（契约·肌理）" },
+  { id: "ideas", label: "点子", hint: "写入点子库：可迁移续写火花（非正典，选用）" },
+  { id: "timeline", label: "时间线", hint: "本书/分支：按章或段的事件进度（较慢，异步；默认不勾）" },
 ];
 
 /** Smart defaults for 分析 panel (timeline off by design). */

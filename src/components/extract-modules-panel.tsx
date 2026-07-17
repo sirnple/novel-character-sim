@@ -88,7 +88,10 @@ export default function ExtractModulesPanel({
         </h3>
       </div>
       <p className="text-xs text-fog leading-relaxed">
-        智能默认已勾选续写常用项；时间线较慢，默认不勾，可按需开启。
+        故事/角色/形态/时间线写入<strong className="text-muted-foreground font-normal">本书</strong>；
+        文笔进<strong className="text-muted-foreground font-normal">文笔库</strong>（可跨书嫁接）；
+        点子进<strong className="text-muted-foreground font-normal">点子库</strong>。
+        时间线较慢，默认不勾。
       </p>
       <div className="space-y-2">
         {EXTRACT_MODULES.map(m => (

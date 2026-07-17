@@ -39,7 +39,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setLibraryMobileOpen(true)}
             className="lg:hidden p-2 -ml-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-panel-elevated shrink-0"
             title="打开库"
-            aria-label="打开作品/风格/点子库"
+            aria-label="打开作品/文笔/点子库"
           >
             <PanelLeft className="w-5 h-5" />
           </button>

@@ -182,7 +182,7 @@ export default function GlobalLibrarySidebar({
     e.stopPropagation();
     e.preventDefault();
     const ok = window.confirm(
-      `确定删除《${title || id}》？\n将清除该书正文、分析结果、分支，以及从该书提取的风格/点子。此操作不可恢复。`,
+      `确定删除《${title || id}》？\n将清除该书正文、分析结果、分支，以及从该书提取的文笔/点子库条目。此操作不可恢复。`,
     );
     if (!ok) return;
     try {
@@ -273,7 +273,7 @@ export default function GlobalLibrarySidebar({
       </Section>
 
       <Section
-        label={`风格库 (${styles.length}) · 单选`}
+        label={`文笔库 (${styles.length}) · 单选 · 可嫁接`}
         icon={<BookOpen className="w-3 h-3" />}
         open={expanded.styles}
         onToggle={() => toggleSection("styles")}
@@ -327,12 +327,12 @@ export default function GlobalLibrarySidebar({
           </button>
         )}
         {styles.length === 0 && (
-          <p className="px-3 py-1 text-xs text-fog">分析「文笔」后出现</p>
+          <p className="px-3 py-1 text-xs text-fog">分析「文笔」后写入；可套到其他书</p>
         )}
       </Section>
 
       <Section
-        label={`点子库 (${ideas.length}) · ≤${MAX_IDEAS}`}
+        label={`点子库 (${ideas.length}) · ≤${MAX_IDEAS} · 选用`}
         icon={<Lightbulb className="w-3 h-3" />}
         open={expanded.ideas}
         onToggle={() => toggleSection("ideas")}
@@ -434,7 +434,7 @@ export default function GlobalLibrarySidebar({
           <button type="button" onClick={() => { setExpanded(e => ({ ...e, novels: true })); onToggleCollapse(); }} className="p-1.5 text-fog hover:text-primary" title="作品库">
             <BookMarked className="w-4 h-4" />
           </button>
-          <button type="button" onClick={() => { setExpanded(e => ({ ...e, styles: true })); onToggleCollapse(); }} className="p-1.5 text-fog hover:text-primary" title="风格库">
+          <button type="button" onClick={() => { setExpanded(e => ({ ...e, styles: true })); onToggleCollapse(); }} className="p-1.5 text-fog hover:text-primary" title="文笔库">
             <BookOpen className="w-4 h-4" />
           </button>
           <button type="button" onClick={() => { setExpanded(e => ({ ...e, ideas: true })); onToggleCollapse(); }} className="p-1.5 text-fog hover:text-primary" title="点子库">

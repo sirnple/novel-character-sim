@@ -17,10 +17,10 @@ export default function HomePage() {
           <span className="lg:hidden">点左上角打开</span>
           {" "}
           <strong className="text-foreground/80 font-medium">作品库</strong>、
-          <strong className="text-foreground/80 font-medium">风格库</strong>
-          {" "}与{" "}
+          <strong className="text-foreground/80 font-medium">文笔库</strong>
+          （可跨书嫁接写法）与{" "}
           <strong className="text-foreground/80 font-medium">点子库</strong>。
-          导入小说后在概览页勾选模块分析，再进入写作。
+          导入后在概览「分析」：故事/角色/形态等留在本书；文笔、点子进全局库。
         </p>
         {novelId ? (
           <p className="text-sm text-muted-foreground break-all">

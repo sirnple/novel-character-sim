@@ -7,6 +7,17 @@
 
 This document is the source of truth for product + engineering. Chat history is not.
 
+### Terminology (user-facing)
+
+| 分析模块 | 产物归属 | 说明 |
+|----------|----------|------|
+| 故事/世界观、角色、形态/章法、时间线 | **本书资料**（原著契约） | 跟书走；形态=骨，故事/角色=肉，时间线=进度 |
+| **文笔** | **文笔库**（可跨书嫁接） | 原「风格库」；只含语言肌理，**不含**章名/分章 |
+| **点子** | **点子库**（选用） | 可迁移火花；默认非正典 |
+| — | **原著契约** | 续写对齐原著：肌理(文笔) + 骨(形态) + 肉(故事/角色/时间线) |
+
+Internal code may still use `style` / `style_library` IDs; UI says **文笔库**.
+
 ---
 
 ## 1. Goals

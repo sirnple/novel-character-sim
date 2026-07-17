@@ -205,7 +205,7 @@ function StyleBody({
           }`}
         >
           {selected && <Check className="w-3 h-3" />}
-          {selected ? "已选用" : "选用此风格"}
+          {selected ? "已选用" : "选用此文笔"}
         </button>
       </div>
     </>
