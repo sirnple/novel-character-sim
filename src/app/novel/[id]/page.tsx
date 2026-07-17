@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useNovel } from "@/lib/novel-context";
 import {
   GitBranch,
@@ -8,12 +9,14 @@ import {
   Users,
   Check,
   Minus,
+  ChevronRight,
 } from "lucide-react";
 import StoryInfoPanel, {
   CharacterPreviewCard,
 } from "@/components/story-info-panel";
 import ExtractModulesPanel from "@/components/extract-modules-panel";
 import FormSummaryCard from "@/components/form-summary-card";
+import RelationshipGraph from "@/components/relationship-graph";
 import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
 
 interface BranchInfo {
@@ -29,6 +32,7 @@ interface BranchInfo {
  * Analysis is footer maintenance only.
  */
 export default function NovelPage() {
+  const router = useRouter();
   const {
     novelId,
     novelTitle,
@@ -37,6 +41,7 @@ export default function NovelPage() {
     storyInfo,
     timeline,
     setNovel,
+    setActiveBranchId,
   } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -170,70 +175,90 @@ export default function NovelPage() {
             )}
           </section>
 
+          {characters.length > 0 && (
+            <section className="rounded-2xl border border-border/70 bg-card p-4 sm:p-5">
+              <RelationshipGraph characters={characters} height={380} />
+            </section>
+          )}
+
           {branches.length > 0 && (
             <section>
               <div className="flex items-center gap-2 mb-3">
                 <GitBranch className="w-4 h-4 text-fog" />
                 <h2 className="text-sm font-medium text-muted-foreground">分支</h2>
                 <span className="text-xs text-fog">{branches.length}</span>
+                <span className="text-xs text-fog">· 点击进入写作</span>
               </div>
               <ul className="rounded-2xl border border-border/70 bg-card divide-y divide-border/40 overflow-hidden">
                 {branches.map((b) => (
-                  <li
-                    key={b.id}
-                    className="flex items-center gap-3 px-4 py-3.5"
-                  >
-                    <span className="flex-1 min-w-0 truncate text-sm text-foreground">
-                      {b.id === "main" ? "主线" : b.name || b.id}
-                    </span>
-                    <span className="text-xs text-fog tabular-nums shrink-0">
-                      {(typeof b.char_count === "number"
-                        ? b.char_count
-                        : 0
-                      ).toLocaleString()}{" "}
-                      字
-                    </span>
+                  <li key={b.id} className="flex items-stretch">
                     <button
                       type="button"
-                      title="下载 TXT"
-                      disabled={downloadingId === b.id}
-                      className="p-2 text-fog hover:text-foreground disabled:opacity-40 rounded-lg hover:bg-secondary"
-                      onClick={() =>
-                        handleDownloadBranch(
-                          b.id,
-                          b.id === "main"
-                            ? `${novelTitle || "主线"}_主线`
-                            : b.name || b.id,
-                        )
-                      }
+                      className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3.5 text-left hover:bg-panel-elevated/40 transition-colors group"
+                      onClick={() => {
+                        setActiveBranchId(b.id);
+                        router.push(
+                          `/novel/${encodeURIComponent(novelId)}/write?branch=${encodeURIComponent(b.id)}`,
+                        );
+                      }}
                     >
-                      <Download className="w-4 h-4" />
+                      <span className="flex-1 min-w-0 truncate text-sm text-foreground group-hover:text-primary transition-colors">
+                        {b.id === "main" ? "主线" : b.name || b.id}
+                      </span>
+                      <span className="text-xs text-fog tabular-nums shrink-0">
+                        {(typeof b.char_count === "number"
+                          ? b.char_count
+                          : 0
+                        ).toLocaleString()}{" "}
+                        字
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-fog group-hover:text-primary shrink-0" />
                     </button>
-                    {b.id !== "main" && (
+                    <div className="flex items-center gap-0.5 pr-2 shrink-0">
                       <button
                         type="button"
-                        title="删除"
-                        className="p-2 text-fog hover:text-red-400 rounded-lg hover:bg-secondary"
-                        onClick={async () => {
-                          if (!confirm(`确定删除分支「${b.name || b.id}」？`))
-                            return;
-                          const res = await fetch(
-                            `/api/branches?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(b.id)}`,
-                            { method: "DELETE" },
-                          );
-                          const data = await res.json().catch(() => ({}));
-                          if (!res.ok) {
-                            alert(data.error || "删除失败");
-                            return;
-                          }
-                          setBranches((prev) =>
-                            prev.filter((x) => x.id !== b.id),
+                        title="下载 TXT"
+                        disabled={downloadingId === b.id}
+                        className="p-2 text-fog hover:text-foreground disabled:opacity-40 rounded-lg hover:bg-secondary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownloadBranch(
+                            b.id,
+                            b.id === "main"
+                              ? `${novelTitle || "主线"}_主线`
+                              : b.name || b.id,
                           );
                         }}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Download className="w-4 h-4" />
                       </button>
-                    )}
+                      {b.id !== "main" && (
+                        <button
+                          type="button"
+                          title="删除"
+                          className="p-2 text-fog hover:text-red-400 rounded-lg hover:bg-secondary"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!confirm(`确定删除分支「${b.name || b.id}」？`))
+                              return;
+                            const res = await fetch(
+                              `/api/branches?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(b.id)}`,
+                              { method: "DELETE" },
+                            );
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok) {
+                              alert(data.error || "删除失败");
+                              return;
+                            }
+                            setBranches((prev) =>
+                              prev.filter((x) => x.id !== b.id),
+                            );
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>

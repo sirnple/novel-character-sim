@@ -4,7 +4,15 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { CharacterProfile } from "@/types";
 import { GitBranch, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 
-export default function RelationshipGraph({ characters }: { characters: CharacterProfile[] }) {
+export default function RelationshipGraph({
+  characters,
+  height = 450,
+  className = "",
+}: {
+  characters: CharacterProfile[];
+  height?: number;
+  className?: string;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
@@ -24,12 +32,12 @@ export default function RelationshipGraph({ characters }: { characters: Characte
     if (!canvas || !container) return;
     const dpr = window.devicePixelRatio || 1;
     const w = container.clientWidth;
-    const h = 450;
+    const h = height;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     canvas.style.width = w + "px";
     canvas.style.height = h + "px";
-  }, [characters.length]); // re-size only when characters first load
+  }, [characters.length, height]); // re-size when characters first load or height changes
 
   // draw accepts explicit pan/zoom so it can use refs during drag
   const draw = useCallback((p: { x: number; y: number }, z: number) => {
@@ -41,7 +49,7 @@ export default function RelationshipGraph({ characters }: { characters: Characte
 
     const dpr = window.devicePixelRatio || 1;
     const w = container.clientWidth;
-    const h = 450;
+    const h = height;
 
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -58,11 +66,16 @@ export default function RelationshipGraph({ characters }: { characters: Characte
       positions.push({ x: radius * Math.cos(angle), y: radius * Math.sin(angle), char });
     });
 
-    // Edges
+    // Edges — match by id or name (extractors may only fill one)
     const drawnPairs = new Set<string>();
     for (const pos of positions) {
-      for (const rel of pos.char.relationships) {
-        const other = positions.find((p) => p.char.id === rel.characterId);
+      for (const rel of pos.char.relationships || []) {
+        const other = positions.find(
+          (p) =>
+            p.char.id === rel.characterId ||
+            p.char.name === rel.characterName ||
+            p.char.name === rel.characterId,
+        );
         if (!other) continue;
         const pairKey = [pos.char.id, other.char.id].sort().join("-");
         if (drawnPairs.has(pairKey)) continue;
@@ -108,7 +121,7 @@ export default function RelationshipGraph({ characters }: { characters: Characte
     }
 
     ctx.restore();
-  }, [characters]);
+  }, [characters, height]);
 
   // Redraw when state changes (zoom buttons, wheel, initial load)
   useEffect(() => {
@@ -173,28 +186,28 @@ export default function RelationshipGraph({ characters }: { characters: Characte
   if (characters.length === 0) return null;
 
   return (
-    <div className="space-y-2">
+    <div className={`space-y-2 ${className}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <GitBranch className="w-4 h-4 text-muted-foreground" />
           <h3 className="text-sm font-medium text-muted-foreground">角色关系图</h3>
         </div>
         <div className="flex items-center gap-1">
-          <button className="p-1 hover:bg-secondary rounded" onClick={() => setZoom((z) => Math.min(3, z * 1.2))}>
+          <button type="button" className="p-1.5 hover:bg-secondary rounded-lg" onClick={() => setZoom((z) => Math.min(3, z * 1.2))}>
             <ZoomIn className="w-4 h-4" />
           </button>
-          <button className="p-1 hover:bg-secondary rounded" onClick={() => setZoom((z) => Math.max(0.2, z * 0.8))}>
+          <button type="button" className="p-1.5 hover:bg-secondary rounded-lg" onClick={() => setZoom((z) => Math.max(0.2, z * 0.8))}>
             <ZoomOut className="w-4 h-4" />
           </button>
-          <button className="p-1 hover:bg-secondary rounded" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>
+          <button type="button" className="p-1.5 hover:bg-secondary rounded-lg" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>
             <RotateCcw className="w-4 h-4" />
           </button>
         </div>
       </div>
       <div
         ref={containerRef}
-        className="border rounded-lg bg-card select-none relative"
-        style={{ height: "450px", overflow: "hidden" }}
+        className="border border-border/70 rounded-2xl bg-card select-none relative"
+        style={{ height: `${height}px`, overflow: "hidden" }}
       >
         <canvas ref={canvasRef} className="absolute inset-0" />
         {/* Transparent overlay captures drag events, canvas does rendering */}

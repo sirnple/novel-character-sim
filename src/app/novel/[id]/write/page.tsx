@@ -61,6 +61,12 @@ export default function WritePage() {
     const params = new URLSearchParams(window.location.search);
     setQueryOffset(params.get("offset"));
     setQueryLabel(params.get("label"));
+    // Overview (or deep links) may pass ?branch= to open a specific branch
+    const branch = params.get("branch")?.trim();
+    if (branch) {
+      setLocalBranchId(branch);
+      setFreeMode(false);
+    }
   }, []);
 
   // Metadata list only
