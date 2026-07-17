@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "description": "TXT chapter TOC rules (Legado / e-reader style). Add cases here — do not hardcode in catalog engine.",
+  "maxTitleLen": 80,
+  "strongThreshold": 80,
+  "weakMinStrength": 55,
+  "keepWeakWithStrongMin": 70,
+  "blankLineBoostPrev": 5,
+  "blankLineBoostNext": 3,
+  "noisePatterns": [
+    "https?:\\/\\/",
+    "www\\.",
+    "\\.com",
+    "搜书",
+    "下载自",
+    "本章完",
+    "求推荐",
+    "求月票"
+  ],
+  "rules": [
+    {
+      "id": "di_n_zhang_ar",
+      "name": "第N章（阿拉伯数字）",
+      "enabled": true,
+      "strength": 100,
+      "flags": "",
+      "pattern": "^第\\s*(\\d{1,5})\\s*章([ 　\\t\\-—–·:：]*)(.*)$",
+      "numberGroup": 1,
+      "numberParse": "int",
+      "titleGroup": 3,
+      "titleFallback": "第$1章"
+    },
+    {
+      "id": "di_n_zhang_cn",
+      "name": "第N章（中文数字）",
+      "enabled": true,
+      "strength": 100,
+      "flags": "",
+      "pattern": "^第\\s*([一二三四五六七八九十百千零〇两\\d]{1,12})\\s*章([ 　\\t\\-—–·:：]*)(.*)$",
+      "numberGroup": 1,
+      "numberParse": "cnOrInt",
+      "titleGroup": 3,
+      "titleFallback": "第$1章"
+    },
+    {
+      "id": "di_n_unit",
+      "name": "第N节/回/话",
+      "enabled": true,
+      "strength": 92,
+      "flags": "",
+      "pattern": "^第\\s*([\\d一二三四五六七八九十百千零〇两]{1,12})\\s*(节|回|话)([ 　\\t\\-—–·:：]*)(.*)$",
+      "numberGroup": 1,
+      "numberParse": "cnOrInt",
+      "titleGroup": 4,
+      "titleFallback": "第$1$2"
+    },
+    {
+      "id": "chapter_en",
+      "name": "Chapter N",
+      "enabled": true,
+      "strength": 95,
+      "flags": "i",
+      "pattern": "^Chapter\\s*(\\d{1,5})([:.\\-—–\\s]*)(.*)$",
+      "numberGroup": 1,
+      "numberParse": "int",
+      "titleGroup": 3,
+      "titleFallback": "Chapter $1"
+    },
+    {
+      "id": "bracket_book_num",
+      "name": "【书名】序号、标题",
+      "enabled": true,
+      "strength": 88,
+      "flags": "",
+      "pattern": "^【[^】]{1,40}】\\s*([\\d一二三四五六七八九十百千零〇两]{1,12})\\s*[、．，,.．:：\\-—]\\s*(.*)$",
+      "numberGroup": 1,
+      "numberParse": "cnOrInt",
+      "titleGroup": 2,
+      "titleFallback": ""
+    },
+    {
+      "id": "special_front_back",
+      "name": "序章/楔子/番外/尾声",
+      "enabled": true,
+      "strength": 80,
+      "flags": "",
+      "pattern": "^(序章|楔子|引子|前言|序言|尾声|后记|番外|终章|终幕)([ 　\\t\\-—–·:：]*)(.*)$",
+      "numberGroup": 0,
+      "numberParse": "none",
+      "titleGroup": 3,
+      "titleFallback": "$1",
+      "titlePrefixGroup": 1
+    },
+    {
+      "id": "volume",
+      "name": "第N卷",
+      "enabled": true,
+      "strength": 70,
+      "flags": "",
+      "pattern": "^第\\s*([\\d一二三四五六七八九十百千零〇两]{1,12})\\s*卷([ 　\\t\\-—–·:：]*)(.*)$",
+      "numberGroup": 1,
+      "numberParse": "cnOrInt",
+      "titleGroup": 3,
+      "titleFallback": "第$1卷"
+    },
+    {
+      "id": "cn_enum",
+      "name": "一、标题（弱）",
+      "enabled": true,
+      "strength": 55,
+      "flags": "",
+      "pattern": "^([一二三四五六七八九十百千零〇两]{1,12})\\s*[、．.]\\s*(.+)$",
+      "numberGroup": 1,
+      "numberParse": "cn",
+      "titleGroup": 2,
+      "titleFallback": "",
+      "requireTitleMinLen": 2
+    },
+    {
+      "id": "ar_enum",
+      "name": "1. 标题（弱）",
+      "enabled": true,
+      "strength": 50,
+      "flags": "",
+      "pattern": "^(0*\\d{1,4})\\s*[、．.]\\s*(.+)$",
+      "numberGroup": 1,
+      "numberParse": "int",
+      "titleGroup": 2,
+      "titleFallback": "",
+      "requireTitleMinLen": 2
+    }
+  ]
+}
