@@ -53,9 +53,9 @@ export default function ExtractModulesPanel({
         .join("、");
       const formNote =
         data.form?.chaptering?.enabled
-          ? ` · 已分章（约 ${data.chapterCatalogCount ?? "?"} 章）`
+          ? ` · 目录 ${data.chapterCatalogCount ?? "?"} 条`
           : data.ran?.includes("form")
-            ? " · 弱分章"
+            ? " · 未提取到目录"
             : "";
       const tlNote = data.timelineJobId ? " · 时间线后台进行中" : "";
       setLastResult(`${ran}${skipped ? `；跳过 ${skipped}` : ""}${formNote}${tlNote}`);
@@ -76,7 +76,7 @@ export default function ExtractModulesPanel({
           <div className="min-w-0">
             <p className="text-sm font-medium text-foreground leading-tight">重新分析全书</p>
             <p className="text-[11px] text-fog leading-snug mt-0.5">
-              故事·角色·形态·文笔·点子·时间线
+              故事·角色·目录·文笔·点子·时间线
             </p>
           </div>
         </div>

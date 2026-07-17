@@ -16,7 +16,7 @@ import { startTimelineJob } from "@/core/form/timeline-job";
 import {
   saveNovel, saveStoryInfo, saveCharacters,
   getStoryInfo, getCharacters, getTimeline, getChapterStates, getNovel,
-  saveGenerationLog,
+  saveGenerationLog, saveTimeline,
   upsertExtractedStyle, replaceExtractedIdeas, listStyles, listIdeas,
   saveNovelForm, getNovelForm,
   saveBranchChapterMeta, getBranchChapterMeta, ensureMainBranch,
@@ -207,22 +207,43 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
 
     if (mod === "form") {
       console.log("[Extract] form (chaptering / architecture)...");
-      const llm = createLLMProvider();
+      const llm = createLLMProvider("analysis");
       const formResult = await runWithTokenContext({ agentId: "extract_form" }, () =>
         analyzeNovelForm(novelId, text, llm),
       );
       saveNovelForm(userId, novelId, formResult.profile);
       ensureMainBranch(userId, novelId);
-      // Seed main branch catalog when chaptering enabled
-      if (formResult.profile.chaptering.enabled && formResult.catalog.length > 0) {
+      // Always seed/overwrite main catalog when program found chapters
+      // (don't leave a previous bad 1-chapter meta after force re-analyze)
+      if (formResult.catalog.length > 0) {
         const existing = getBranchChapterMeta(userId, novelId, branchId);
         saveBranchChapterMeta(userId, {
           ...existing,
           novelId,
           branchId,
           chapters: formResult.catalog,
-          chapterBoundary: "closed",
+          chapterBoundary: existing?.chapterBoundary || "closed",
         });
+        // Catalog length change invalidates timeline (was often 1 chapter from old job)
+        const prevTl = getTimeline(userId, novelId, branchId);
+        const prevN = prevTl?.chapters?.length || 0;
+        const nextN = formResult.catalog.length;
+        if (prevN > 0 && prevN !== nextN) {
+          console.log(
+            `[Extract] form catalog ${prevN}→${nextN}: clear stale timeline`,
+          );
+          saveTimeline(
+            userId,
+            novelId,
+            {
+              novelId,
+              branchId,
+              totalChapters: 0,
+              chapters: [],
+            },
+            branchId,
+          );
+        }
       }
       return {
         mod,
@@ -287,20 +308,20 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
       // Soft-fail: timeline still starts with scene/window units (D8).
       try {
         console.log("[Extract] timeline requires form first — analyzing form...");
-        const llm = createLLMProvider();
+        const llm = createLLMProvider("analysis");
         const formResult = await runWithTokenContext({ agentId: "extract_form" }, () =>
           analyzeNovelForm(novelId, text, llm),
         );
         saveNovelForm(userId, novelId, formResult.profile);
         ensureMainBranch(userId, novelId);
-        if (formResult.profile.chaptering.enabled && formResult.catalog.length > 0) {
+        if (formResult.catalog.length > 0) {
           const existing = getBranchChapterMeta(userId, novelId, branchId);
           saveBranchChapterMeta(userId, {
             ...existing,
             novelId,
             branchId,
             chapters: formResult.catalog,
-            chapterBoundary: existing.chapterBoundary || "closed",
+            chapterBoundary: existing?.chapterBoundary || "closed",
           });
         }
         result.form = formResult.profile;
@@ -315,33 +336,58 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
       }
     }
 
+    // Units come from form catalog when chaptering enabled — must match catalog length
+    const meta = getBranchChapterMeta(userId, novelId, branchId);
+    const formEnabled = !!result.form?.chaptering?.enabled;
+    const catalogN = formEnabled ? (meta.chapters?.length || 0) : 0;
+
     const cached = !forceRefresh ? getTimeline(userId, novelId, branchId) : null;
-    if (cached && cached.chapters?.length && !forceRefresh) {
+    const cachedN = cached?.chapters?.length || 0;
+    // Stale when catalog was fixed (e.g. 3章) but timeline still from old 1-unit job
+    const timelineStale =
+      !!cached &&
+      catalogN > 0 &&
+      cachedN > 0 &&
+      cachedN !== catalogN;
+
+    if (cached && cachedN > 0 && !forceRefresh && !timelineStale) {
       result.timeline = cached;
       result.lastChapterStates = getChapterStates(userId, novelId, branchId);
-      result.skipped.push({ module: "timeline", reason: "已有缓存（仍可后台重跑）" });
-    }
-    try {
-      console.log("[Extract] timeline → async job");
-      const job = startTimelineJob({ userId, novelId, branchId });
-      result.timelineJobId = job.id;
-      result.ran.push("timeline");
-      saveGenerationLog({
-        id: crypto.randomUUID(),
-        userId,
-        novelId,
-        category: "extract",
-        label: "时间线异步任务",
-        inputSummary: text.slice(0, 200),
-        outputPreview: `job=${job.id} units=${job.total}`,
-        fullOutput: JSON.stringify({ jobId: job.id, total: job.total }),
-      });
-    } catch (e) {
-      console.warn("[Extract] timeline job failed to start:", (e as Error).message);
-      result.skipped.push({
-        module: "timeline",
-        reason: (e as Error).message || "启动失败",
-      });
+      result.skipped.push({ module: "timeline", reason: "已有缓存" });
+    } else {
+      try {
+        if (timelineStale) {
+          console.log(
+            `[Extract] timeline stale: catalog=${catalogN} vs timeline=${cachedN} → re-run`,
+          );
+        }
+        console.log("[Extract] timeline → async job");
+        const job = startTimelineJob({ userId, novelId, branchId });
+        result.timelineJobId = job.id;
+        result.ran.push("timeline");
+        saveGenerationLog({
+          id: crypto.randomUUID(),
+          userId,
+          novelId,
+          category: "extract",
+          label: "时间线异步任务",
+          inputSummary: text.slice(0, 200),
+          outputPreview: `job=${job.id} units=${job.total}${timelineStale ? " stale-rebuild" : ""}`,
+          fullOutput: JSON.stringify({
+            jobId: job.id,
+            total: job.total,
+            catalogN,
+            cachedN,
+            timelineStale,
+          }),
+        });
+      } catch (e) {
+        console.warn("[Extract] timeline job failed to start:", (e as Error).message);
+        result.skipped.push({
+          module: "timeline",
+          reason: (e as Error).message || "启动失败",
+        });
+      }
     }
     if (!result.timeline) {
       result.timeline = getTimeline(userId, novelId, branchId);

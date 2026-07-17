@@ -161,17 +161,31 @@ function buildUnits(
 ): NarrativeUnit[] {
   const form = getNovelForm(userId, novelId);
   const meta = getBranchChapterMeta(userId, novelId, branchId);
-  if (form?.chaptering?.enabled && meta.chapters.length > 0) {
-    return meta.chapters.map((c, i) => ({
-      unitId: c.id || `ch_${i}_${c.startOffset}`,
-      unitKind: "chapter" as const,
-      startOffset: c.startOffset,
-      endOffset: c.endOffset ?? text.length,
-      label:
-        c.number != null
-          ? `第${c.number}章 ${c.title}`
-          : c.title || `章节 ${i + 1}`,
-    }));
+  const chapters = meta.chapters || [];
+  if (form?.chaptering?.enabled && chapters.length > 0) {
+    // Recompute endOffsets from next chapter start so partial/stale meta still works
+    return chapters.map((c, i) => {
+      const startOffset = Math.max(0, Math.min(c.startOffset ?? 0, text.length));
+      const endOffset = Math.max(
+        startOffset,
+        Math.min(
+          i + 1 < chapters.length
+            ? (chapters[i + 1].startOffset ?? text.length)
+            : (c.endOffset ?? text.length),
+          text.length,
+        ),
+      );
+      return {
+        unitId: c.id || `ch_${i}_${startOffset}`,
+        unitKind: "chapter" as const,
+        startOffset,
+        endOffset,
+        label:
+          c.number != null
+            ? `第${c.number}章 ${c.title}`
+            : c.title || `章节 ${i + 1}`,
+      };
+    });
   }
   return segmentNarrativeUnits(text);
 }
@@ -191,7 +205,36 @@ export function startTimelineJob(input: {
   }
 
   const units = buildUnits(input.userId, input.novelId, branchId, text);
+  if (!units.length) {
+    throw new Error("未切分出时间线单元（检查形态分章或正文长度）");
+  }
+
+  // Drop stale timeline if unit plan differs (e.g. catalog fixed 1→3 chapters)
+  const existingTl = getTimeline(input.userId, input.novelId, branchId);
+  if (
+    existingTl?.chapters?.length &&
+    existingTl.chapters.length !== units.length
+  ) {
+    console.log(
+      `[timeline-job] clearing stale timeline chapters=${existingTl.chapters.length} → units=${units.length}`,
+    );
+    saveTimeline(
+      input.userId,
+      input.novelId,
+      {
+        novelId: input.novelId,
+        branchId,
+        totalChapters: 0,
+        chapters: [],
+      },
+      branchId,
+    );
+  }
+
   const id = `tljob_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  console.log(
+    `[timeline-job] start ${id} units=${units.length} labels=${units.map((u) => u.label).join(" | ")}`,
+  );
   const job: TimelineJob = {
     id,
     userId: input.userId,
@@ -247,7 +290,7 @@ async function runJob(
   const parsed = parseNovel(fullText);
   parsed.fullText = fullText;
   const extractor = new TimelineExtractor(parsed, names);
-  const llm = createLLMProvider();
+  const llm = createLLMProvider("analysis");
 
   let prevStates = s.prevStates.get(jobId) || [];
   let seq = s.seq.get(jobId) || 0;
@@ -406,7 +449,7 @@ async function runSingleUnitRetry(
   const parsed = parseNovel(fullText);
   parsed.fullText = fullText;
   const extractor = new TimelineExtractor(parsed, names);
-  const llm = createLLMProvider();
+  const llm = createLLMProvider("analysis");
 
   // Best-effort prev states from last saved chapter states
   const prevStates = getChapterStates(job.userId, job.novelId, job.branchId) || [];

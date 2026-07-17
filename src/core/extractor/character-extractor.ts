@@ -189,7 +189,7 @@ export class CharacterExtractor {
   }
 
   async extractAll(): Promise<CharacterProfile[]> {
-    const llm = createLLMProvider();
+    const llm = createLLMProvider("analysis");
     const tTotal = Date.now();
 
     const rawCharacters = await this.extractCharacterList(llm);
@@ -291,7 +291,7 @@ export class CharacterExtractor {
    * Should be called AFTER extractAll() when character names are known.
    */
   async extractLastChapterStates(): Promise<import("@/types").CharacterChapterState[]> {
-    const llm = createLLMProvider();
+    const llm = createLLMProvider("analysis");
     // Only use the last ~30% of the novel text as the "recent" context
     const textLen = this.fullText.length;
     const recentStart = Math.max(0, textLen - Math.floor(textLen * 0.3));

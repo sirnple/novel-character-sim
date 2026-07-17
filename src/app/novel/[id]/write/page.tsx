@@ -15,13 +15,16 @@ import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
 import VirtualNovelBody, {
   absoluteOffsetFromClick,
   type VirtualChunk,
+  type VirtualNovelBodyHandle,
 } from "@/components/virtual-novel-body";
 import ReaderTimelineRail, {
   catalogToRailUnits,
-  useApproxScrollOffset,
+  timelineToRailUnits,
+  type RailMode,
   type RailUnit,
 } from "@/components/reader-timeline-rail";
 import type { ChapterCatalogEntry } from "@/types";
+import { isClientDebugMode } from "@/lib/debug-mode";
 
 /** Branch list metadata (no full text). */
 interface BranchInfo {
@@ -43,6 +46,7 @@ export default function WritePage() {
   /** null = still checking this novel; boolean = gate result for current novelId only */
   const [analysisReady, setAnalysisReady] = useState<boolean | null>(null);
   const readerRef = useRef<HTMLDivElement>(null);
+  const bodyHandleRef = useRef<VirtualNovelBodyHandle | null>(null);
   const [newBranchName, setNewBranchName] = useState("");
   // Click-to-fork state — offsets are absolute in full branch body
   const [forkPoint, setForkPoint] = useState<{ offset: number; label: string; context: string } | null>(null);
@@ -60,6 +64,7 @@ export default function WritePage() {
   const [retryingUnitId, setRetryingUnitId] = useState<string | null>(null);
   const [pollTick, setPollTick] = useState(0);
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [railMode, setRailMode] = useState<RailMode>("catalog");
 
   const activeBranch = branches.find(b => b.id === activeBranchId);
   const hasSelection = freeMode || activeBranchId === "main" || !!activeBranch;
@@ -69,21 +74,40 @@ export default function WritePage() {
   const find = useTextFindSegments([bodyText, proseText]);
   useFindShortcut(find.searchInputRef, hasSelection);
   useScrollToMatch(readerRef, find.currentIndex, find.matchCount, [find.debouncedQuery, bodyText, proseText]);
-  const scrollOffset = useApproxScrollOffset(readerRef, bodyText.length);
+  /** Char offset for catalog highlight — set on scroll + immediately on jump */
+  const [scrollOffset, setScrollOffset] = useState(0);
+  /** Pin highlight to clicked unit until user scrolls away */
+  const [pinnedUnitId, setPinnedUnitId] = useState<string | null>(null);
 
-  const railUnits: RailUnit[] = useMemo(() => {
+  const catalogUnits: RailUnit[] = useMemo(
+    () => catalogToRailUnits(catalog),
+    [catalog],
+  );
+
+  /** Chapter starts for VirtualNovelBody anchor jump */
+  const jumpAnchors = useMemo(
+    () =>
+      catalog
+        .map((c) => c.startOffset)
+        .filter((o) => typeof o === "number" && o >= 0),
+    [catalog],
+  );
+
+  const timelineUnits: RailUnit[] = useMemo(() => {
+    // Prefer live job units (with progress/errors); else saved timeline
     if (jobUnits && jobUnits.length > 0) return jobUnits;
-    if (catalog.length > 0) return catalogToRailUnits(catalog);
-    const chs = timeline?.chapters || [];
-    if (!chs.length) return [];
-    return chs.map((c, i) => ({
-      id: `tl_${c.chapterNumber}_${i}`,
-      label: c.title ? `第${c.chapterNumber}章 ${c.title}` : `第${c.chapterNumber}章`,
-      startOffset: 0,
-      summary: c.events?.[0]?.description?.slice(0, 80),
-      status: "ready" as const,
-    }));
-  }, [jobUnits, catalog, timeline]);
+    return timelineToRailUnits(timeline, catalog);
+  }, [jobUnits, timeline, catalog]);
+
+  // Prefer catalog tab when available; switch to timeline when job is running
+  useEffect(() => {
+    if (
+      jobStatus &&
+      (jobStatus.includes("/") || jobStatus === "running" || jobStatus === "queued")
+    ) {
+      setRailMode("timeline");
+    }
+  }, [jobStatus]);
 
   const [queryOffset, setQueryOffset] = useState<string | null>(null);
   const [queryLabel, setQueryLabel] = useState<string | null>(null);
@@ -111,7 +135,10 @@ export default function WritePage() {
       .catch(() => {});
   }, [novelId]);
 
+  const debugMode = isClientDebugMode();
+
   // Gate: readiness from APIs for THIS novelId only (don't trust stale context from another book)
+  // Debug mode: skip gate so dev can write without full analysis
   useEffect(() => {
     if (!novelId) return;
     let cancelled = false;
@@ -126,10 +153,15 @@ export default function WritePage() {
     ])
       .then(([meta, novel]) => {
         if (cancelled) return;
-        const hasForm = !!meta?.form;
+        // Catalog (TOC) required — form bone may exist without extractable directory
+        const catalogN = Array.isArray(meta?.meta?.chapters)
+          ? meta.meta.chapters.length
+          : 0;
+        const hasCatalog = catalogN > 0;
         const chars = Array.isArray(novel?.characters) ? novel.characters.length : 0;
         const hasStory = !!(novel?.storyInfo?.plotSummary);
-        setAnalysisReady(hasForm && chars > 0 && hasStory);
+        const ready = hasCatalog && chars > 0 && hasStory;
+        setAnalysisReady(debugMode ? true : ready);
         // Refresh context for this book if shell had stale data
         if (novel?.title) {
           setNovel({
@@ -144,12 +176,13 @@ export default function WritePage() {
         }
       })
       .catch(() => {
-        if (!cancelled) setAnalysisReady(false);
+        // Debug: still allow write even if readiness check fails
+        if (!cancelled) setAnalysisReady(debugMode ? true : false);
       });
     return () => {
       cancelled = true;
     };
-  }, [novelId, setNovel]);
+  }, [novelId, setNovel, debugMode]);
 
   // Chapter catalog for current branch
   useEffect(() => {
@@ -172,6 +205,9 @@ export default function WritePage() {
     const bid = activeBranchId || "main";
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    setJobUnits(null);
+    setJobStatus(null);
+    setLatestJobId(null);
 
     const poll = async () => {
       try {
@@ -181,7 +217,13 @@ export default function WritePage() {
         if (!res.ok) return;
         const data = await res.json();
         const job = data.latest;
-        if (!job || cancelled) return;
+        if (cancelled) return;
+        if (!job) {
+          setJobUnits(null);
+          setJobStatus(null);
+          setLatestJobId(null);
+          return;
+        }
         setLatestJobId(job.id || null);
         setJobStatus(
           job.status === "running" || job.status === "queued"
@@ -461,15 +503,37 @@ export default function WritePage() {
     : activeBranchId || "";
 
   const jumpToOffset = useCallback(
-    (startOffset: number) => {
-      const el = readerRef.current;
-      if (!el || !bodyText.length) return;
-      const max = el.scrollHeight - el.clientHeight;
-      const ratio = Math.min(1, Math.max(0, startOffset / bodyText.length));
-      el.scrollTo({ top: max * ratio, behavior: "smooth" });
+    (startOffset: number, unitId?: string) => {
+      if (!bodyText.length) return;
+      // Instant highlight update (don't wait for scroll events)
+      setScrollOffset(startOffset);
+      if (unitId) setPinnedUnitId(unitId);
+      bodyHandleRef.current?.scrollToCharOffset(startOffset);
       setTimelineOpen(false);
     },
     [bodyText.length],
+  );
+
+  const handleBodyScrollOffset = useCallback(
+    (off: number) => {
+      setScrollOffset(off);
+      // Clear pin when scroll leaves the pinned unit's range
+      if (!pinnedUnitId) return;
+      const units = railMode === "catalog" ? catalogUnits : timelineUnits;
+      const pinned = units.find((u) => u.id === pinnedUnitId);
+      if (!pinned) {
+        setPinnedUnitId(null);
+        return;
+      }
+      const end =
+        pinned.endOffset ??
+        units[units.findIndex((u) => u.id === pinnedUnitId) + 1]?.startOffset ??
+        bodyText.length;
+      if (off < pinned.startOffset - 200 || off >= end + 200) {
+        setPinnedUnitId(null);
+      }
+    },
+    [pinnedUnitId, railMode, catalogUnits, timelineUnits, bodyText.length],
   );
 
   const handleRetryUnit = useCallback(
@@ -501,13 +565,15 @@ export default function WritePage() {
     [latestJobId],
   );
 
-  const railTitle =
+  const timelineHint =
     jobStatus &&
     (jobStatus.includes("/") || jobStatus === "running" || jobStatus === "queued")
-      ? `时间线 ${jobStatus}`
-      : catalog.length || jobUnits?.length
-        ? "目录 / 时间线"
-        : "时间线";
+      ? `分析中 ${jobStatus}`
+      : jobStatus === "done"
+        ? "分析完成"
+        : jobStatus === "error"
+          ? "部分失败可重试"
+          : null;
 
   const localMatches = useCallback(
     (global: number[], base: number, len: number) => {
@@ -604,12 +670,16 @@ export default function WritePage() {
 
   const timelineRail = (
     <ReaderTimelineRail
-      title={railTitle}
-      units={railUnits}
+      catalogUnits={catalogUnits}
+      timelineUnits={timelineUnits}
+      mode={railMode}
+      onModeChange={setRailMode}
       scrollOffset={scrollOffset}
+      pinnedUnitId={pinnedUnitId}
       onJump={jumpToOffset}
       onRetryUnit={latestJobId ? handleRetryUnit : undefined}
       retryingUnitId={retryingUnitId}
+      timelineHint={timelineHint}
     />
   );
 
@@ -630,10 +700,10 @@ export default function WritePage() {
           </div>
           <h2 className="text-lg font-semibold text-foreground">本书尚未完成分析</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            仅限制<strong className="text-foreground/90 font-medium">当前这本书</strong>
-            。其他已分析的书可从侧栏打开继续写作。请回到概览，点右下角
+            需要<strong className="text-foreground/90 font-medium">故事 · 角色 · 目录</strong>
+            。若分析后仍无目录，视为未完成，不可写作。请回到概览点右下角
             <span className="text-primary font-medium"> 分析 </span>
-            （可关闭面板，分析在后台进行）。
+            （可关闭面板，后台进行）。
           </p>
           <div className="flex flex-col sm:flex-row gap-2 justify-center">
             <Link href={`/novel/${novelId}`} className="btn-primary inline-flex">
@@ -652,13 +722,19 @@ export default function WritePage() {
   }
 
   return (
-    <div className="flex flex-1 overflow-hidden min-h-0">
+    <div className="flex flex-1 overflow-hidden min-h-0 flex-col">
+      {debugMode && (
+        <div className="shrink-0 px-3 py-1.5 text-[11px] text-amber-500/90 bg-amber-500/10 border-b border-amber-500/25">
+          Debug：已绕过「分析完成才能写作」门禁。生产环境仍会拦截未分析书籍。
+        </div>
+      )}
+      <div className="flex flex-1 overflow-hidden min-h-0">
       {/* Desktop: timeline rail (left) */}
       {!freeMode && hasSelection && (
         <div className="hidden md:flex flex-col shrink-0 border-r border-border/60 bg-card/40">
           {timelineRail}
           <p className="px-2 pb-2 text-[10px] text-fog leading-snug max-w-[180px]">
-            跳转按字数比例估算
+            目录=分章跳转 · 时间线=事件摘要
           </p>
         </div>
       )}
@@ -669,12 +745,14 @@ export default function WritePage() {
           <button
             type="button"
             className="absolute inset-0 bg-black/50"
-            aria-label="关闭时间线"
+            aria-label="关闭侧栏"
             onClick={() => setTimelineOpen(false)}
           />
           <div className="relative z-10 h-full max-w-[85vw] w-[220px] bg-card border-r border-border shadow-xl flex flex-col">
             <div className="flex items-center justify-between px-2 py-2 border-b border-border/60">
-              <span className="text-xs font-semibold text-muted-foreground">{railTitle}</span>
+              <span className="text-xs font-semibold text-muted-foreground">
+                目录 / 时间线
+              </span>
               <button
                 type="button"
                 className="text-xs text-fog px-2 py-1"
@@ -686,12 +764,16 @@ export default function WritePage() {
             <div className="flex-1 min-h-0 overflow-hidden">
               <ReaderTimelineRail
                 className="w-full h-full border-0"
-                title=""
-                units={railUnits}
+                catalogUnits={catalogUnits}
+                timelineUnits={timelineUnits}
+                mode={railMode}
+                onModeChange={setRailMode}
                 scrollOffset={scrollOffset}
+                pinnedUnitId={pinnedUnitId}
                 onJump={jumpToOffset}
                 onRetryUnit={latestJobId ? handleRetryUnit : undefined}
                 retryingUnitId={retryingUnitId}
+                timelineHint={timelineHint}
               />
             </div>
           </div>
@@ -737,8 +819,8 @@ export default function WritePage() {
                 type="button"
                 onClick={() => setTimelineOpen(true)}
                 className="md:hidden p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10"
-                title="时间线"
-                aria-label="打开时间线"
+                title="目录 / 时间线"
+                aria-label="打开目录与时间线"
               >
                 <ListTree className="w-4 h-4" />
               </button>
@@ -809,9 +891,12 @@ export default function WritePage() {
             {bodyText || freeMode ? (
               <div className="flex-1 flex flex-col min-h-0">
                 <VirtualNovelBody
+                  ref={bodyHandleRef}
                   text={bodyText}
+                  jumpAnchors={jumpAnchors}
                   scrollerRef={readerRef}
                   onBodyClick={handleEditorClick}
+                  onScrollOffsetChange={handleBodyScrollOffset}
                   renderChunk={renderBodyChunk}
                 />
                 {proseHighlighted && (
@@ -860,6 +945,7 @@ export default function WritePage() {
             <ScrollEdgeButtons scrollRef={readerRef} />
           </div>
         )}
+      </div>
       </div>
 
       {/* Fork dialog */}

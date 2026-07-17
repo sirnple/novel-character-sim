@@ -7,6 +7,8 @@ import {
   retryTimelineUnit,
   startTimelineJob,
 } from "@/core/form/timeline-job";
+import { getTimeline, saveTimeline } from "@/lib/db";
+import { isServerDebugMode } from "@/lib/debug-mode";
 
 /** GET ?jobId= | ?novelId=&branchId= */
 export async function GET(request: NextRequest) {
@@ -73,10 +75,38 @@ export async function POST(request: NextRequest) {
     if (!novelId) {
       return NextResponse.json({ error: "novelId required" }, { status: 400 });
     }
+
+    // force: wipe existing timeline then restart (debug / explicit rebuild)
+    const force = !!body.force;
+    if (force) {
+      if (!isServerDebugMode()) {
+        return NextResponse.json(
+          { error: "强制重跑时间线仅在调试模式下可用" },
+          { status: 403 },
+        );
+      }
+      const existing = getTimeline(userId, novelId, branchId);
+      if (existing?.chapters?.length) {
+        saveTimeline(
+          userId,
+          novelId,
+          {
+            novelId,
+            branchId,
+            totalChapters: 0,
+            chapters: [],
+          },
+          branchId,
+        );
+      }
+    }
+
     const job = startTimelineJob({ userId, novelId, branchId });
     return NextResponse.json({
       job,
-      message: `时间线任务已启动（共 ${job.total} 个单元，后台运行，可在写作页时间线查看进度）`,
+      message: force
+        ? `时间线已强制重跑（共 ${job.total} 个单元）`
+        : `时间线任务已启动（共 ${job.total} 个单元，后台运行）`,
     });
   } catch (e) {
     return NextResponse.json(

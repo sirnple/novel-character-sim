@@ -288,7 +288,7 @@ response_language = "Chinese only"
       this.onEvent({ type: "prompt", systemPrompt, userPrompt });
 
       // --- Generate prose (streaming) ---
-      const llm = createLLMProvider();
+      const llm = createLLMProvider("write");
       const config = getAppConfig();
       const maxTokens = Math.max(config.llm.maxTokens || 4096, 16384);
 
@@ -385,7 +385,7 @@ response_language = "Chinese only"
             `${i + 1}. [${f.dimension}][${f.severity}] ${f.description}\n   修改建议: ${f.suggestion}${f.snippet ? `\n   问题片段: "${f.snippet}"` : ""}`
           ).join("\n\n");
 
-          const llm = createLLMProvider();
+          const llm = createLLMProvider("write");
           const rewritePrompt = `你是小说续写的修订作家。请根据审查反馈重写以下文字。
 
 ## 原文（续写前的全文）

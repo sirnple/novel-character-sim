@@ -14,10 +14,12 @@ import {
 import StoryInfoPanel, {
   CharacterPreviewCard,
 } from "@/components/story-info-panel";
-import AnalyzeFab from "@/components/analyze-fab";
 import FormSummaryCard from "@/components/form-summary-card";
+import TimelineSummaryCard from "@/components/timeline-summary-card";
 import RelationshipGraph from "@/components/relationship-graph";
 import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
+import { LIBRARIES_REFRESH_EVENT } from "@/lib/library-events";
+import type { ChapterTimeline } from "@/types";
 
 interface BranchInfo {
   id: string;
@@ -35,13 +37,17 @@ export default function NovelPage() {
     characters,
     storyInfo,
     timeline,
-    setNovel,
     setActiveBranchId,
+    setCharacters,
+    setTimeline,
   } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [formRefreshKey, setFormRefreshKey] = useState(0);
-  const [hasForm, setHasForm] = useState(false);
+  const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
+  /** Catalog extracted (TOC entries) — required for write */
+  const [hasCatalog, setHasCatalog] = useState(false);
+  const [catalogCount, setCatalogCount] = useState(0);
 
   useEffect(() => {
     if (!novelId) return;
@@ -59,9 +65,26 @@ export default function NovelPage() {
       `/api/chapter-meta?novelId=${encodeURIComponent(novelId)}&branchId=main`,
     )
       .then((r) => r.json())
-      .then((d) => setHasForm(!!d.form))
-      .catch(() => setHasForm(false));
+      .then((d) => {
+        const n = Array.isArray(d.meta?.chapters) ? d.meta.chapters.length : 0;
+        setCatalogCount(n);
+        setHasCatalog(n > 0);
+      })
+      .catch(() => {
+        setHasCatalog(false);
+        setCatalogCount(0);
+      });
   }, [novelId, formRefreshKey]);
+
+  // FAB lives in layout; refresh form/timeline when analysis finishes
+  useEffect(() => {
+    const onRefresh = () => {
+      setFormRefreshKey((k) => k + 1);
+      setTimelineRefreshKey((k) => k + 1);
+    };
+    window.addEventListener(LIBRARIES_REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(LIBRARIES_REFRESH_EVENT, onRefresh);
+  }, []);
 
   const handleDownloadBranch = async (branchId: string, name: string) => {
     if (!novelId || downloadingId) return;
@@ -78,33 +101,26 @@ export default function NovelPage() {
     () => [
       { id: "story", label: "故事", ok: !!storyInfo?.plotSummary },
       { id: "chars", label: "角色", ok: characters.length > 0 },
-      { id: "form", label: "形态", ok: hasForm },
+      {
+        id: "catalog",
+        label: "目录",
+        ok: hasCatalog,
+      },
       {
         id: "tl",
         label: "时间线",
         ok: (timeline?.totalChapters || timeline?.chapters?.length || 0) > 0,
       },
     ],
-    [storyInfo, characters.length, hasForm, timeline],
+    [storyInfo, characters.length, hasCatalog, timeline],
   );
   const readyCount = statusItems.filter((c) => c.ok).length;
-  /** Core covenant required before continue writing */
+  /** Write requires story + characters + catalog (TOC); form bone stays backend-only */
   const canContinue =
-    hasForm && characters.length > 0 && !!storyInfo?.plotSummary;
+    hasCatalog && characters.length > 0 && !!storyInfo?.plotSummary;
   const needsAnalysis = !canContinue;
 
-  const onAnalyzeDone = (data: any) => {
-    // Only apply if this page is still for the same novel (FAB already scopes job)
-    setNovel({
-      novelId,
-      characters: data.characters ?? characters,
-      storyInfo: data.storyInfo !== undefined ? data.storyInfo : storyInfo,
-      timeline: data.timeline !== undefined ? data.timeline : timeline,
-      lastChapterStates: data.lastChapterStates ?? undefined,
-    });
-    setFormRefreshKey((k) => k + 1);
-    setHasForm(!!data.form || hasForm);
-  };
+  // Analysis FAB lives in novel layout (URL id + job store) so state survives book switches.
 
   return (
     <div className="flex-1 overflow-y-auto custom-scrollbar bg-background relative">
@@ -159,6 +175,12 @@ export default function NovelPage() {
               novelId={novelId}
               branchId="main"
               refreshKey={formRefreshKey}
+              onCatalogChange={(info) => {
+                setCatalogCount(info.catalogCount);
+                setHasCatalog(info.catalogCount > 0);
+                setFormRefreshKey((k) => k + 1);
+                setTimelineRefreshKey((k) => k + 1);
+              }}
             />
             {storyInfo ? (
               <StoryInfoPanel storyInfo={storyInfo} />
@@ -173,6 +195,17 @@ export default function NovelPage() {
                 </p>
               </div>
             )}
+          </div>
+
+          {/* Timeline */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+            <TimelineSummaryCard
+              novelId={novelId}
+              branchId="main"
+              timeline={timeline}
+              refreshKey={timelineRefreshKey}
+              onTimelineChange={setTimeline}
+            />
           </div>
 
           {/* Characters */}
@@ -203,7 +236,12 @@ export default function NovelPage() {
           {/* Relationship graph */}
           {characters.length > 0 && (
             <section className="ov-card p-4 sm:p-5">
-              <RelationshipGraph characters={characters} height={400} />
+              <RelationshipGraph
+                characters={characters}
+                novelId={novelId}
+                height={440}
+                onCharactersChange={(next) => setCharacters(next)}
+              />
             </section>
           )}
 
@@ -303,18 +341,12 @@ export default function NovelPage() {
 
         {needsAnalysis && (
           <p className="mt-10 text-center text-xs text-fog">
-            资料未齐（故事 · 角色 · 形态）。点右下角{" "}
+            资料未齐（故事 · 角色 · 目录）。无目录视为分析未完成。点右下角{" "}
             <span className="text-primary font-medium">分析</span>{" "}
             完成后可续写。
           </p>
         )}
       </div>
-
-      <AnalyzeFab
-        novelId={novelId}
-        urgent={needsAnalysis}
-        onDone={onAnalyzeDone}
-      />
     </div>
   );
 }

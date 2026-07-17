@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
   const novelId = String(context?.novelId || "");
   const branchId = String(context?.branchId || "");
-  const llm = createLLMProvider();
+  const llm = createLLMProvider("write");
   const encoder = new TextEncoder();
   const toolCallId = Math.random().toString(36).slice(2);
 

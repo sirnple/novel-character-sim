@@ -61,7 +61,7 @@ export async function runOutlineWriter(
   scene: SceneDefinition,
   previousProse?: string
 ): Promise<{ outline: SceneOutline; prompt: { system: string; user: string } }> {
-  const llm = createLLMProvider();
+  const llm = createLLMProvider("write");
   const zh = characters.length > 0 && isChinese(characters[0].personality.description);
 
   // Build character summaries — rich descriptions so the AI understands who these people are

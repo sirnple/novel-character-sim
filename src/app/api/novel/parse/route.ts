@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseNovel } from "@/core/parser/novel-parser";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { importNovel } from "@/lib/db";
-import { novelFingerprint } from "@/lib/utils";
+import {
+  cleanFilenameTitle,
+  novelFingerprint,
+  resolveNovelTitle,
+} from "@/lib/utils";
 import { createLLMProvider } from "@/core/llm/factory";
 import { runWithTokenContext } from "@/lib/token-usage-context";
 import iconv from "iconv-lite";
@@ -72,7 +76,8 @@ export async function POST(request: NextRequest) {
     }
 
     let novelText: string;
-    let title = file.name.replace(/\.(txt|zip)$/i, "");
+    const originalFileName = file.name;
+    const filenameTitle = cleanFilenameTitle(originalFileName);
 
     if (fileName.endsWith(".zip")) {
       // Extract zip and merge all text files
@@ -112,27 +117,54 @@ export async function POST(request: NextRequest) {
 
     const parsed = parseNovel(novelText);
 
-    // Use LLM to extract the real title from text content
+    // Title: filename + body (+ LLM). Filename is first-class (site dumps often bury real name in file name).
+    let llmTitle: string | null = null;
     try {
-      const llmTitle = await runWithTokenContext(
+      llmTitle = await runWithTokenContext(
         { userId, agentId: "title_parse", category: "parse" },
         async () => {
-          const llm = createLLMProvider();
+          const llm = createLLMProvider("analysis");
           const sample = novelText.slice(0, 2000);
           const messages: LLMMessage[] = [
-            { role: "system", content: "你是一个文本解析器。从小说开头提取正式书名。只返回书名，不要引号、不要解释、不要额外文字。如果找不到，返回空。" },
-            { role: "user", content: sample },
+            {
+              role: "system",
+              content:
+                "你是文本解析器。提取小说的正式书名（不是章节名）。只返回书名本身，不要书名号、不要引号、不要解释。若无法判断返回空。",
+            },
+            {
+              role: "user",
+              content: [
+                `文件名：${originalFileName}`,
+                filenameTitle ? `文件名清洗候选：${filenameTitle}` : "",
+                "要求：优先采用文件名中的书名（去掉下载站前缀、作者、章节范围后）；正文开头若是「【书名】一、章标题」或「第1章」则书名取括号内或文件名，不要把整章标题当书名。",
+                "",
+                "正文开头：",
+                sample,
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            },
           ];
           return (await llm.chat(messages, { temperature: 0, maxTokens: 50 })).trim();
         },
       );
-      if (llmTitle && llmTitle.length < 100) {
-        title = llmTitle;
-        console.log(`[NovelParse] LLM extracted title: "${title}"`);
-      }
+      if (llmTitle && llmTitle.length >= 100) llmTitle = null;
+      if (llmTitle) console.log(`[NovelParse] LLM title candidate: "${llmTitle}"`);
     } catch (e) {
-      console.warn("[NovelParse] LLM title extraction failed, using filename:", (e as Error).message);
+      console.warn(
+        "[NovelParse] LLM title extraction failed:",
+        (e as Error).message,
+      );
     }
+
+    const title = resolveNovelTitle({
+      text: novelText,
+      fileName: originalFileName,
+      llmTitle,
+    });
+    console.log(
+      `[NovelParse] resolved title="${title}" (file="${filenameTitle || originalFileName}")`,
+    );
 
     const novelId = novelFingerprint(novelText);
     importNovel(userId, novelId, title, novelText);

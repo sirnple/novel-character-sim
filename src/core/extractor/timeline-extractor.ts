@@ -108,7 +108,7 @@ export class TimelineExtractor {
 
   async extract(): Promise<ChapterTimeline> {
     const chapters = splitChapters(this.novelText);
-    const llm = createLLMProvider();
+    const llm = createLLMProvider("analysis");
     let globalSequence = 0;
     const snapshots: import("@/types").ChapterSnapshot[] = [];
     let prevStates: CharacterChapterState[] = [];

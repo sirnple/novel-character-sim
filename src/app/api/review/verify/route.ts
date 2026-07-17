@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     return await runWithTokenContext(
       { userId, agentId: "review_verify", category: "review" },
       async () => {
-        const llm = createLLMProvider();
+        const llm = createLLMProvider("write");
 
         const issuesDesc = issues.map((iss: any, i: number) =>
           `意见${i + 1} [${iss.category}/${iss.severity}] ${iss.location}: ${iss.description} | 建议: ${iss.suggestion}${iss.snippet ? ` | 原文片段: "${iss.snippet}"` : ""}`

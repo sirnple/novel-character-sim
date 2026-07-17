@@ -20,7 +20,7 @@ export default function HomePage() {
           <strong className="text-foreground/80 font-medium">文笔库</strong>
           （可跨书嫁接写法）与{" "}
           <strong className="text-foreground/80 font-medium">点子库</strong>。
-          导入后在概览「分析」：故事/角色/形态等留在本书；文笔、点子进全局库。
+          导入后在概览「分析」：故事/角色/目录等留在本书；文笔、点子进全局库。无目录不可写作。
         </p>
         {novelId ? (
           <p className="text-sm text-muted-foreground break-all">

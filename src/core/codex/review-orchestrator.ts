@@ -137,7 +137,7 @@ const REVIEW_SCHEMA = {
  * Returns a merged report with auto-fixes applied.
  */
 export async function runFullReview(input: ReviewInput, onEvent?: (event: any) => void): Promise<ReviewReport> {
-  const llm = createLLMProvider();
+  const llm = createLLMProvider("write");
   const zh = isChinese(input.generatedProse);
   function emitReviewAgent(agentId: string, name: string, status: "running" | "done", messages?: any[]) {
     if (onEvent) onEvent({ type: "agent", agentId, name, status, messages });
@@ -1298,7 +1298,7 @@ export async function runFullReviewClean(
   generatedProse: string,
   onEvent?: (event: any) => void
 ): Promise<{ allConverged: boolean; allFindings: ReviewFinding[] }> {
-  const llm = createLLMProvider();
+  const llm = createLLMProvider("write");
   const zh = isChinese(generatedProse);
   const agentDefs = [
     { id: "review_char", name: "角色一致性", fn: reviewCharacterConsistencyClean },
@@ -1343,7 +1343,7 @@ export async function rewriteProse(
 
   if (onEvent) onEvent({ type: "agent", agentId: "rewrite", name: "修正", status: "running" });
 
-  const llm = createLLMProvider();
+  const llm = createLLMProvider("write");
   const zh = isChinese(originalProse);
   const findingsText = findings.map((f, i) =>
     `${i + 1}. [${f.dimension}][${f.severity}] ${f.description}\n   ${f.snippet ? `问题片段: "${f.snippet}"\n   ` : ""}修改建议: ${f.suggestion}`

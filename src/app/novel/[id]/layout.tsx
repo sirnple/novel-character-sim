@@ -1,10 +1,11 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { useNovel } from "@/lib/novel-context";
 import { Play, PanelRight, X } from "lucide-react";
 import dynamic from "next/dynamic";
+import AnalyzeFab from "@/components/analyze-fab";
 
 const AgentPanel = dynamic(() => import("@/components/agent-panel"), { ssr: false });
 
@@ -17,16 +18,56 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
     novelTitle, setNovel, setBranches,
     sessionContinueOffset, sessionContinueLabel,
     activeBranchId, novelId,
+    characters, storyInfo,
   } = useNovel();
   const [showRightPanel, setShowRightPanel] = useState(false);
   const [panelWidth, setPanelWidth] = useState(480);
   const [dragging, setDragging] = useState(false);
   /** Desktop rail vs mobile sheet — single AgentPanel mount either way */
   const [isLg, setIsLg] = useState(false);
+  const [hasCatalog, setHasCatalog] = useState(false);
 
   const onWritePage = pathname?.endsWith("/write") ?? false;
+  const base = `/novel/${id}`;
+  const onOverviewPage =
+    !!pathname && (pathname === base || pathname === `${base}/`);
   // Agent only after user picked a writing target (branch / main / free)
   const agentAvailable = onWritePage && !!activeBranchId;
+  // URL id is source of truth for FAB (survives context races when switching books)
+  const routeNovelId = id || novelId || "";
+  const needsAnalysis =
+    !hasCatalog || characters.length === 0 || !storyInfo?.plotSummary;
+
+  const reloadNovelMeta = useCallback(() => {
+    if (!id) return;
+    fetch(`/api/novels?id=${encodeURIComponent(id)}&meta=1`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.title) {
+          setNovel({
+            novelId: id,
+            novelTitle: data.title,
+            novelText: "",
+            novelLength: data.totalLength || 0,
+            characters: data.characters || [],
+            storyInfo: data.storyInfo || null,
+            timeline: data.timeline || null,
+            lastChapterStates: data.lastChapterStates || [],
+          });
+        }
+        if (data.branches) setBranches(data.branches);
+      })
+      .catch(() => {});
+    fetch(
+      `/api/chapter-meta?novelId=${encodeURIComponent(id)}&branchId=main`,
+    )
+      .then((r) => r.json())
+      .then((d) => {
+        const n = Array.isArray(d.meta?.chapters) ? d.meta.chapters.length : 0;
+        setHasCatalog(n > 0);
+      })
+      .catch(() => setHasCatalog(false));
+  }, [id, setNovel, setBranches]);
 
   useEffect(() => {
     const mq = window.matchMedia(LG_MQ);
@@ -55,26 +96,8 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
 
   // Always reload meta when novel id changes (don't keep previous book's data)
   useEffect(() => {
-    // meta=1: skip multi-MB body on shell load; pages fetch branch text on demand
-    fetch(`/api/novels?id=${encodeURIComponent(id)}&meta=1`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.title) {
-          setNovel({
-            novelId: id,
-            novelTitle: data.title,
-            novelText: "",
-            novelLength: data.totalLength || 0,
-            characters: data.characters || [],
-            storyInfo: data.storyInfo || null,
-            timeline: data.timeline || null,
-            lastChapterStates: data.lastChapterStates || [],
-          });
-        }
-        if (data.branches) setBranches(data.branches);
-      })
-      .catch(() => {});
-  }, [id, setNovel, setBranches]);
+    reloadNovelMeta();
+  }, [reloadNovelMeta]);
 
   // Desktop: auto-open agent when branch selected. Mobile: do not auto-open (keeps editor + sub-nav usable).
   useEffect(() => {
@@ -85,7 +108,6 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
     if (isLg) setShowRightPanel(true);
   }, [agentAvailable, isLg]);
 
-  const base = `/novel/${id}`;
   const nav = [
     { href: base, label: "概览", match: pathname === base },
     { href: `${base}/write`, label: "写作", match: pathname.endsWith("/write") },
@@ -181,6 +203,22 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
           </>
         )}
       </div>
+
+      {/* Analyze FAB only on 概览 — not write or other sub-routes */}
+      {onOverviewPage && (
+        <AnalyzeFab
+          novelId={routeNovelId}
+          urgent={needsAnalysis}
+          onDone={() => {
+            reloadNovelMeta();
+            // Timeline job usually still running after extract HTTP returns —
+            // pull meta again so overview chips/cards update without F5.
+            window.setTimeout(() => reloadNovelMeta(), 5_000);
+            window.setTimeout(() => reloadNovelMeta(), 15_000);
+            window.setTimeout(() => reloadNovelMeta(), 45_000);
+          }}
+        />
+      )}
     </div>
   );
 }

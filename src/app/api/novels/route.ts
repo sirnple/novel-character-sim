@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listNovels, getNovel, getStoryInfo, getCharacters, deleteNovel, getBranchProse, listBranches } from "@/lib/db";
+import {
+  listNovels,
+  getNovel,
+  getStoryInfo,
+  getCharacters,
+  deleteNovel,
+  getBranchProse,
+  listBranches,
+  getTimeline,
+  getChapterStates,
+} from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
@@ -28,6 +38,8 @@ export async function GET(request: NextRequest) {
         mainMeta?.char_count ||
         novel?.text?.length ||
         0;
+      const timeline = getTimeline(userId, id, branchId);
+      const lastChapterStates = getChapterStates(userId, id, branchId);
       return NextResponse.json({
         id,
         title: novel?.title || "",
@@ -36,6 +48,8 @@ export async function GET(request: NextRequest) {
         storyInfo,
         characters,
         branches,
+        timeline,
+        lastChapterStates,
       });
     }
 

@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing prompt or messages" }, { status: 400 });
     }
 
-    const llm = createLLMProvider();
+    const llm = createLLMProvider("write");
     const result = await runWithTokenContext(
       { userId, agentId: "character_chat", category: "chat" },
       () =>

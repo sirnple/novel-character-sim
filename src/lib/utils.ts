@@ -171,11 +171,151 @@ export function extractJSON<T>(rawText: string): T {
   }
 }
 
-/** Extract a potential title from the first lines of the text */
-export function extractTitle(text: string): string {
-  const firstLine = text.trim().split("\n")[0];
-  if (firstLine && firstLine.length < 100) {
-    return firstLine.replace(/^[《「『]|[》」』]$/g, "").trim();
+/**
+ * Clean a filesystem name into a book-title candidate.
+ * Handles site prefixes, author suffixes, chapter ranges, extensions.
+ *
+ * e.g. `soushu2025.com@《欲孽灼心》1-3作者xxx.txt` → `欲孽灼心`
+ */
+export function cleanFilenameTitle(fileName: string): string {
+  if (!fileName) return "";
+  let s = fileName.trim();
+  // Drop path segments
+  s = s.replace(/^.*[\\/]/, "");
+  // Drop extension
+  s = s.replace(/\.(txt|zip|md|epub|text)$/i, "");
+  // Site / mirror prefixes: soushu…@ 《书》  or  本书下载自…
+  s = s.replace(/^[^@]*@/, "");
+  s = s.replace(/^本书下载自[^：:]*[：:]/, "");
+  s = s.replace(/^www\.[^\s]+/i, "");
+  // Prefer 《书名》 if present
+  const bookMarks = s.match(/《([^》]{1,40})》/);
+  if (bookMarks?.[1]) {
+    s = bookMarks[1].trim();
+  } else {
+    // 【书名】 at start (not chapter body)
+    const bracket = s.match(/^【([^】]{1,40})】/);
+    if (bracket?.[1] && !/[一二三四五六七八九十\d]+[、．.]/.test(s.slice(bracket[0].length))) {
+      s = bracket[1].trim();
+    }
   }
+  // Strip trailing author / chapter range junk
+  s = s
+    .replace(/[_\-—–\s]*作者[：:\s]*.*$/, "")
+    .replace(/[_\-—–\s]*作者.+$/, "")
+    .replace(/[_\-—–\s]*\(?\d+\s*[-~～到至]\s*\d+\)?.*$/, "")
+    .replace(/[_\-—–\s]*全本.*$/, "")
+    .replace(/[_\-—–\s]*完结.*$/, "")
+    .replace(/[\[【\(（][^\]】\)）]{0,30}[\]】\)）]\s*$/, "")
+    .replace(/[_\-—–.]{2,}.*$/, "")
+    .trim();
+  // Strip leftover quotes
+  s = s.replace(/^[《「『"']+|[》」』"']+$/g, "").trim();
+  // Reject if still looks like a URL or empty
+  if (!s || /^https?:/i.test(s) || s.length > 60) return "";
+  return s;
+}
+
+/** True if string looks like a chapter heading, not a book title */
+export function looksLikeChapterHeading(s: string): boolean {
+  const t = (s || "").trim();
+  if (!t) return false;
+  if (/^第\s*[\d一二三四五六七八九十百千零〇两]{1,12}\s*[章节回部卷集]/.test(t)) return true;
+  if (/^【[^】]{1,40}】\s*[\d一二三四五六七八九十百千零〇两]{1,12}\s*[、．，,.]/.test(t)) {
+    return true;
+  }
+  if (/^[一二三四五六七八九十百千零〇两\d]{1,8}\s*[、．.]\s*.+/.test(t) && t.length > 12) {
+    return true;
+  }
+  if (/^Chapter\s*\d+/i.test(t)) return true;
+  return false;
+}
+
+/**
+ * Extract a book title candidate from novel body (first lines).
+ * Prefers 《书名》 / 【书名】 over raw first line (which may be chapter 1).
+ */
+export function extractTitle(text: string): string {
+  if (!text?.trim()) return "未命名小说";
+  const head = text.trim().slice(0, 1500);
+  const lines = head.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 12);
+
+  for (const line of lines) {
+    const book = line.match(/《([^》]{1,40})》/);
+    if (book?.[1] && !looksLikeChapterHeading(book[1])) {
+      return book[1].trim();
+    }
+  }
+
+  for (const line of lines) {
+    // 【欲孽灼心】一、… → 欲孽灼心
+    const m = line.match(/^【([^】]{1,40})】/);
+    if (m?.[1]) {
+      const rest = line.slice(m[0].length).trim();
+      if (
+        !rest ||
+        /^[\d一二三四五六七八九十百千零〇两]{1,12}\s*[、．，,.\-—]/.test(rest) ||
+        /^第/.test(rest)
+      ) {
+        return m[1].trim();
+      }
+    }
+  }
+
+  const first = lines[0];
+  if (first && first.length < 80 && !looksLikeChapterHeading(first)) {
+    return first.replace(/^[《「『"']+|[》」』"']+$/g, "").trim();
+  }
+
+  return "未命名小说";
+}
+
+/**
+ * Merge filename + body (+ optional LLM) into a final display title.
+ * Filename is a first-class signal (often more reliable than chapter-1 body lines).
+ */
+export function resolveNovelTitle(opts: {
+  text: string;
+  fileName?: string;
+  llmTitle?: string | null;
+}): string {
+  const fromFile = cleanFilenameTitle(opts.fileName || "");
+  const fromBody = extractTitle(opts.text || "");
+  let fromLlm = (opts.llmTitle || "").trim();
+  fromLlm = fromLlm.replace(/^[《「『"']+|[》」』"']+$/g, "").trim();
+  if (fromLlm.length > 60 || looksLikeChapterHeading(fromLlm)) {
+    fromLlm = "";
+  }
+  // LLM sometimes returns full first line with book + chapter
+  if (fromLlm) {
+    const bm = fromLlm.match(/《([^》]{1,40})》/);
+    if (bm?.[1]) fromLlm = bm[1].trim();
+    else {
+      const br = fromLlm.match(/^【([^】]{1,40})】/);
+      if (br?.[1] && looksLikeChapterHeading(fromLlm)) fromLlm = br[1].trim();
+    }
+  }
+
+  // Prefer: clean LLM if it agrees with file/body, else file, else body, else LLM
+  if (fromLlm && fromFile && (fromLlm === fromFile || fromFile.includes(fromLlm) || fromLlm.includes(fromFile))) {
+    return fromLlm.length <= fromFile.length ? fromLlm : fromFile;
+  }
+  if (fromLlm && fromBody && fromBody !== "未命名小说" && (fromLlm === fromBody || fromBody.includes(fromLlm) || fromLlm.includes(fromBody))) {
+    return fromLlm.length <= fromBody.length ? fromLlm : fromBody;
+  }
+  if (fromFile && fromFile.length >= 1) {
+    // If body also has a clean short title that is part of filename, prefer shorter clean one
+    if (
+      fromBody &&
+      fromBody !== "未命名小说" &&
+      !looksLikeChapterHeading(fromBody) &&
+      (fromFile.includes(fromBody) || fromBody.includes(fromFile))
+    ) {
+      return fromBody.length <= fromFile.length ? fromBody : fromFile;
+    }
+    return fromFile;
+  }
+  if (fromBody && fromBody !== "未命名小说") return fromBody;
+  if (fromLlm) return fromLlm;
   return "未命名小说";
 }

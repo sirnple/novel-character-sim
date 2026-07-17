@@ -237,7 +237,7 @@ export type ExtractModule =
 export const EXTRACT_MODULES: { id: ExtractModule; label: string; hint: string }[] = [
   { id: "story", label: "故事/世界观", hint: "本书：情节摘要、主线、世界观（契约·肉）" },
   { id: "characters", label: "角色", hint: "本书：角色档案与关系（契约·肉）" },
-  { id: "form", label: "形态/章法", hint: "本书：是否分章、章名格式样例、叙事骨架（契约·骨；不进文笔库）" },
+  { id: "form", label: "目录/章法", hint: "本书：提取目录（适应第N章、【书名】一、等格式）；章法细节后台存储供续写" },
   { id: "style", label: "文笔", hint: "写入文笔库：句式/语气/范文，可嫁接到其他书（契约·肌理）" },
   { id: "ideas", label: "点子", hint: "写入点子库：可迁移续写火花（非正典，选用）" },
   { id: "timeline", label: "时间线", hint: "本书/分支：按章或段的事件进度（较慢，异步后台）" },
@@ -593,6 +593,9 @@ export interface ToolSchema {
 
 // --- App Config ---
 
+/** Which product path is calling the LLM (model routing). */
+export type LLMUsageRole = "analysis" | "write";
+
 export interface AppConfig {
   llm: {
     provider: LLMProviderType;
@@ -606,7 +609,12 @@ export interface AppConfig {
     };
     deepseek: {
       apiKey: string;
+      /** Default / fallback model id */
       model: string;
+      /** Extract / form / timeline / title parse */
+      analysisModel: string;
+      /** Agent 续写 / simulation / review */
+      writeModel: string;
       baseURL: string;
     };
     maxTokens: number;

@@ -113,7 +113,7 @@ export class StoryExtractor {
   }
 
   async extract(): Promise<StoryInfo> {
-    const llm = createLLMProvider();
+    const llm = createLLMProvider("analysis");
     const schema = this.useChinese ? STORY_SCHEMA_ZH : STORY_SCHEMA_EN;
     const lang = this.useChinese ? "zh" : "en";
 

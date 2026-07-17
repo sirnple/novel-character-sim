@@ -16,7 +16,7 @@ export async function extractIdeas(
   novelId: string,
   novelTitle: string,
 ): Promise<IdeaLibraryEntry[]> {
-  const llm = createLLMProvider();
+  const llm = createLLMProvider("analysis");
   const zh = isChinese(parsed.fullText);
   const lang = zh ? "zh" : "en";
   const novelContext = buildNovelContext(parsed, 4).slice(0, 12000);

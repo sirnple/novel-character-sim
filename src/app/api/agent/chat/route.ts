@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   if (!branchId || !novelId) return new Response(JSON.stringify({ error: "branchId and novelId required" }), { status: 400, headers: { "Content-Type": "application/json" } });
 
   const autoPass = !!autoPassCheckpoints;
-  const llm = createLLMProvider();
+  const llm = createLLMProvider("write");
   const encoder = new TextEncoder();
   // 主 agent 只调度与展示摘要；正文由子 agent 自取，不向主 agent 暴露 get_prose / save_*
   const MASTER_TOOL_ALLOW = new Set([

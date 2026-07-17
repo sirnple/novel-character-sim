@@ -12,10 +12,12 @@ import { runAcceptContinuationTests } from "./tests/accept-continuation.test";
 import { runTextWindowTests } from "./tests/text-window.test";
 import { runBranchCowTests } from "./tests/branch-cow.test";
 import { runChapterCatalogTests } from "./tests/chapter-catalog.test";
+import { runFormCatalogValidateTests } from "./tests/form-catalog-validate.test";
 import { runFormContextTests } from "./tests/form-context.test";
 import { runAcceptChapterMetaTests } from "./tests/accept-chapter-meta.test";
 import { runTimelineBranchScopeTests } from "./tests/timeline-branch-scope.test";
 import { runExportTxtTocTests } from "./tests/export-txt-toc.test";
+import { runTitleResolveTests } from "./tests/title-resolve.test";
 
 function main() {
   resetCounters();
@@ -30,10 +32,12 @@ function main() {
   runTextWindowTests();
   runBranchCowTests();
   runChapterCatalogTests();
+  runFormCatalogValidateTests();
   runFormContextTests();
   runAcceptChapterMetaTests();
   runTimelineBranchScopeTests();
   runExportTxtTocTests();
+  runTitleResolveTests();
 
   const { failed } = summary();
   if (failed > 0) process.exitCode = 1;

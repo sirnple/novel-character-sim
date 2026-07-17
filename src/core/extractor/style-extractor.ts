@@ -66,7 +66,7 @@ const SCHEMA = {
 };
 
 export async function extractWritingStyle(parsed: ParsedNovel): Promise<WritingStyle> {
-  const llm = createLLMProvider();
+  const llm = createLLMProvider("analysis");
   const zh = isChinese(parsed.fullText);
   const lang = zh ? "zh" : "en";
   const novelContext = buildNovelContext(parsed, 5).slice(0, 14000);

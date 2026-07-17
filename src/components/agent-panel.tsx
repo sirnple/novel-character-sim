@@ -89,7 +89,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_branch_timeline: "获取时间线",
   get_branch_world: "获取世界观",
   get_branch_meta: "获取分支信息",
-  get_novel_form: "获取形态/章法",
+  get_novel_form: "获取目录/章法",
   save_outline: "保存大纲",
   save_prose: "保存正文",
   save_findings: "保存审查发现",

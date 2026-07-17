@@ -2,14 +2,19 @@
 
 /**
  * Floating analyze action — non-blocking; per-novel running state survives book switches.
+ * Prefer mounting in novel layout with URL param id (not context) so switch-back restores UI.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Sparkles, RotateCcw, X } from "lucide-react";
 import { ALL_ANALYSIS_MODULES } from "@/types";
-import { notifyLibrariesRefresh } from "@/lib/library-events";
+import {
+  notifyLibrariesRefresh,
+  notifyTimelineJob,
+} from "@/lib/library-events";
 import {
   clearAnalysisJob,
   getAnalysisJob,
+  listOtherRunningJobs,
   markAnalysisDone,
   markAnalysisError,
   markAnalysisRunning,
@@ -22,6 +27,7 @@ export interface AnalyzeFabProps {
   novelText?: string;
   /** Highlight when analysis incomplete */
   urgent?: boolean;
+  /** Called only when still viewing the same novel when job finishes */
   onDone?: (data: any) => void;
   onError?: (message: string) => void;
 }
@@ -35,17 +41,30 @@ export default function AnalyzeFab({
 }: AnalyzeFabProps) {
   const [open, setOpen] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(false);
-  const [job, setJob] = useState<AnalysisJobState | null>(() =>
-    getAnalysisJob(novelId),
-  );
+  const [job, setJob] = useState<AnalysisJobState | null>(null);
+  const [otherRunning, setOtherRunning] = useState(0);
+
+  const novelIdRef = useRef(novelId);
+  const onDoneRef = useRef(onDone);
+  const onErrorRef = useRef(onError);
+  novelIdRef.current = novelId;
+  onDoneRef.current = onDone;
+  onErrorRef.current = onError;
 
   // Sync with global store when novel changes or jobs update
   useEffect(() => {
-    setJob(getAnalysisJob(novelId));
-    setOpen(false);
-    return subscribeAnalysisJobs(() => {
+    if (!novelId) {
+      setJob(null);
+      setOtherRunning(0);
+      return;
+    }
+    const sync = () => {
       setJob(getAnalysisJob(novelId));
-    });
+      setOtherRunning(listOtherRunningJobs(novelId).length);
+    };
+    sync();
+    setOpen(false);
+    return subscribeAnalysisJobs(sync);
   }, [novelId]);
 
   const loading = job?.status === "running";
@@ -56,6 +75,8 @@ export default function AnalyzeFab({
     if (!novelId || loading) return;
     const targetNovelId = novelId;
     const fr = forceRefresh;
+    // Capture text at start; layout may pass empty (API loads from DB by novelId)
+    const textSnapshot = novelText;
     markAnalysisRunning(targetNovelId, fr);
     setOpen(false);
 
@@ -66,7 +87,7 @@ export default function AnalyzeFab({
         body: JSON.stringify({
           novelId: targetNovelId,
           sessionId: targetNovelId,
-          text: novelText,
+          text: textSnapshot || undefined,
           modules: [...ALL_ANALYSIS_MODULES],
           forceRefresh: fr,
         }),
@@ -80,34 +101,36 @@ export default function AnalyzeFab({
         .join("、");
       const formNote =
         data.form?.chaptering?.enabled
-          ? ` · 已分章（约 ${data.chapterCatalogCount ?? "?"} 章）`
+          ? ` · 目录 ${data.chapterCatalogCount ?? "?"} 条`
           : data.ran?.includes("form")
-            ? " · 弱分章"
+            ? " · 未提取到目录"
             : "";
       const tlNote = data.timelineJobId ? " · 时间线后台进行中" : "";
       const msg = `${ran}${skipped ? `；跳过 ${skipped}` : ""}${formNote}${tlNote}`;
 
       markAnalysisDone(targetNovelId, msg);
       notifyLibrariesRefresh();
-      // Only notify page if still viewing this novel
-      if (getAnalysisJob(targetNovelId)?.status === "done") {
-        // onDone only when current fab still mounted for same id — parent remounts per novel
-        onDone?.(data);
+      if (data.timelineJobId) {
+        notifyTimelineJob({
+          novelId: targetNovelId,
+          jobId: String(data.timelineJobId),
+          branchId: "main",
+        });
+      }
+      // Only refresh page state if still on this novel (avoid hijacking other book)
+      if (novelIdRef.current === targetNovelId) {
+        onDoneRef.current?.(data);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "分析失败";
       markAnalysisError(targetNovelId, msg);
-      onError?.(msg);
+      if (novelIdRef.current === targetNovelId) {
+        onErrorRef.current?.(msg);
+      }
     }
-  }, [novelId, novelText, forceRefresh, loading, onDone, onError]);
+  }, [novelId, novelText, forceRefresh, loading]);
 
-  // If we navigated back to a novel whose job finished while we were away,
-  // still fire onDone once when job is done and parent may need refresh
-  useEffect(() => {
-    if (!novelId || !job || job.status !== "done") return;
-    // Parent should re-fetch form/story; light nudge via library refresh already happened.
-    // Clear done state on dismiss so FAB returns to idle when user opens sheet and closes.
-  }, [novelId, job]);
+  if (!novelId) return null;
 
   return (
     <>
@@ -115,6 +138,11 @@ export default function AnalyzeFab({
         {loading && (
           <span className="pointer-events-none text-[11px] px-2.5 py-1 rounded-full bg-card border border-border text-muted-foreground shadow-lg">
             本书分析中 · 可切换其他书
+          </span>
+        )}
+        {!loading && otherRunning > 0 && (
+          <span className="pointer-events-none text-[11px] px-2.5 py-1 rounded-full bg-card border border-border text-muted-foreground shadow-lg">
+            另有 {otherRunning} 本书分析中
           </span>
         )}
         {urgent && !loading && (
@@ -177,7 +205,7 @@ export default function AnalyzeFab({
                   分析原著
                 </h2>
                 <p className="text-xs text-fog mt-1 leading-relaxed">
-                  开始后可关闭面板、切换书籍；每本书的进度独立保存。
+                  开始后可关闭面板、切换书籍；每本书的进度独立保存，回到本书仍显示「分析中」。
                 </p>
               </div>
               <button
@@ -241,6 +269,11 @@ export default function AnalyzeFab({
               )}
               {lastResult && !error && (
                 <p className="text-xs text-primary/90 leading-relaxed">{lastResult}</p>
+              )}
+              {!loading && otherRunning > 0 && (
+                <p className="text-xs text-fog">
+                  另有 {otherRunning} 本书仍在后台分析；切回该书可查看进度。
+                </p>
               )}
             </div>
           </div>

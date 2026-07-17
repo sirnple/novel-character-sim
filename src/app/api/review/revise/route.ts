@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const llm = createLLMProvider();
+    const llm = createLLMProvider("write");
     const encoder = new TextEncoder();
     let isClosed = false;
 

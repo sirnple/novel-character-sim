@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     return await runWithTokenContext(
       { userId, agentId: "scene_recommend", category: "scene" },
       async () => {
-    const llm = createLLMProvider();
+    const llm = createLLMProvider("write");
     const zh = isChinese(characters[0]?.name || "") || (storyInfo?.plotSummary && isChinese(storyInfo.plotSummary));
 
     const charList = characters.map((c) => `${c.name}: ${c.personality.description}`).join("\n");
