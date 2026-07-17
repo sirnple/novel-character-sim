@@ -53,29 +53,28 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
     document.addEventListener("mouseup", onUp);
   };
 
+  // Always reload meta when novel id changes (don't keep previous book's data)
   useEffect(() => {
-    if (!novelTitle) {
-      // meta=1: skip multi-MB body on shell load; pages fetch branch text on demand
-      fetch(`/api/novels?id=${encodeURIComponent(id)}&meta=1`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.title) {
-            setNovel({
-              novelId: id,
-              novelTitle: data.title,
-              novelText: "",
-              novelLength: data.totalLength || 0,
-              characters: data.characters || [],
-              storyInfo: data.storyInfo || null,
-              timeline: data.timeline || null,
-              lastChapterStates: data.lastChapterStates || [],
-            });
-          }
-          if (data.branches) setBranches(data.branches);
-        })
-        .catch(() => {});
-    }
-  }, [id]);
+    // meta=1: skip multi-MB body on shell load; pages fetch branch text on demand
+    fetch(`/api/novels?id=${encodeURIComponent(id)}&meta=1`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.title) {
+          setNovel({
+            novelId: id,
+            novelTitle: data.title,
+            novelText: "",
+            novelLength: data.totalLength || 0,
+            characters: data.characters || [],
+            storyInfo: data.storyInfo || null,
+            timeline: data.timeline || null,
+            lastChapterStates: data.lastChapterStates || [],
+          });
+        }
+        if (data.branches) setBranches(data.branches);
+      })
+      .catch(() => {});
+  }, [id, setNovel, setBranches]);
 
   // Desktop: auto-open agent when branch selected. Mobile: do not auto-open (keeps editor + sub-nav usable).
   useEffect(() => {

@@ -40,8 +40,8 @@ export default function WritePage() {
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [activeBranchId, setLocalBranchId] = useState<string | null>(null);
   const [freeMode, setFreeMode] = useState(false);
-  const [hasForm, setHasForm] = useState(false);
-  const [analysisChecked, setAnalysisChecked] = useState(false);
+  /** null = still checking this novel; boolean = gate result for current novelId only */
+  const [analysisReady, setAnalysisReady] = useState<boolean | null>(null);
   const readerRef = useRef<HTMLDivElement>(null);
   const [newBranchName, setNewBranchName] = useState("");
   // Click-to-fork state — offsets are absolute in full branch body
@@ -111,32 +111,45 @@ export default function WritePage() {
       .catch(() => {});
   }, [novelId]);
 
-  // Gate: require form + story + characters before writing
+  // Gate: readiness from APIs for THIS novelId only (don't trust stale context from another book)
   useEffect(() => {
     if (!novelId) return;
     let cancelled = false;
-    fetch(
-      `/api/chapter-meta?novelId=${encodeURIComponent(novelId)}&branchId=main`,
-    )
-      .then((r) => r.json())
-      .then((d) => {
-        if (!cancelled) setHasForm(!!d.form);
+    setAnalysisReady(null);
+    Promise.all([
+      fetch(
+        `/api/chapter-meta?novelId=${encodeURIComponent(novelId)}&branchId=main`,
+      ).then((r) => r.json()),
+      fetch(
+        `/api/novels?id=${encodeURIComponent(novelId)}&meta=1`,
+      ).then((r) => r.json()),
+    ])
+      .then(([meta, novel]) => {
+        if (cancelled) return;
+        const hasForm = !!meta?.form;
+        const chars = Array.isArray(novel?.characters) ? novel.characters.length : 0;
+        const hasStory = !!(novel?.storyInfo?.plotSummary);
+        setAnalysisReady(hasForm && chars > 0 && hasStory);
+        // Refresh context for this book if shell had stale data
+        if (novel?.title) {
+          setNovel({
+            novelId,
+            novelTitle: novel.title,
+            novelLength: novel.totalLength || 0,
+            characters: novel.characters || [],
+            storyInfo: novel.storyInfo || null,
+            timeline: novel.timeline || null,
+            lastChapterStates: novel.lastChapterStates || [],
+          });
+        }
       })
       .catch(() => {
-        if (!cancelled) setHasForm(false);
-      })
-      .finally(() => {
-        if (!cancelled) setAnalysisChecked(true);
+        if (!cancelled) setAnalysisReady(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [novelId]);
-
-  const canContinue =
-    hasForm &&
-    (characters?.length ?? 0) > 0 &&
-    !!storyInfo?.plotSummary;
+  }, [novelId, setNovel]);
 
   // Chapter catalog for current branch
   useEffect(() => {
@@ -600,25 +613,39 @@ export default function WritePage() {
     />
   );
 
-  if (analysisChecked && !canContinue) {
+  if (analysisReady === null) {
+    return (
+      <div className="flex flex-1 items-center justify-center min-h-0 text-sm text-fog">
+        检查本书分析状态…
+      </div>
+    );
+  }
+
+  if (analysisReady === false) {
     return (
       <div className="flex flex-1 items-center justify-center min-h-0 p-6">
         <div className="max-w-sm text-center space-y-4">
           <div className="mx-auto w-14 h-14 rounded-2xl bg-ember-soft flex items-center justify-center">
             <Sparkles className="w-7 h-7 text-primary" />
           </div>
-          <h2 className="text-lg font-semibold text-foreground">请先完成原著分析</h2>
+          <h2 className="text-lg font-semibold text-foreground">本书尚未完成分析</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            续写需要本书的故事、角色与形态/章法资料。请回到概览，使用右下角
+            仅限制<strong className="text-foreground/90 font-medium">当前这本书</strong>
+            。其他已分析的书可从侧栏打开继续写作。请回到概览，点右下角
             <span className="text-primary font-medium"> 分析 </span>
-            按钮一键分析后再进入写作。
+            （可关闭面板，分析在后台进行）。
           </p>
-          <Link
-            href={`/novel/${novelId}`}
-            className="btn-primary inline-flex"
-          >
-            返回概览分析
-          </Link>
+          <div className="flex flex-col sm:flex-row gap-2 justify-center">
+            <Link href={`/novel/${novelId}`} className="btn-primary inline-flex">
+              返回概览分析
+            </Link>
+            <Link
+              href="/"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-secondary px-4 py-2.5 text-sm text-foreground hover:bg-panel-elevated"
+            >
+              打开其他书籍
+            </Link>
+          </div>
         </div>
       </div>
     );
