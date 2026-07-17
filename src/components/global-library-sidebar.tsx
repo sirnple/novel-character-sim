@@ -182,7 +182,7 @@ export default function GlobalLibrarySidebar({
     e.stopPropagation();
     e.preventDefault();
     const ok = window.confirm(
-      `确定删除《${title || id}》？\n将清除该书正文、拆解结果、分支，以及从该书提取的风格/点子。此操作不可恢复。`,
+      `确定删除《${title || id}》？\n将清除该书正文、分析结果、分支，以及从该书提取的风格/点子。此操作不可恢复。`,
     );
     if (!ok) return;
     try {
@@ -327,7 +327,7 @@ export default function GlobalLibrarySidebar({
           </button>
         )}
         {styles.length === 0 && (
-          <p className="px-3 py-1 text-xs text-fog">拆解「风格」后出现</p>
+          <p className="px-3 py-1 text-xs text-fog">分析「文笔」后出现</p>
         )}
       </Section>
 
@@ -400,7 +400,7 @@ export default function GlobalLibrarySidebar({
           </p>
         )}
         {ideas.length === 0 && (
-          <p className="px-3 py-1 text-xs text-fog">拆解「点子」后出现</p>
+          <p className="px-3 py-1 text-xs text-fog">分析「点子」后出现</p>
         )}
       </Section>
     </div>

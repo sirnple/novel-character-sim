@@ -123,7 +123,7 @@ export default function ExtractModulesPanel({
         onClick={run}
         className="btn-primary w-full disabled:bg-secondary disabled:text-fog disabled:hover:brightness-100"
       >
-        {loading ? <><Loader2 className="w-4 h-4 animate-spin" />拆解中…</> : "开始拆解"}
+        {loading ? <><Loader2 className="w-4 h-4 animate-spin" />分析中…</> : "开始分析"}
       </button>
       {error && <p className="text-sm text-red-400">{error}</p>}
       {lastResult && <p className="text-sm text-green-500/80">{lastResult}</p>}

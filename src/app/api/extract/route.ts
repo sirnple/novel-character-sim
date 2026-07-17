@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Modular extract error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "拆解失败" },
+      { error: error instanceof Error ? error.message : "分析失败" },
       { status: 500 },
     );
   }

@@ -30,7 +30,7 @@ export const libraryTools: ToolDefinition[] = [
       return {
         content: lines.length
           ? `点子库（${lines.length} 条，最多选 3 条）\n${lines.join("\n")}`
-          : "点子库为空。可先拆解「点子」模块或人工添加。",
+          : "点子库为空。可先分析「点子」模块或人工添加。",
         messages: [],
       };
     },
@@ -82,7 +82,7 @@ export const libraryTools: ToolDefinition[] = [
           `${n + 1}. [${s.id}] ${s.name} — ${(s.description || s.style?.styleDescription || "").slice(0, 60)}`,
       );
       return {
-        content: lines.length ? `风格库\n${lines.join("\n")}` : "风格库为空。可拆解「风格」模块。",
+        content: lines.length ? `风格库\n${lines.join("\n")}` : "风格库为空。可分析「文笔」模块。",
         messages: [],
       };
     },

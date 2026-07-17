@@ -112,7 +112,7 @@ function StyleBody({
     s.genre && `类型 · ${s.genre}`,
     s.tone && `基调 · ${s.tone}`,
     entry.sourceNovelTitle && `来源 · ${entry.sourceNovelTitle}`,
-    entry.source === "extracted" ? "拆解" : "手动",
+    entry.source === "extracted" ? "分析" : "手动",
   ].filter(Boolean);
 
   return (
@@ -233,7 +233,7 @@ function IdeaBody({
         subtitle={[
           (entry.tags || []).join(" · ") || "无标签",
           entry.sourceNovelTitle && `来源 · ${entry.sourceNovelTitle}`,
-          entry.source === "extracted" ? "拆解" : "手动",
+          entry.source === "extracted" ? "分析" : "手动",
         ]
           .filter(Boolean)
           .join("  ·  ")}

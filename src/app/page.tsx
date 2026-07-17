@@ -20,7 +20,7 @@ export default function HomePage() {
           <strong className="text-foreground/80 font-medium">风格库</strong>
           {" "}与{" "}
           <strong className="text-foreground/80 font-medium">点子库</strong>。
-          导入小说后在概览页勾选模块拆解，再进入写作。
+          导入小说后在概览页勾选模块分析，再进入写作。
         </p>
         {novelId ? (
           <p className="text-sm text-muted-foreground break-all">
