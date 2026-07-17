@@ -1,26 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Sparkles } from "lucide-react";
-import { ALL_ANALYSIS_MODULES, EXTRACT_MODULES } from "@/types";
+import { Loader2, Sparkles, RotateCcw } from "lucide-react";
+import { ALL_ANALYSIS_MODULES } from "@/types";
 import { notifyLibrariesRefresh } from "@/lib/library-events";
 
 interface ExtractModulesPanelProps {
   novelId: string;
   novelText?: string;
   onDone?: (data: any) => void;
+  /** Dense toolbar style for overview dashboard */
   compact?: boolean;
+  className?: string;
 }
 
 /**
- * One-click full analysis. Module pickers are deferred to ops/admin later.
- * Always runs ALL_ANALYSIS_MODULES (story/characters/form/style/ideas/timeline).
+ * One-click full analysis. No module checkboxes (ops later).
  */
 export default function ExtractModulesPanel({
   novelId,
   novelText,
   onDone,
-  compact,
+  compact = true,
+  className = "",
 }: ExtractModulesPanelProps) {
   const [forceRefresh, setForceRefresh] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -51,14 +53,12 @@ export default function ExtractModulesPanel({
         .join("、");
       const formNote =
         data.form?.chaptering?.enabled
-          ? `；章法：已分章（目录约 ${data.chapterCatalogCount ?? "?"} 条）`
+          ? ` · 已分章（约 ${data.chapterCatalogCount ?? "?"} 章）`
           : data.ran?.includes("form")
-            ? "；章法：弱分章/不分章（保守）"
+            ? " · 弱分章"
             : "";
-      const tlNote = data.timelineJobId
-        ? `；时间线已后台启动（任务 ${String(data.timelineJobId).slice(0, 12)}…，可在阅读页查看进度）`
-        : "";
-      setLastResult(`完成：${ran}${skipped ? `；跳过：${skipped}` : ""}${formNote}${tlNote}`);
+      const tlNote = data.timelineJobId ? " · 时间线后台进行中" : "";
+      setLastResult(`${ran}${skipped ? `；跳过 ${skipped}` : ""}${formNote}${tlNote}`);
       notifyLibrariesRefresh();
       onDone?.(data);
     } catch (e) {
@@ -69,51 +69,49 @@ export default function ExtractModulesPanel({
   };
 
   return (
-    <div className={compact ? "space-y-2" : "space-y-3"}>
-      <div className="flex items-center gap-2">
-        <Sparkles className="w-3.5 h-3.5 text-primary" />
-        <h3 className="text-sm font-semibold text-muted-foreground">分析</h3>
+    <div className={`space-y-2 ${className}`}>
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <Sparkles className="w-4 h-4 text-primary shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground leading-tight">原著分析</p>
+            {!compact && (
+              <p className="text-[11px] text-fog leading-snug mt-0.5">
+                故事·角色·形态·文笔·点子·时间线一次跑完
+              </p>
+            )}
+          </div>
+        </div>
+        <label className="flex items-center gap-1.5 text-[11px] text-fog cursor-pointer shrink-0 select-none">
+          <input
+            type="checkbox"
+            checked={forceRefresh}
+            onChange={(e) => setForceRefresh(e.target.checked)}
+            className="accent-primary scale-90"
+          />
+          <RotateCcw className="w-3 h-3" />
+          强制重跑
+        </label>
+        <button
+          type="button"
+          disabled={loading}
+          onClick={run}
+          className="btn-primary !px-4 !py-2 text-sm shrink-0 disabled:opacity-50"
+        >
+          {loading ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              分析中
+            </>
+          ) : (
+            "开始分析"
+          )}
+        </button>
       </div>
-      <p className="text-xs text-fog leading-relaxed">
-        一键分析全部模块：故事/角色/形态/文笔/点子/时间线。
-        本书资料留在书内；文笔进文笔库（可嫁接），点子进点子库。时间线在后台异步跑。
-      </p>
-      {!compact && (
-        <ul className="text-xs text-muted-foreground space-y-1 px-1">
-          {EXTRACT_MODULES.map((m) => (
-            <li key={m.id} className="leading-relaxed">
-              <span className="text-foreground/90">{m.label}</span>
-              <span className="text-fog"> — {m.hint}</span>
-            </li>
-          ))}
-        </ul>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      {lastResult && !error && (
+        <p className="text-[11px] text-primary/80 leading-snug line-clamp-2">{lastResult}</p>
       )}
-      <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer px-1">
-        <input
-          type="checkbox"
-          checked={forceRefresh}
-          onChange={(e) => setForceRefresh(e.target.checked)}
-          className="accent-primary"
-        />
-        强制重新提取（忽略缓存）
-      </label>
-      <button
-        type="button"
-        disabled={loading}
-        onClick={run}
-        className="btn-primary w-full disabled:bg-secondary disabled:text-fog disabled:hover:brightness-100"
-      >
-        {loading ? (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            分析中…
-          </>
-        ) : (
-          "开始分析"
-        )}
-      </button>
-      {error && <p className="text-sm text-red-400">{error}</p>}
-      {lastResult && <p className="text-sm text-green-500/80">{lastResult}</p>}
     </div>
   );
 }

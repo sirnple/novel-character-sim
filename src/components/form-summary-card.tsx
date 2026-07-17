@@ -1,23 +1,24 @@
 "use client";
 
 /**
- * Overview card: form (骨) + catalog count + chapter boundary.
+ * Dense form / chaptering summary for overview dashboard.
  */
 import { useEffect, useState } from "react";
-import { BookMarked } from "lucide-react";
+import { BookMarked, Layers } from "lucide-react";
 import type { BranchChapterMeta, NovelFormProfile } from "@/types";
 
 interface FormSummaryCardProps {
   novelId: string;
   branchId?: string;
-  /** Bump to refetch after analysis */
   refreshKey?: number | string;
+  className?: string;
 }
 
 export default function FormSummaryCard({
   novelId,
   branchId = "main",
   refreshKey = 0,
+  className = "",
 }: FormSummaryCardProps) {
   const [form, setForm] = useState<NovelFormProfile | null>(null);
   const [meta, setMeta] = useState<BranchChapterMeta | null>(null);
@@ -50,22 +51,26 @@ export default function FormSummaryCard({
     };
   }, [novelId, branchId, refreshKey]);
 
+  const shell =
+    "rounded-xl border border-border/80 bg-card h-full flex flex-col min-h-0 " + className;
+
   if (loading) {
     return (
-      <div className="bg-card border border-border rounded-xl p-5 sm:p-6">
-        <p className="text-xs text-fog">加载形态信息…</p>
+      <div className={`${shell} p-3`}>
+        <p className="text-[11px] text-fog">加载形态…</p>
       </div>
     );
   }
 
   if (!form) {
     return (
-      <div className="bg-card border border-border rounded-xl p-5 sm:p-6">
-        <h3 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
-          <BookMarked className="w-4 h-4" /> 形态 / 章法
-        </h3>
-        <p className="text-sm text-fog leading-relaxed">
-          尚未分析形态。在上方勾选「形态/章法」并开始分析后，此处显示分章策略与目录摘要。
+      <div className={`${shell} p-3`}>
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-2">
+          <BookMarked className="w-3.5 h-3.5 text-primary" />
+          形态 / 章法
+        </div>
+        <p className="text-xs text-fog leading-relaxed">
+          尚未分析。点上方「开始分析」后显示分章与目录。
         </p>
       </div>
     );
@@ -75,78 +80,84 @@ export default function FormSummaryCard({
   const catalogCount = meta?.chapters?.length ?? 0;
   const boundary = meta?.chapterBoundary || "closed";
   const samples = (form.chaptering?.samples || []).slice(0, 3);
-  const rules = (form.continuationRules || []).slice(0, 4);
+  const conf = Math.round((form.chaptering?.confidence ?? 0) * 100);
 
   return (
-    <div className="bg-card border border-border rounded-xl p-5 sm:p-6 space-y-3">
-      <h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-        <BookMarked className="w-4 h-4" /> 形态 / 章法
-      </h3>
+    <div className={`${shell} p-3 sm:p-3.5`}>
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <BookMarked className="w-3.5 h-3.5 text-primary" />
+          形态 / 章法
+        </div>
+        <span
+          className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${
+            enabled
+              ? "bg-primary/15 text-primary"
+              : "bg-secondary text-muted-foreground"
+          }`}
+        >
+          {enabled ? `分章 · ${conf}%` : "弱分章"}
+        </span>
+      </div>
 
-      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-        <div>
-          <dt className="text-xs text-fog">作品形态</dt>
-          <dd className="text-foreground">{formTypeLabel(form.formType)}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-fog">分章</dt>
-          <dd className="text-foreground">
-            {enabled
-              ? `已开启（置信度 ${((form.chaptering?.confidence ?? 0) * 100).toFixed(0)}%）`
-              : "弱分章 / 不分章（保守）"}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-fog">目录条数（{branchId === "main" ? "主线" : branchId}）</dt>
-          <dd className="text-foreground">{catalogCount}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-fog">章边界</dt>
-          <dd className="text-foreground">
-            {boundary === "open" ? "章中（open）" : "章末（closed）"}
-            {meta?.openChapter?.title
-              ? ` · 进行中：${meta.openChapter.title}`
-              : meta?.lastClosedChapter?.title
-                ? ` · 最近收束：${meta.lastClosedChapter.title}`
-                : ""}
-          </dd>
-        </div>
-      </dl>
+      <div className="grid grid-cols-3 gap-1.5 mb-2.5">
+        <Stat label="形态" value={formTypeLabel(form.formType)} />
+        <Stat label="目录" value={`${catalogCount}`} />
+        <Stat
+          label="边界"
+          value={boundary === "open" ? "章中" : "章末"}
+        />
+      </div>
 
       {samples.length > 0 && (
-        <div>
-          <p className="text-xs text-fog mb-1">章名样例</p>
-          <p className="text-sm text-foreground leading-relaxed">{samples.join(" · ")}</p>
+        <div className="mb-2">
+          <p className="text-[10px] text-fog mb-1 flex items-center gap-1">
+            <Layers className="w-3 h-3" /> 章名样例
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {samples.map((s) => (
+              <span
+                key={s}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-panel-elevated text-muted-foreground border border-border/50"
+              >
+                {s}
+              </span>
+            ))}
+          </div>
         </div>
       )}
 
-      {rules.length > 0 && (
-        <div>
-          <p className="text-xs text-fog mb-1">续写规则</p>
-          <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
-            {rules.map((r, i) => (
-              <li key={i} className="leading-relaxed">
-                {r}
-              </li>
-            ))}
-          </ul>
-        </div>
+      {(form.continuationRules || []).length > 0 && (
+        <p className="text-[11px] text-fog leading-snug line-clamp-2 mt-auto">
+          {form.continuationRules![0]}
+        </p>
       )}
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-secondary/50 border border-border/40 px-2 py-1.5 min-w-0">
+      <p className="text-[9px] uppercase tracking-wide text-fog">{label}</p>
+      <p className="text-xs font-medium text-foreground truncate mt-0.5" title={value}>
+        {value}
+      </p>
     </div>
   );
 }
 
 function formTypeLabel(t: string): string {
   const map: Record<string, string> = {
-    web_novel: "网络长篇",
-    trad_novel: "传统长篇",
+    web_novel: "网文",
+    trad_novel: "长篇",
     novella: "中篇",
     short_story: "短篇",
-    essay_prose: "散文 / 弱分章",
-    epistolary: "书信体",
-    script_like: "剧本体",
+    essay_prose: "散文",
+    epistolary: "书信",
+    script_like: "剧本",
     mixed: "混合",
-    unknown: "未判定",
+    unknown: "未知",
   };
-  return map[t] || t || "未判定";
+  return map[t] || t || "未知";
 }
