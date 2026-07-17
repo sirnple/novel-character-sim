@@ -40,7 +40,10 @@ export default function ReadPage() {
   const [catalog, setCatalog] = useState<ChapterCatalogEntry[]>([]);
   const [jobUnits, setJobUnits] = useState<RailUnit[] | null>(null);
   const [jobStatus, setJobStatus] = useState<string | null>(null);
+  const [latestJobId, setLatestJobId] = useState<string | null>(null);
+  const [retryingUnitId, setRetryingUnitId] = useState<string | null>(null);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
+  const [pollTick, setPollTick] = useState(0);
 
   const displayText = fullBody;
   const find = useTextFind(displayText);
@@ -99,12 +102,17 @@ export default function ReadPage() {
         const data = await res.json();
         const job = data.latest;
         if (!job || cancelled) return;
+        setLatestJobId(job.id || null);
         setJobStatus(
           job.status === "running" || job.status === "queued"
             ? `${job.completed}/${job.total}`
             : job.status,
         );
         if (Array.isArray(job.units)) {
+          const anyActive = job.units.some(
+            (u: any) => u.status === "running" || u.status === "pending",
+          );
+          if (!anyActive) setRetryingUnitId(null);
           setJobUnits(
             job.units.map((u: any) => ({
               id: u.unitId,
@@ -112,6 +120,7 @@ export default function ReadPage() {
               startOffset: u.startOffset ?? 0,
               endOffset: u.endOffset,
               summary: u.summary,
+              error: u.error,
               status:
                 u.status === "done"
                   ? "ready"
@@ -123,7 +132,12 @@ export default function ReadPage() {
             })),
           );
         }
-        if (job.status === "running" || job.status === "queued") {
+        const keepPolling =
+          job.status === "running" ||
+          job.status === "queued" ||
+          (Array.isArray(job.units) &&
+            job.units.some((u: any) => u.status === "running" || u.status === "pending"));
+        if (keepPolling) {
           timer = setTimeout(poll, 2500);
         }
       } catch {
@@ -135,7 +149,36 @@ export default function ReadPage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [novelId, selectedBranchId]);
+  }, [novelId, selectedBranchId, pollTick]);
+
+  const handleRetryUnit = useCallback(
+    async (unitId: string) => {
+      if (!latestJobId || !unitId) return;
+      setRetryingUnitId(unitId);
+      try {
+        const res = await fetch("/api/timeline/job", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "retry_unit",
+            jobId: latestJobId,
+            unitId,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          alert((data as { error?: string }).error || "重试失败");
+          setRetryingUnitId(null);
+          return;
+        }
+        setPollTick((t) => t + 1);
+      } catch {
+        alert("重试失败");
+        setRetryingUnitId(null);
+      }
+    },
+    [latestJobId],
+  );
 
   const branches = branchList.length ? branchList : (ctxBranches as BranchMeta[]);
 
@@ -328,6 +371,8 @@ export default function ReadPage() {
             units={railUnits}
             scrollOffset={scrollOffset}
             onJump={jumpToOffset}
+            onRetryUnit={latestJobId ? handleRetryUnit : undefined}
+            retryingUnitId={retryingUnitId}
           />
           <p className="px-2 pb-2 text-[10px] text-fog leading-snug max-w-[180px]">
             跳转按字数比例估算，长文可能略有偏差
@@ -376,6 +421,8 @@ export default function ReadPage() {
                 units={railUnits}
                 scrollOffset={scrollOffset}
                 onJump={jumpToOffset}
+                onRetryUnit={latestJobId ? handleRetryUnit : undefined}
+                retryingUnitId={retryingUnitId}
               />
             </div>
             <p className="px-2 py-2 text-[10px] text-fog leading-snug border-t border-border/40">

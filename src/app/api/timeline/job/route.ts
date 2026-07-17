@@ -4,6 +4,7 @@ import {
   cancelTimelineJob,
   getTimelineJob,
   listTimelineJobsForNovel,
+  retryTimelineUnit,
   startTimelineJob,
 } from "@/core/form/timeline-job";
 
@@ -33,16 +34,40 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ jobs, latest: jobs[0] || null });
 }
 
-/** POST { novelId, branchId? } — start async timeline job */
+/**
+ * POST { novelId, branchId? } — start async timeline job
+ * POST { jobId, unitId, action: "retry_unit" } — retry one unit
+ */
 export async function POST(request: NextRequest) {
   const userId = getUserId(request);
-  const rate = checkRateLimit(userId, "timeline_job_post", { windowMs: 60_000, maxRequests: 5 });
+  const rate = checkRateLimit(userId, "timeline_job_post", { windowMs: 60_000, maxRequests: 10 });
   if (!rate.allowed) {
     return NextResponse.json({ error: rateLimitMessage(rate) }, { status: 429 });
   }
 
   try {
     const body = await request.json();
+
+    if (body.action === "retry_unit" || (body.jobId && body.unitId)) {
+      const jobId = String(body.jobId || "").trim();
+      const unitId = String(body.unitId || "").trim();
+      if (!jobId || !unitId) {
+        return NextResponse.json({ error: "jobId and unitId required" }, { status: 400 });
+      }
+      const existing = getTimelineJob(jobId);
+      if (!existing || existing.userId !== userId) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      const result = retryTimelineUnit(jobId, unitId);
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error || "重试失败" }, { status: 400 });
+      }
+      return NextResponse.json({
+        job: result.job || getTimelineJob(jobId),
+        message: "已开始重试该单元",
+      });
+    }
+
     const novelId = String(body.novelId || "").trim();
     const branchId = String(body.branchId || "main").trim();
     if (!novelId) {

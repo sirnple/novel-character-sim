@@ -16,8 +16,10 @@ import { parseNovel } from "@/core/parser/novel-parser";
 import {
   getBranchChapterMeta,
   getBranchProse,
+  getChapterStates,
   getCharacters,
   getNovelForm,
+  getTimeline,
   getTimelineJobRow,
   listTimelineJobRows,
   saveChapterStates,
@@ -342,4 +344,143 @@ export function cancelTimelineJob(jobId: string): boolean {
   j.status = "cancelled";
   touch(j);
   return true;
+}
+
+/**
+ * Re-run a single failed (or any) unit for an existing job.
+ * Uses chapter states from DB as prev-state seed (best-effort).
+ */
+export function retryTimelineUnit(
+  jobId: string,
+  unitId: string,
+): { ok: boolean; error?: string; job?: TimelineJob } {
+  let job = store().jobs.get(jobId);
+  if (!job) {
+    const row = asTimelineJob(getTimelineJobRow(jobId));
+    if (!row) return { ok: false, error: "任务不存在" };
+    job = row;
+    store().jobs.set(jobId, job);
+  }
+
+  const idx = job.units.findIndex((u) => u.unitId === unitId);
+  if (idx < 0) return { ok: false, error: "单元不存在" };
+
+  const { text } = getBranchProse(job.userId, job.novelId, job.branchId);
+  if (!text?.trim()) return { ok: false, error: "分支正文为空" };
+
+  const unit = job.units[idx];
+  unit.status = "pending";
+  unit.error = undefined;
+  unit.summary = undefined;
+  if (job.status === "error" || job.status === "done") {
+    job.status = "running";
+    job.error = undefined;
+  }
+  touch(job);
+
+  void runSingleUnitRetry(jobId, idx, text).catch((e) => {
+    const j = store().jobs.get(jobId);
+    if (!j) return;
+    j.units[idx].status = "error";
+    j.units[idx].error = (e as Error).message || String(e);
+    touch(j);
+  });
+
+  return { ok: true, job };
+}
+
+async function runSingleUnitRetry(
+  jobId: string,
+  idx: number,
+  fullText: string,
+): Promise<void> {
+  const s = store();
+  const job = s.jobs.get(jobId);
+  if (!job) return;
+
+  const u = job.units[idx];
+  u.status = "running";
+  touch(job);
+
+  const names = getCharacters(job.userId, job.novelId).map((c) => c.name);
+  const parsed = parseNovel(fullText);
+  parsed.fullText = fullText;
+  const extractor = new TimelineExtractor(parsed, names);
+  const llm = createLLMProvider();
+
+  // Best-effort prev states from last saved chapter states
+  const prevStates = getChapterStates(job.userId, job.novelId, job.branchId) || [];
+  const existingTl = getTimeline(job.userId, job.novelId, job.branchId);
+  const seqBase = existingTl?.chapters?.length || idx;
+
+  const body = fullText.slice(u.startOffset, u.endOffset);
+  try {
+    const { snapshot, nextStates } = await runWithTokenContext(
+      {
+        userId: job.userId,
+        novelId: job.novelId,
+        branchId: job.branchId,
+        agentId: "extract_timeline",
+        category: "extract",
+      },
+      () =>
+        extractor.extractOneUnit(
+          llm,
+          u.label,
+          idx + 1,
+          body || "（空）",
+          seqBase,
+          prevStates,
+        ),
+    );
+
+    u.status = "done";
+    u.error = undefined;
+    u.summary =
+      snapshot.events
+        ?.slice(0, 3)
+        .map((e) => e.title || e.description)
+        .filter(Boolean)
+        .join("；")
+        .slice(0, 120) || "（无事件）";
+    touch(job);
+
+    // Merge snapshot into saved timeline by chapterNumber / index
+    const chapters = [...(existingTl?.chapters || [])];
+    const snap = { ...snapshot, chapterNumber: snapshot.chapterNumber || idx + 1 };
+    const replaceAt = chapters.findIndex((c) => c.chapterNumber === snap.chapterNumber);
+    if (replaceAt >= 0) chapters[replaceAt] = snap;
+    else chapters.push(snap);
+    chapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
+
+    const timeline: ChapterTimeline = {
+      novelId: job.novelId,
+      branchId: job.branchId,
+      totalChapters: chapters.length,
+      chapters,
+    };
+    saveTimeline(job.userId, job.novelId, timeline, job.branchId);
+    if (nextStates.length) {
+      saveChapterStates(job.userId, job.novelId, nextStates, job.branchId);
+    }
+
+    // If no more pending/running/error units, mark done
+    const stillBad = job.units.some(
+      (x) => x.status === "error" || x.status === "pending" || x.status === "running",
+    );
+    if (!stillBad) {
+      job.status = "done";
+      touch(job);
+    } else if (!job.units.some((x) => x.status === "running" || x.status === "pending")) {
+      // only errors remain
+      job.status = job.units.some((x) => x.status === "error") ? "error" : "done";
+      touch(job);
+    }
+  } catch (e) {
+    u.status = "error";
+    u.error = (e as Error).message || String(e);
+    job.status = "error";
+    job.error = u.error;
+    touch(job);
+  }
 }

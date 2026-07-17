@@ -5,6 +5,7 @@ import { useNovel } from "@/lib/novel-context";
 import { BookOpen, Play, GitBranch, Trash2, Download } from "lucide-react";
 import StoryInfoPanel from "@/components/story-info-panel";
 import ExtractModulesPanel from "@/components/extract-modules-panel";
+import FormSummaryCard from "@/components/form-summary-card";
 import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
 
 interface BranchInfo {
@@ -18,6 +19,7 @@ export default function NovelPage() {
   const { novelId, novelTitle, novelLength, characters, storyInfo, timeline, setNovel } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [formRefreshKey, setFormRefreshKey] = useState(0);
 
   useEffect(() => {
     fetch(`/api/branches?novelId=${novelId}`).then(r => r.json()).then(d => {
@@ -74,9 +76,12 @@ export default function NovelPage() {
                 timeline: data.timeline !== undefined ? data.timeline : timeline,
                 lastChapterStates: data.lastChapterStates ?? undefined,
               });
+              setFormRefreshKey((k) => k + 1);
             }}
           />
         </div>
+
+        <FormSummaryCard novelId={novelId} branchId="main" refreshKey={formRefreshKey} />
 
         {storyInfo && <StoryInfoPanel storyInfo={storyInfo} />}
 

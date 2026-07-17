@@ -10,7 +10,9 @@ import {
   createCowBranch,
   resolveBranchText,
   copyBranchChapterMeta,
+  getBranchChapterMeta,
 } from "@/lib/db";
+import { prependTocToTxt } from "@/lib/export-txt-toc";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
 /** Safe basename for Content-Disposition / download attribute */
@@ -44,11 +46,16 @@ export async function GET(request: NextRequest) {
     if (!branch) return NextResponse.json({ error: "Not found" }, { status: 404 });
     const fullText = resolveBranchText(userId, novelId, branchId);
 
-    // Download branch body as UTF-8 .txt (resolved full body)
+    // Download branch body as UTF-8 .txt (resolved full body + optional TOC)
     if (download) {
       const filename = branchTxtFilename(branch.name || branch.id, branch.id);
       const asciiFallback = filename.replace(/[^\x20-\x7E]/g, "_") || "branch.txt";
-      return new NextResponse(fullText, {
+      const tocOff = request.nextUrl.searchParams.get("toc") === "0";
+      const meta = getBranchChapterMeta(userId, novelId, branchId);
+      const body = tocOff
+        ? fullText
+        : prependTocToTxt(fullText, meta.chapters);
+      return new NextResponse(body, {
         status: 200,
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
@@ -57,6 +64,7 @@ export async function GET(request: NextRequest) {
           "Cache-Control": "no-store",
           "X-Branch-Id": branch.id,
           "X-Branch-Name": encodeURIComponent(branch.name || branch.id),
+          "X-Toc": tocOff ? "0" : meta.chapters?.length ? "1" : "0",
         },
       });
     }

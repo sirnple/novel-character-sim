@@ -172,9 +172,9 @@ Legend: **done** | **partial** | **todo**
 | Timeline **per branch** storage | **done** | `timelines` / `chapter_states` PK includes `branch_id` |
 | Job durable in SQLite | **done** | `timeline_jobs` table; no mid-unit resume after crash |
 | Mobile rail | **done** | 目录 drawer on small screens |
-| Overview form summary UI | **todo** | Only one-line result string |
-| Per-unit retry UI | **todo** | |
-| Export TOC in TXT | **todo** | |
+| Overview form summary UI | **done** | FormSummaryCard: formType / chaptering / catalog / boundary |
+| Per-unit retry UI | **done** | Rail error + retry → POST retry_unit |
+| Export TOC in TXT | **done** | prependTocToTxt on branch download (toc=0 to skip) |
 | E2E / integration acceptance tests | **todo** | Unit tests cover catalog/segments only |
 
 ---
@@ -224,9 +224,9 @@ Legend: **done** | **partial** | **todo**
 7. ~~Mobile rail drawer; improve jump accuracy.~~ **done** (drawer + ratio note; geometry map still MVP)
 
 ### P2 — Polish
-8. Overview card: form summary + catalog count + boundary.
-9. Per-unit retry; error affordances on rail.
-10. Export TXT with TOC from `chapters[]`.
+8. ~~Overview card: form summary + catalog count + boundary.~~ **done**
+9. ~~Per-unit retry; error affordances on rail.~~ **done**
+10. ~~Export TXT with TOC from `chapters[]`.~~ **done**
 
 ---
 

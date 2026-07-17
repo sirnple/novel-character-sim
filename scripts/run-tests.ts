@@ -15,6 +15,7 @@ import { runChapterCatalogTests } from "./tests/chapter-catalog.test";
 import { runFormContextTests } from "./tests/form-context.test";
 import { runAcceptChapterMetaTests } from "./tests/accept-chapter-meta.test";
 import { runTimelineBranchScopeTests } from "./tests/timeline-branch-scope.test";
+import { runExportTxtTocTests } from "./tests/export-txt-toc.test";
 
 function main() {
   resetCounters();
@@ -32,6 +33,7 @@ function main() {
   runFormContextTests();
   runAcceptChapterMetaTests();
   runTimelineBranchScopeTests();
+  runExportTxtTocTests();
 
   const { failed } = summary();
   if (failed > 0) process.exitCode = 1;
