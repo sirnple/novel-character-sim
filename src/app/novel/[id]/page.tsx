@@ -1,10 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import Link from "next/link";
 import { useNovel } from "@/lib/novel-context";
 import {
-  BookOpen,
-  PenLine,
   GitBranch,
   Trash2,
   Download,
@@ -96,37 +93,17 @@ export default function NovelPage() {
       <div className="max-w-5xl mx-auto px-4 py-5 sm:px-6 sm:py-6">
         {/* ── 1. Identity + quiet navigation (not a CTA bar) ── */}
         <header className="pb-4 border-b border-border/60">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0 flex-1 border-l-2 border-primary/70 pl-3">
-              <h1 className="text-xl sm:text-2xl font-semibold text-foreground tracking-tight truncate leading-snug">
-                {novelTitle || "未命名"}
-              </h1>
-              <p className="mt-1.5 text-xs text-muted-foreground tabular-nums">
-                {(novelLength || 0).toLocaleString()} 字
-                <span className="mx-1.5 text-border">·</span>
-                {characters.length} 角色
-                <span className="mx-1.5 text-border">·</span>
-                资料 {readyCount}/{statusItems.length}
-              </p>
-            </div>
-            {/* Text links — browse destinations, not competing primary buttons */}
-            <nav className="flex items-center gap-1 sm:gap-2 shrink-0 text-sm pt-0.5">
-              <Link
-                href={`/novel/${novelId}/read`}
-                className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                <span className="hidden xs:inline sm:inline">阅读</span>
-              </Link>
-              <span className="text-border text-xs">|</span>
-              <Link
-                href={`/novel/${novelId}/write`}
-                className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-              >
-                <PenLine className="w-3.5 h-3.5" />
-                <span className="hidden xs:inline sm:inline">写作</span>
-              </Link>
-            </nav>
+          <div className="min-w-0 border-l-2 border-primary/70 pl-3">
+            <h1 className="text-xl sm:text-2xl font-semibold text-foreground tracking-tight truncate leading-snug">
+              {novelTitle || "未命名"}
+            </h1>
+            <p className="mt-1.5 text-xs text-muted-foreground tabular-nums">
+              {(novelLength || 0).toLocaleString()} 字
+              <span className="mx-1.5 text-border">·</span>
+              {characters.length} 角色
+              <span className="mx-1.5 text-border">·</span>
+              资料 {readyCount}/{statusItems.length}
+            </p>
           </div>
         </header>
 
