@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
     "run_reviews",
     "accept_continuation",
     "get_branch_text", "get_branch_characters", "get_branch_timeline", "get_branch_world", "get_branch_meta",
+    "get_novel_form",
     "get_outline", "get_findings", "clear_findings",
   ]);
   const toolSchemas: ToolSchema[] = buildToolSchemas().filter(t => MASTER_TOOL_ALLOW.has(t.name));

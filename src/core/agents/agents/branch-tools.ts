@@ -1,5 +1,16 @@
 import type { ToolDefinition } from "../types";
-import { getBranchProse, getCharacters, getTimeline, getStoryInfo } from "@/lib/db";
+import {
+  getBranchProse,
+  getCharacters,
+  getTimeline,
+  getStoryInfo,
+  getNovelForm,
+  getBranchChapterMeta,
+} from "@/lib/db";
+import {
+  buildFormAgentContext,
+  formatFormAgentContextForTool,
+} from "@/core/form/form-context";
 import { formatCriticalMiss } from "../critical-miss";
 
 const TEXT_TAIL = 30000;
@@ -151,7 +162,8 @@ export const branchTools: ToolDefinition[] = [
   },
   {
     name: "get_branch_meta",
-    description: "获取分支元信息：name/parent_offset/总字数。",
+    description:
+      "获取分支元信息：name/字数，以及形态/章法摘要（是否分章、章名样例、continuationRules、章开闭边界、目录条数）。大纲与写手续写前应调用。",
     parameters: {
       type: "object",
       properties: {
@@ -166,13 +178,64 @@ export const branchTools: ToolDefinition[] = [
       const branchId = (ctx.branchId || args.branchId || "main") as string;
       const { text, branch } = getBranchProse(userId, novelId, branchId);
       if (!branch) return { content: "分支不存在", messages: [] };
+
+      const form = getNovelForm(userId, novelId);
+      const chapterMeta = getBranchChapterMeta(userId, novelId, branchId);
+      const formCtx = buildFormAgentContext({
+        form,
+        chapterMeta,
+        novelId,
+        branchId,
+      });
+
       return {
-        content: JSON.stringify({
-          name: branch.name,
-          parent_offset: branch.parent_offset,
-          novel_id: branch.novel_id,
-          total_chars: text.length,
-        }, null, 2),
+        content: JSON.stringify(
+          {
+            name: branch.name,
+            parent_offset: branch.parent_offset,
+            novel_id: branch.novel_id,
+            total_chars: text.length,
+            form: formCtx,
+          },
+          null,
+          2,
+        ),
+        messages: [],
+      };
+    },
+  },
+  {
+    name: "get_novel_form",
+    description:
+      "获取小说形态/章法（骨）：formType、是否分章、章名 samples、continuationRules、分支章边界与目录摘要。大纲与写手在规划章节前应调用；弱分章时必须遵守 forbidInventChapterTitles。",
+    parameters: {
+      type: "object",
+      properties: {
+        novelId: { type: "string", description: "小说 ID" },
+        branchId: { type: "string", description: "分支 ID（用于边界/目录；主线 main）" },
+      },
+      required: ["novelId", "branchId"],
+    },
+    execute: async (args, ctx) => {
+      const userId = ctx.userId || "guest";
+      const novelId = (ctx.novelId || args.novelId || "") as string;
+      const branchId = (ctx.branchId || args.branchId || "main") as string;
+      if (!novelId) {
+        return {
+          content: formatCriticalMiss("novelId", "缺少 novelId，无法读取形态分析。"),
+          messages: [],
+        };
+      }
+      const form = getNovelForm(userId, novelId);
+      const chapterMeta = getBranchChapterMeta(userId, novelId, branchId);
+      const formCtx = buildFormAgentContext({
+        form,
+        chapterMeta,
+        novelId,
+        branchId,
+      });
+      return {
+        content: formatFormAgentContextForTool(formCtx),
         messages: [],
       };
     },
