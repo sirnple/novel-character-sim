@@ -193,10 +193,10 @@ Legend: **done** | **partial** | **todo**
 ## 8. Acceptance criteria (must pass before “design complete”)
 
 ### A. Analysis UX
-- [ ] Overview panel title and primary button say **分析**, never 拆解.
-- [ ] Default selection includes form + story + characters + style; **not** timeline.
-- [ ] Running with form on a clearly chaptered sample yields `chaptering.enabled=true` and non-empty catalog for main.
-- [ ] Running form on a no-heading long prose sample yields `chaptering.enabled=false`.
+- [x] Overview panel title and primary button say **分析**, never 拆解.
+- [x] One-click full analysis (all modules); no user module checkboxes (ops later).
+- [ ] Running analysis on a clearly chaptered sample yields `chaptering.enabled=true` and non-empty catalog for main.
+- [ ] Running analysis on a no-heading long prose sample yields `chaptering.enabled=false`.
 
 ### B. Catalog & boundary
 - [ ] Program finds `第1章`…`第N章` with correct increasing `startOffset`.
