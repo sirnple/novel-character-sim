@@ -116,6 +116,8 @@ export interface TimelineEvent {
 
 export interface ChapterTimeline {
   novelId: string;
+  /** Branch this timeline belongs to (IF isolation). Defaults to main when omitted. */
+  branchId?: string;
   totalChapters: number;
   chapters: ChapterSnapshot[];
 }

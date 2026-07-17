@@ -120,7 +120,8 @@ export const branchTools: ToolDefinition[] = [
     execute: async (args, ctx) => {
       const userId = ctx.userId || "guest";
       const novelId = (ctx.novelId || args.novelId || "") as string;
-      const tl = getTimeline(userId, novelId);
+      const branchId = (ctx.branchId || args.branchId || "main") as string;
+      const tl = getTimeline(userId, novelId, branchId);
       return { content: JSON.stringify((tl?.chapters || []).slice(-10), null, 2) || "无数据", messages: [] };
     },
   },

@@ -1,6 +1,7 @@
 /**
  * Async full timeline analysis by narrative unit.
  * Progressive save so UI can poll and display a vertical rail mid-run.
+ * Job status is durable in SQLite; in-memory holds the active runner.
  */
 import { randomUUID } from "node:crypto";
 import type {
@@ -17,8 +18,11 @@ import {
   getBranchProse,
   getCharacters,
   getNovelForm,
+  getTimelineJobRow,
+  listTimelineJobRows,
   saveChapterStates,
   saveTimeline,
+  saveTimelineJobRow,
 } from "@/lib/db";
 import { segmentNarrativeUnits } from "./segment-units";
 import { runWithTokenContext } from "@/lib/token-usage-context";
@@ -69,12 +73,53 @@ function store(): GlobalStore {
   return g.__ncsTimelineJobs;
 }
 
+/** After process restart, in-flight jobs cannot continue — mark error. */
+export function normalizeJobAfterHydrate(job: TimelineJob): TimelineJob {
+  if (job.status === "running" || job.status === "queued") {
+    return {
+      ...job,
+      status: "error",
+      error: job.error || "进程已重启，请重新分析时间线",
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  return job;
+}
+
+function asTimelineJob(raw: unknown): TimelineJob | null {
+  if (!raw || typeof raw !== "object") return null;
+  const j = raw as TimelineJob;
+  if (!j.id || !j.userId || !j.novelId) return null;
+  return j;
+}
+
 function touch(job: TimelineJob) {
   job.updatedAt = new Date().toISOString();
+  try {
+    saveTimelineJobRow(job);
+  } catch (e) {
+    console.warn("[timeline-job] persist failed:", (e as Error).message);
+  }
 }
 
 export function getTimelineJob(jobId: string): TimelineJob | null {
-  return store().jobs.get(jobId) || null;
+  const mem = store().jobs.get(jobId);
+  if (mem) return mem;
+
+  const row = getTimelineJobRow(jobId);
+  const parsed = asTimelineJob(row);
+  if (!parsed) return null;
+
+  const normalized = normalizeJobAfterHydrate(parsed);
+  if (normalized.status !== parsed.status) {
+    try {
+      saveTimelineJobRow(normalized);
+    } catch {
+      /* ignore */
+    }
+  }
+  // Do not put dead jobs into active runner maps
+  return normalized;
 }
 
 export function listTimelineJobsForNovel(
@@ -82,9 +127,28 @@ export function listTimelineJobsForNovel(
   novelId: string,
   branchId = "main",
 ): TimelineJob[] {
-  return Array.from(store().jobs.values())
-    .filter((j) => j.userId === userId && j.novelId === novelId && j.branchId === branchId)
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const byId = new Map<string, TimelineJob>();
+
+  for (const j of Array.from(store().jobs.values())) {
+    if (j.userId === userId && j.novelId === novelId && j.branchId === branchId) {
+      byId.set(j.id, j);
+    }
+  }
+
+  for (const row of listTimelineJobRows(userId, novelId, branchId)) {
+    const parsed = asTimelineJob(row);
+    if (!parsed) continue;
+    const existing = byId.get(parsed.id);
+    if (!existing) {
+      byId.set(parsed.id, normalizeJobAfterHydrate(parsed));
+    } else if ((parsed.updatedAt || "") > (existing.updatedAt || "")) {
+      // Prefer fresher memory; keep memory if newer
+    }
+  }
+
+  return Array.from(byId.values()).sort((a, b) =>
+    (a.updatedAt || a.createdAt) < (b.updatedAt || b.createdAt) ? 1 : -1,
+  );
 }
 
 function buildUnits(
@@ -150,6 +214,7 @@ export function startTimelineJob(input: {
   s.snapshots.set(id, []);
   s.prevStates.set(id, []);
   s.seq.set(id, 0);
+  touch(job);
 
   // Fire and forget
   void runJob(id, text, units).catch((e) => {
@@ -188,7 +253,10 @@ async function runJob(
 
   for (let i = 0; i < units.length; i++) {
     const j = s.jobs.get(jobId);
-    if (!j || j.status === "cancelled") return;
+    if (!j || j.status === "cancelled") {
+      if (j) touch(j);
+      return;
+    }
 
     const u = units[i];
     j.units[i].status = "running";
@@ -233,15 +301,16 @@ async function runJob(
       j.completed = i + 1;
       touch(j);
 
-      // Progressive persist
+      // Progressive persist (branch-scoped)
       const timeline: ChapterTimeline = {
         novelId: job.novelId,
+        branchId: job.branchId,
         totalChapters: snapshots.length,
         chapters: snapshots.slice(),
       };
-      saveTimeline(job.userId, job.novelId, timeline);
+      saveTimeline(job.userId, job.novelId, timeline, job.branchId);
       if (nextStates.length) {
-        saveChapterStates(job.userId, job.novelId, nextStates);
+        saveChapterStates(job.userId, job.novelId, nextStates, job.branchId);
       }
     } catch (e) {
       j.units[i].status = "error";
@@ -260,9 +329,16 @@ async function runJob(
 }
 
 export function cancelTimelineJob(jobId: string): boolean {
-  const j = store().jobs.get(jobId);
-  if (!j) return false;
-  if (j.status === "done" || j.status === "error") return false;
+  let j = store().jobs.get(jobId);
+  if (!j) {
+    const row = asTimelineJob(getTimelineJobRow(jobId));
+    if (!row) return false;
+    j = row;
+    store().jobs.set(jobId, j);
+  }
+  if (j.status === "done" || j.status === "error" || j.status === "cancelled") {
+    return false;
+  }
   j.status = "cancelled";
   touch(j);
   return true;

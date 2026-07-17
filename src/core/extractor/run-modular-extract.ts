@@ -283,33 +283,41 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
     }
     if (!result.form) {
       // Auto-run form once when missing (e.g. timeline-only selection).
-      // Skip when phase1 already ran form (result.form would be set).
-      console.log("[Extract] timeline requires form first — analyzing form...");
-      const llm = createLLMProvider();
-      const formResult = await runWithTokenContext({ agentId: "extract_form" }, () =>
-        analyzeNovelForm(novelId, text, llm),
-      );
-      saveNovelForm(userId, novelId, formResult.profile);
-      ensureMainBranch(userId, novelId);
-      if (formResult.profile.chaptering.enabled && formResult.catalog.length > 0) {
-        const existing = getBranchChapterMeta(userId, novelId, branchId);
-        saveBranchChapterMeta(userId, {
-          ...existing,
-          novelId,
-          branchId,
-          chapters: formResult.catalog,
-          chapterBoundary: existing.chapterBoundary || "closed",
+      // Soft-fail: timeline still starts with scene/window units (D8).
+      try {
+        console.log("[Extract] timeline requires form first — analyzing form...");
+        const llm = createLLMProvider();
+        const formResult = await runWithTokenContext({ agentId: "extract_form" }, () =>
+          analyzeNovelForm(novelId, text, llm),
+        );
+        saveNovelForm(userId, novelId, formResult.profile);
+        ensureMainBranch(userId, novelId);
+        if (formResult.profile.chaptering.enabled && formResult.catalog.length > 0) {
+          const existing = getBranchChapterMeta(userId, novelId, branchId);
+          saveBranchChapterMeta(userId, {
+            ...existing,
+            novelId,
+            branchId,
+            chapters: formResult.catalog,
+            chapterBoundary: existing.chapterBoundary || "closed",
+          });
+        }
+        result.form = formResult.profile;
+        result.chapterCatalogCount = formResult.catalog.length;
+        if (!result.ran.includes("form")) result.ran.push("form");
+      } catch (e) {
+        console.warn("[Extract] auto form before timeline failed:", (e as Error).message);
+        result.skipped.push({
+          module: "form",
+          reason: (e as Error).message || "形态分析失败，时间线将按场景/窗口切分",
         });
       }
-      result.form = formResult.profile;
-      result.chapterCatalogCount = formResult.catalog.length;
-      if (!result.ran.includes("form")) result.ran.push("form");
     }
 
-    const cached = !forceRefresh ? getTimeline(userId, novelId) : null;
+    const cached = !forceRefresh ? getTimeline(userId, novelId, branchId) : null;
     if (cached && cached.chapters?.length && !forceRefresh) {
       result.timeline = cached;
-      result.lastChapterStates = getChapterStates(userId, novelId);
+      result.lastChapterStates = getChapterStates(userId, novelId, branchId);
       result.skipped.push({ module: "timeline", reason: "已有缓存（仍可后台重跑）" });
     }
     try {
@@ -335,12 +343,12 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
       });
     }
     if (!result.timeline) {
-      result.timeline = getTimeline(userId, novelId);
-      result.lastChapterStates = getChapterStates(userId, novelId);
+      result.timeline = getTimeline(userId, novelId, branchId);
+      result.lastChapterStates = getChapterStates(userId, novelId, branchId);
     }
   } else {
-    result.timeline = getTimeline(userId, novelId);
-    result.lastChapterStates = getChapterStates(userId, novelId);
+    result.timeline = getTimeline(userId, novelId, branchId);
+    result.lastChapterStates = getChapterStates(userId, novelId, branchId);
   }
 
   result.styles = listStyles(userId);

@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
         if (dbBranch) {
           dbNovelText = dbBranch.text;
           dbStoryInfo = getStoryInfo(userId, novelId);
-          dbTimeline = getTimeline(userId, novelId);
+          dbTimeline = getTimeline(userId, novelId, effectiveBranchId);
           debugLog("StreamRoute", `Branch loaded: id=${effectiveBranchId}, text=${dbNovelText.length}chars, storyInfo=${dbStoryInfo ? "yes" : "no"}, timeline=${dbTimeline ? `yes(${dbTimeline.chapters?.length || 0}ch)` : "no"}`);
         } else {
           debugLog("StreamRoute", `Branch NOT FOUND novelId=${novelId} branchId=${effectiveBranchId}`);

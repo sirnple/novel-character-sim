@@ -40,6 +40,7 @@ export default function ReadPage() {
   const [catalog, setCatalog] = useState<ChapterCatalogEntry[]>([]);
   const [jobUnits, setJobUnits] = useState<RailUnit[] | null>(null);
   const [jobStatus, setJobStatus] = useState<string | null>(null);
+  const [mobileRailOpen, setMobileRailOpen] = useState(false);
 
   const displayText = fullBody;
   const find = useTextFind(displayText);
@@ -142,12 +143,21 @@ export default function ReadPage() {
     (startOffset: number) => {
       const el = readerRef.current;
       if (!el || !displayText.length) return;
+      // MVP: ratio of char offset → scrollTop (not true layout geometry)
       const max = el.scrollHeight - el.clientHeight;
       const ratio = Math.min(1, Math.max(0, startOffset / displayText.length));
       el.scrollTo({ top: max * ratio, behavior: "smooth" });
+      setMobileRailOpen(false);
     },
     [displayText.length],
   );
+
+  const railTitle =
+    jobStatus && (jobStatus.includes("/") || jobStatus === "running" || jobStatus === "queued")
+      ? `时间线 ${jobStatus}`
+      : catalog.length || jobUnits?.length
+        ? "目录 / 时间线"
+        : "时间线";
 
   const fetchBranchText = useCallback(async (branchId: string) => {
     setLoadingText(true);
@@ -284,6 +294,13 @@ export default function ReadPage() {
               ))
             )}
           </select>
+          <button
+            type="button"
+            className="sm:hidden px-2.5 py-1.5 text-xs rounded-lg border border-border bg-secondary text-foreground"
+            onClick={() => setMobileRailOpen(true)}
+          >
+            目录
+          </button>
           {loadingText && (
             <span className="text-xs text-primary animate-pulse">加载中</span>
           )}
@@ -305,19 +322,16 @@ export default function ReadPage() {
       </div>
 
       <div ref={scrollRef} className="flex-1 flex min-h-0 overflow-hidden">
-        <div className="hidden sm:flex">
+        <div className="hidden sm:flex flex-col">
           <ReaderTimelineRail
-            title={
-              jobStatus && (jobStatus.includes("/") || jobStatus === "running")
-                ? `时间线 ${jobStatus}`
-                : catalog.length || jobUnits?.length
-                  ? "目录 / 时间线"
-                  : "时间线"
-            }
+            title={railTitle}
             units={railUnits}
             scrollOffset={scrollOffset}
             onJump={jumpToOffset}
           />
+          <p className="px-2 pb-2 text-[10px] text-fog leading-snug max-w-[180px]">
+            跳转按字数比例估算，长文可能略有偏差
+          </p>
         </div>
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
           <VirtualNovelBody
@@ -334,6 +348,43 @@ export default function ReadPage() {
           </p>
         </div>
       </div>
+
+      {/* Mobile rail drawer */}
+      {mobileRailOpen && (
+        <div className="sm:hidden fixed inset-0 z-40 flex">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="关闭目录"
+            onClick={() => setMobileRailOpen(false)}
+          />
+          <div className="relative z-10 h-full max-w-[85vw] w-[220px] bg-card border-r border-border shadow-xl flex flex-col">
+            <div className="flex items-center justify-between px-2 py-2 border-b border-border/60">
+              <span className="text-xs font-semibold text-muted-foreground">{railTitle}</span>
+              <button
+                type="button"
+                className="text-xs text-fog px-2 py-1"
+                onClick={() => setMobileRailOpen(false)}
+              >
+                关闭
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <ReaderTimelineRail
+                className="w-full h-full border-0"
+                title=""
+                units={railUnits}
+                scrollOffset={scrollOffset}
+                onJump={jumpToOffset}
+              />
+            </div>
+            <p className="px-2 py-2 text-[10px] text-fog leading-snug border-t border-border/40">
+              跳转按字数比例估算，长文可能略有偏差
+            </p>
+          </div>
+        </div>
+      )}
+
       <ScrollEdgeButtons scrollRef={readerRef} />
     </div>
   );

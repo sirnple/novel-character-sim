@@ -93,6 +93,10 @@ function migrateOldData(d: Database.Database): void {
     console.warn("[DB] CoW columns migration skipped:", (e as Error).message);
   }
 
+  // Branch-scoped timelines / chapter_states (legacy PK was novel_id+user_id only)
+  migrateTimelineBranchScope(d);
+  ensureTimelineJobsTable(d);
+
   const rows = d.prepare("SELECT id, data FROM characters").all() as { id: string; data: string }[];
   if (rows.length === 0) return;
 
@@ -114,6 +118,38 @@ function migrateOldData(d: Database.Database): void {
     d.prepare("DELETE FROM novels").run();
     d.prepare("DELETE FROM story_info").run();
   }
+}
+
+/** Rebuild timelines / chapter_states to include branch_id in PK. Existing rows → main. */
+function migrateTimelineBranchScope(d: Database.Database): void {
+  const rebuild = (table: "timelines" | "chapter_states") => {
+    try {
+      const cols = d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+      if (cols.length === 0) return; // table not created yet
+      if (cols.some((c) => c.name === "branch_id")) return;
+
+      const v2 = `${table}_v2`;
+      d.exec(`
+        CREATE TABLE ${v2} (
+          novel_id TEXT NOT NULL,
+          user_id TEXT NOT NULL DEFAULT 'guest',
+          branch_id TEXT NOT NULL DEFAULT 'main',
+          data TEXT NOT NULL,
+          created_at TEXT DEFAULT (datetime('now')),
+          PRIMARY KEY (novel_id, user_id, branch_id)
+        );
+        INSERT OR IGNORE INTO ${v2} (novel_id, user_id, branch_id, data, created_at)
+          SELECT novel_id, user_id, 'main', data, created_at FROM ${table};
+        DROP TABLE ${table};
+        ALTER TABLE ${v2} RENAME TO ${table};
+      `);
+      console.log(`[DB] Migrated ${table} PK to (novel_id, user_id, branch_id)`);
+    } catch (e) {
+      console.warn(`[DB] ${table} branch_id migration skipped:`, (e as Error).message);
+    }
+  };
+  rebuild("timelines");
+  rebuild("chapter_states");
 }
 
 function initSchema(db: Database.Database) {
@@ -230,18 +266,34 @@ function initSchema(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS timelines (
       novel_id TEXT NOT NULL,
       user_id TEXT NOT NULL DEFAULT 'guest',
+      branch_id TEXT NOT NULL DEFAULT 'main',
       data TEXT NOT NULL,
       created_at TEXT DEFAULT (datetime('now')),
-      PRIMARY KEY (novel_id, user_id)
+      PRIMARY KEY (novel_id, user_id, branch_id)
     );
 
     CREATE TABLE IF NOT EXISTS chapter_states (
       novel_id TEXT NOT NULL,
       user_id TEXT NOT NULL DEFAULT 'guest',
+      branch_id TEXT NOT NULL DEFAULT 'main',
       data TEXT NOT NULL,
       created_at TEXT DEFAULT (datetime('now')),
-      PRIMARY KEY (novel_id, user_id)
+      PRIMARY KEY (novel_id, user_id, branch_id)
     );
+
+    CREATE TABLE IF NOT EXISTS timeline_jobs (
+      id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      novel_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
+      status TEXT NOT NULL,
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_timeline_jobs_novel
+      ON timeline_jobs (user_id, novel_id, branch_id, updated_at);
 
     CREATE TABLE IF NOT EXISTS agent_prompts (
       agent_id TEXT NOT NULL,
@@ -520,6 +572,7 @@ export function deleteNovel(userId: string, id: string): void {
     d.prepare("DELETE FROM characters WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM timelines WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM chapter_states WHERE novel_id = ? AND user_id = ?").run(id, userId);
+    d.prepare("DELETE FROM timeline_jobs WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM branches WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM novel_form WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM branch_chapter_meta WHERE novel_id = ? AND user_id = ?").run(id, userId);
@@ -1045,34 +1098,196 @@ function rowToTokenUsage(row: any): TokenUsageEntry {
   };
 }
 
-// ---- Timeline ----
+// ---- Timeline (branch-scoped) ----
 
-export function saveTimeline(userId: string, novelId: string, timeline: ChapterTimeline): void {
+export function saveTimeline(
+  userId: string,
+  novelId: string,
+  timeline: ChapterTimeline,
+  branchId = "main",
+): void {
+  const d = getDb();
+  const data = { ...timeline, novelId, branchId };
+  d.prepare(
+    `INSERT OR REPLACE INTO timelines (novel_id, user_id, branch_id, data) VALUES (?, ?, ?, ?)`,
+  ).run(novelId, userId, branchId, JSON.stringify(data));
+}
+
+export function getTimeline(
+  userId: string,
+  novelId: string,
+  branchId = "main",
+): ChapterTimeline | null {
+  const d = getDb();
+  const row = d
+    .prepare(
+      `SELECT data FROM timelines WHERE novel_id = ? AND user_id = ? AND branch_id = ?`,
+    )
+    .get(novelId, userId, branchId) as { data: string } | undefined;
+  return row ? (JSON.parse(row.data) as ChapterTimeline) : null;
+}
+
+// ---- Chapter States (branch-scoped) ----
+
+export function saveChapterStates(
+  userId: string,
+  novelId: string,
+  states: CharacterChapterState[],
+  branchId = "main",
+): void {
   const d = getDb();
   d.prepare(
-    `INSERT OR REPLACE INTO timelines (novel_id, user_id, data) VALUES (?, ?, ?)`
-  ).run(novelId, userId, JSON.stringify(timeline));
+    `INSERT OR REPLACE INTO chapter_states (novel_id, user_id, branch_id, data) VALUES (?, ?, ?, ?)`,
+  ).run(novelId, userId, branchId, JSON.stringify(states));
 }
 
-export function getTimeline(userId: string, novelId: string): ChapterTimeline | null {
+export function getChapterStates(
+  userId: string,
+  novelId: string,
+  branchId = "main",
+): CharacterChapterState[] {
   const d = getDb();
-  const row = d.prepare("SELECT data FROM timelines WHERE novel_id = ? AND user_id = ?").get(novelId, userId) as any;
-  return row ? JSON.parse(row.data) : null;
+  const row = d
+    .prepare(
+      `SELECT data FROM chapter_states WHERE novel_id = ? AND user_id = ? AND branch_id = ?`,
+    )
+    .get(novelId, userId, branchId) as { data: string } | undefined;
+  return row ? (JSON.parse(row.data) as CharacterChapterState[]) : [];
 }
 
-// ---- Chapter States ----
+// ---- Timeline jobs (durable status for rail poll; JSON blob matches TimelineJob) ----
 
-export function saveChapterStates(userId: string, novelId: string, states: CharacterChapterState[]): void {
+/** Minimal fields required to persist a timeline job (full object stored as JSON). */
+export type TimelineJobPersist = {
+  id: string;
+  userId: string;
+  novelId: string;
+  branchId: string;
+  status: string;
+  updatedAt?: string;
+  createdAt?: string;
+};
+
+export function saveTimelineJobRow(job: TimelineJobPersist): void {
+  ensureTimelineJobsTable(getDb());
   const d = getDb();
+  const updatedAt = String(job.updatedAt || new Date().toISOString());
+  const existing = d
+    .prepare(`SELECT created_at FROM timeline_jobs WHERE id = ?`)
+    .get(job.id) as { created_at?: string } | undefined;
+  const createdAt = String(
+    existing?.created_at || job.createdAt || updatedAt,
+  );
   d.prepare(
-    `INSERT OR REPLACE INTO chapter_states (novel_id, user_id, data) VALUES (?, ?, ?)`
-  ).run(novelId, userId, JSON.stringify(states));
+    `INSERT OR REPLACE INTO timeline_jobs
+      (id, user_id, novel_id, branch_id, status, data, updated_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    job.id,
+    job.userId,
+    job.novelId,
+    job.branchId,
+    job.status,
+    JSON.stringify(job),
+    updatedAt,
+    createdAt,
+  );
 }
 
-export function getChapterStates(userId: string, novelId: string): CharacterChapterState[] {
+export function getTimelineJobRow(id: string): TimelineJobPersist | null {
+  ensureTimelineJobsTable(getDb());
   const d = getDb();
-  const row = d.prepare("SELECT data FROM chapter_states WHERE novel_id = ? AND user_id = ?").get(novelId, userId) as any;
-  return row ? JSON.parse(row.data) : [];
+  const row = d
+    .prepare(`SELECT data FROM timeline_jobs WHERE id = ?`)
+    .get(id) as { data: string } | undefined;
+  if (!row?.data) return null;
+  try {
+    return JSON.parse(row.data) as TimelineJobPersist;
+  } catch {
+    return null;
+  }
+}
+
+export function listTimelineJobRows(
+  userId: string,
+  novelId: string,
+  branchId = "main",
+): TimelineJobPersist[] {
+  ensureTimelineJobsTable(getDb());
+  const d = getDb();
+  const rows = d
+    .prepare(
+      `SELECT data FROM timeline_jobs
+       WHERE user_id = ? AND novel_id = ? AND branch_id = ?
+       ORDER BY updated_at DESC`,
+    )
+    .all(userId, novelId, branchId) as { data: string }[];
+  return rows
+    .map((r) => {
+      try {
+        return JSON.parse(r.data) as TimelineJobPersist;
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean) as TimelineJobPersist[];
+}
+
+function ensureTimelineJobsTable(d: Database.Database): void {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS timeline_jobs (
+      id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      novel_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
+      status TEXT NOT NULL,
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (id)
+    );
+  `);
+  const cols = d.prepare("PRAGMA table_info(timeline_jobs)").all() as { name: string }[];
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has("created_at") || !names.has("updated_at")) {
+    // Rebuild if an older draft schema lacked columns
+    try {
+      d.exec(`
+        CREATE TABLE timeline_jobs_v2 (
+          id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          novel_id TEXT NOT NULL,
+          branch_id TEXT NOT NULL DEFAULT 'main',
+          status TEXT NOT NULL,
+          data TEXT NOT NULL,
+          updated_at TEXT DEFAULT (datetime('now')),
+          created_at TEXT DEFAULT (datetime('now')),
+          PRIMARY KEY (id)
+        );
+        INSERT OR IGNORE INTO timeline_jobs_v2
+          (id, user_id, novel_id, branch_id, status, data, updated_at, created_at)
+        SELECT
+          id, user_id, novel_id, branch_id, status, data,
+          COALESCE(updated_at, datetime('now')),
+          datetime('now')
+        FROM timeline_jobs;
+        DROP TABLE timeline_jobs;
+        ALTER TABLE timeline_jobs_v2 RENAME TO timeline_jobs;
+      `);
+      console.log("[DB] Rebuilt timeline_jobs with created_at/updated_at");
+    } catch (e) {
+      console.warn("[DB] timeline_jobs rebuild failed:", (e as Error).message);
+    }
+  }
+  d.exec(`
+    CREATE INDEX IF NOT EXISTS idx_timeline_jobs_novel
+      ON timeline_jobs (user_id, novel_id, branch_id, updated_at);
+  `);
+}
+
+export function deleteTimelineJobRowsForNovel(userId: string, novelId: string): void {
+  const d = getDb();
+  d.prepare(`DELETE FROM timeline_jobs WHERE user_id = ? AND novel_id = ?`).run(userId, novelId);
 }
 
 // ---- Agent Prompts ----

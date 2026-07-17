@@ -167,11 +167,11 @@ Legend: **done** | **partial** | **todo**
 | Outline/writer prompt text | **partial** (improved) | Tool-required form context; still no structured chapterPlan JSON |
 | Accept boundary + catalog | **partial** | Tests cover happy paths; outline keyword still heuristic |
 | **Agent tools load form/boundary** | **done** | `get_novel_form` + `get_branch_meta.form` |
-| Reader rail + click + scroll-sync | **partial** | Desktop only; jump uses scroll ratio not true layout |
-| Async timeline job | **partial** | In-memory jobs (lost on restart); works in one process |
-| Timeline **per branch** storage | **todo** | Still novel-scoped in DB helpers |
-| Job durable in SQLite | **todo** | |
-| Mobile rail | **todo** | `hidden sm:flex` |
+| Reader rail + click + scroll-sync | **partial** | Desktop + mobile drawer; jump still ratio-based (documented) |
+| Async timeline job | **done** | Progressive unit job; SQLite status; restart → mark error, re-run |
+| Timeline **per branch** storage | **done** | `timelines` / `chapter_states` PK includes `branch_id` |
+| Job durable in SQLite | **done** | `timeline_jobs` table; no mid-unit resume after crash |
+| Mobile rail | **done** | 目录 drawer on small screens |
 | Overview form summary UI | **todo** | Only one-line result string |
 | Per-unit retry UI | **todo** | |
 | Export TOC in TXT | **todo** | |
@@ -198,15 +198,15 @@ Legend: **done** | **partial** | **todo**
 - [x] When chaptering disabled, writer system constraints forbid inventing 第N章 unless user asks.
 
 ### D. Timeline async
-- [ ] Selecting timeline returns quickly with `timelineJobId` (no multi-minute HTTP).
-- [ ] Job progresses unit-by-unit; partial timeline readable before done.
-- [ ] Reader rail shows pending/done and summaries while job runs.
-- [ ] (Target) Job survives server restart **or** is explicitly documented as process-local until durable jobs ship.
+- [x] Selecting timeline returns quickly with `timelineJobId` (no multi-minute HTTP).
+- [x] Job progresses unit-by-unit; partial timeline readable before done.
+- [x] Reader rail shows pending/done and summaries while job runs.
+- [x] Job status survives restart in SQLite; in-flight jobs mark error and ask re-run (no mid-unit resume).
 
 ### E. Reader rail
-- [ ] Click jumps near unit start (documented precision).
-- [ ] Scroll updates active highlight.
-- [ ] (Target) Mobile can open the same rail.
+- [x] Click jumps near unit start (documented precision: char-offset ratio).
+- [x] Scroll updates active highlight.
+- [x] Mobile can open the same rail (drawer).
 
 ---
 
@@ -218,10 +218,10 @@ Legend: **done** | **partial** | **todo**
 3. Automated tests: form enable/disable, accept boundary, tool payload shape.
 
 ### P1 — Timeline QA product
-4. Persist timeline jobs (SQLite) + optional cancel.
-5. Branch-scoped timeline storage.
-6. Ensure form runs before timeline when both selected (ordering already soft; make hard dependency).
-7. Mobile rail drawer; improve jump accuracy.
+4. ~~Persist timeline jobs (SQLite) + optional cancel.~~ **done**
+5. ~~Branch-scoped timeline storage.~~ **done**
+6. ~~Ensure form runs before timeline when both selected.~~ **done** (P0 hard dep + soft-fail)
+7. ~~Mobile rail drawer; improve jump accuracy.~~ **done** (drawer + ratio note; geometry map still MVP)
 
 ### P2 — Polish
 8. Overview card: form summary + catalog count + boundary.
