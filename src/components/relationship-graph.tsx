@@ -98,26 +98,35 @@ export default function RelationshipGraph({
       }
     }
 
-    // Nodes
+    // Nodes — ember study palette (dark UI)
     for (const pos of positions) {
-      const r = 22 / z;
+      const r = 24 / z;
+      // soft glow
+      const grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, r * 1.6);
+      grad.addColorStop(0, "rgba(212, 119, 74, 0.35)");
+      grad.addColorStop(1, "rgba(212, 119, 74, 0)");
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, r * 1.6, 0, 2 * Math.PI);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, r, 0, 2 * Math.PI);
-      ctx.fillStyle = "#f97316";
+      ctx.fillStyle = "#d4774a";
       ctx.fill();
-      ctx.strokeStyle = "#ea580c";
-      ctx.lineWidth = 2 / z;
+      ctx.strokeStyle = "rgba(245, 240, 232, 0.35)";
+      ctx.lineWidth = 1.5 / z;
       ctx.stroke();
 
-      ctx.fillStyle = "#fff";
+      ctx.fillStyle = "#faf6f1";
       ctx.font = `bold ${13 / z}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(pos.char.name.charAt(0), pos.x, pos.y);
 
-      ctx.fillStyle = "#333";
-      ctx.font = `${10 / z}px sans-serif`;
-      ctx.fillText(pos.char.name, pos.x, pos.y + (30 / z));
+      ctx.fillStyle = "rgba(200, 190, 178, 0.95)";
+      ctx.font = `${11 / z}px sans-serif`;
+      ctx.fillText(pos.char.name, pos.x, pos.y + (32 / z));
     }
 
     ctx.restore();
@@ -186,36 +195,43 @@ export default function RelationshipGraph({
   if (characters.length === 0) return null;
 
   return (
-    <div className={`space-y-2 ${className}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <GitBranch className="w-4 h-4 text-muted-foreground" />
-          <h3 className="text-sm font-medium text-muted-foreground">角色关系图</h3>
+    <div className={`space-y-3 ${className}`}>
+      <div className="flex items-center justify-between px-0.5">
+        <div className="ov-section-label">
+          <span className="w-8 h-8 rounded-lg bg-ember-soft flex items-center justify-center">
+            <GitBranch className="w-4 h-4 text-primary" />
+          </span>
+          角色关系图
         </div>
-        <div className="flex items-center gap-1">
-          <button type="button" className="p-1.5 hover:bg-secondary rounded-lg" onClick={() => setZoom((z) => Math.min(3, z * 1.2))}>
+        <div className="flex items-center gap-0.5 rounded-xl bg-secondary/60 border border-border/40 p-0.5">
+          <button type="button" className="p-2 hover:bg-panel-elevated rounded-lg text-muted-foreground hover:text-foreground transition-colors" onClick={() => setZoom((z) => Math.min(3, z * 1.2))}>
             <ZoomIn className="w-4 h-4" />
           </button>
-          <button type="button" className="p-1.5 hover:bg-secondary rounded-lg" onClick={() => setZoom((z) => Math.max(0.2, z * 0.8))}>
+          <button type="button" className="p-2 hover:bg-panel-elevated rounded-lg text-muted-foreground hover:text-foreground transition-colors" onClick={() => setZoom((z) => Math.max(0.2, z * 0.8))}>
             <ZoomOut className="w-4 h-4" />
           </button>
-          <button type="button" className="p-1.5 hover:bg-secondary rounded-lg" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>
+          <button type="button" className="p-2 hover:bg-panel-elevated rounded-lg text-muted-foreground hover:text-foreground transition-colors" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>
             <RotateCcw className="w-4 h-4" />
           </button>
         </div>
       </div>
       <div
         ref={containerRef}
-        className="border border-border/70 rounded-2xl bg-card select-none relative"
-        style={{ height: `${height}px`, overflow: "hidden" }}
+        className="select-none relative rounded-2xl overflow-hidden border border-border/50"
+        style={{
+          height: `${height}px`,
+          background:
+            "radial-gradient(ellipse at 50% 40%, hsl(24 12% 14%) 0%, hsl(24 12% 9%) 70%)",
+          boxShadow: "inset 0 1px 0 hsl(var(--border) / 0.35)",
+        }}
       >
         <canvas ref={canvasRef} className="absolute inset-0" />
-        {/* Transparent overlay captures drag events, canvas does rendering */}
         <div
-          className="absolute inset-0 cursor-grab z-10"
+          className="absolute inset-0 cursor-grab active:cursor-grabbing z-10"
           onMouseDown={handleMouseDown}
         />
       </div>
+      <p className="text-[11px] text-fog px-0.5">拖拽平移 · 滚轮缩放</p>
     </div>
   );
 }
