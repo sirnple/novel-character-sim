@@ -94,7 +94,9 @@ export default function NovelPage() {
   const needsAnalysis = !canContinue;
 
   const onAnalyzeDone = (data: any) => {
+    // Only apply if this page is still for the same novel (FAB already scopes job)
     setNovel({
+      novelId,
       characters: data.characters ?? characters,
       storyInfo: data.storyInfo !== undefined ? data.storyInfo : storyInfo,
       timeline: data.timeline !== undefined ? data.timeline : timeline,
