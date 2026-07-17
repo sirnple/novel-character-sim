@@ -14,8 +14,8 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
   const { id } = useParams<{ id: string }>();
   const pathname = usePathname();
   const {
-    novelTitle, novelText, characters, setNovel, setBranches,
-    sessionNovelText, sessionContinueOffset, sessionContinueLabel,
+    novelTitle, setNovel, setBranches,
+    sessionContinueOffset, sessionContinueLabel,
     activeBranchId, novelId,
   } = useNovel();
   const [showRightPanel, setShowRightPanel] = useState(false);
@@ -55,14 +55,25 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (!novelTitle) {
-      fetch(`/api/novels?id=${id}`).then(r => r.json()).then(data => {
-        if (data.title) setNovel({
-          novelId: id, novelTitle: data.title, novelText: data.text || "",
-          characters: data.characters || [], storyInfo: data.storyInfo || null,
-          timeline: data.timeline || null, lastChapterStates: data.lastChapterStates || [],
-        });
-        if (data.branches) setBranches(data.branches);
-      }).catch(() => {});
+      // meta=1: skip multi-MB body on shell load; pages fetch branch text on demand
+      fetch(`/api/novels?id=${encodeURIComponent(id)}&meta=1`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.title) {
+            setNovel({
+              novelId: id,
+              novelTitle: data.title,
+              novelText: "",
+              novelLength: data.totalLength || 0,
+              characters: data.characters || [],
+              storyInfo: data.storyInfo || null,
+              timeline: data.timeline || null,
+              lastChapterStates: data.lastChapterStates || [],
+            });
+          }
+          if (data.branches) setBranches(data.branches);
+        })
+        .catch(() => {});
     }
   }, [id]);
 
@@ -161,8 +172,8 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
               <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
                 <AgentPanel
                   novelTitle={novelTitle}
-                  characters={characters}
-                  novelText={sessionNovelText || novelText}
+                  characters={[]}
+                  novelText=""
                   continueFromOffset={sessionContinueOffset}
                   continueFromLabel={sessionContinueLabel}
                   branchId={activeBranchId}

@@ -15,13 +15,42 @@ export async function GET(request: NextRequest) {
   const branchId = request.nextUrl.searchParams.get("branchId") || "main";
 
   if (id) {
-    const { text, branch } = getBranchProse(userId, id, branchId);
-    if (!branch) return NextResponse.json({ error: "Branch not found" }, { status: 404 });
+    const metaOnly = request.nextUrl.searchParams.get("meta") === "1";
     const novel = getNovel(userId, id);
     const storyInfo = getStoryInfo(userId, id);
     const characters = getCharacters(userId, id);
+    // Metadata only — never embed every branch's full text
     const branches = listBranches(userId, id);
-    return NextResponse.json({ id, title: novel?.title || "", text, storyInfo, characters, branches });
+
+    if (metaOnly) {
+      const mainMeta = branches.find((b) => b.id === "main") || branches.find((b) => b.id === branchId);
+      const totalLength =
+        mainMeta?.char_count ||
+        novel?.text?.length ||
+        0;
+      return NextResponse.json({
+        id,
+        title: novel?.title || "",
+        totalLength,
+        branchId,
+        storyInfo,
+        characters,
+        branches,
+      });
+    }
+
+    const { text, branch } = getBranchProse(userId, id, branchId);
+    if (!branch) return NextResponse.json({ error: "Branch not found" }, { status: 404 });
+    return NextResponse.json({
+      id,
+      title: novel?.title || "",
+      text,
+      totalLength: text.length,
+      branchId,
+      storyInfo,
+      characters,
+      branches,
+    });
   }
 
   const novels = listNovels(userId);

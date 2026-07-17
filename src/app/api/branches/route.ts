@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  saveBranch,
   getBranch,
   listBranches,
   appendBranchContent,
@@ -8,6 +7,8 @@ import {
   getBranchProse,
   ensureMainBranch,
   deleteBranch,
+  createCowBranch,
+  resolveBranchText,
 } from "@/lib/db";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 
@@ -40,14 +41,13 @@ export async function GET(request: NextRequest) {
     if (branchId === "main") ensureMainBranch(userId, novelId);
     const branch = getBranch(userId, novelId, branchId);
     if (!branch) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const fullText = resolveBranchText(userId, novelId, branchId);
 
-    // Download branch body as UTF-8 .txt
+    // Download branch body as UTF-8 .txt (resolved full body)
     if (download) {
       const filename = branchTxtFilename(branch.name || branch.id, branch.id);
-      const body = branch.text || "";
-      // ASCII fallback + RFC 5987 for Chinese names
       const asciiFallback = filename.replace(/[^\x20-\x7E]/g, "_") || "branch.txt";
-      return new NextResponse(body, {
+      return new NextResponse(fullText, {
         status: 200,
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
@@ -60,10 +60,24 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ branch });
+    return NextResponse.json({
+      branch: {
+        id: branch.id,
+        novel_id: branch.novel_id,
+        name: branch.name,
+        parent_offset: branch.parent_offset,
+        parent_branch_id: branch.parent_branch_id,
+        storage: branch.storage,
+        char_count: fullText.length,
+        text: fullText,
+        created_at: branch.created_at,
+        updated_at: branch.updated_at,
+      },
+    });
   }
 
   if (novelId) {
+    // Metadata only — full body via ?branchId=
     const branches = listBranches(userId, novelId);
     return NextResponse.json({ branches });
   }
@@ -86,37 +100,47 @@ export async function POST(request: NextRequest) {
 
   if (append && branchId) {
     appendBranchContent(userId, novelId, branchId, content || "");
-    const updated = getBranch(userId, novelId, branchId);
-    return NextResponse.json({ success: true, branch: updated });
+    const { text, branch: row } = getBranchProse(userId, novelId, branchId);
+    return NextResponse.json({
+      success: true,
+      branch: row
+        ? {
+            ...row,
+            text,
+            char_count: text.length,
+          }
+        : null,
+    });
   }
 
+  // New IF branch: CoW — store only suffix after parent_offset (initially empty)
   const id = branchId || `branch_${Date.now()}`;
   const parentId = String(parentBranchId || "main");
-  let body = typeof content === "string" ? content : "";
   const offset = typeof parentOffset === "number" ? parentOffset : Number(parentOffset) || 0;
 
-  // If client sent empty content, fill from parent branch text up to parentOffset
-  // (fixes older clients that zeroed baseText when a branch was already selected)
-  if (!body.trim()) {
-    ensureMainBranch(userId, novelId);
-    const { text: parentText } = getBranchProse(userId, novelId, parentId);
-    if (parentText) {
-      body =
-        offset > 0
-          ? parentText.slice(0, Math.min(offset, parentText.length))
-          : parentText;
-    }
-  }
-
-  saveBranch(userId, id, novelId, name, offset, body);
-  // Snapshot foreshadowing ledger from parent (default main)
+  ensureMainBranch(userId, novelId);
+  const row = createCowBranch(userId, novelId, id, name, parentId, offset);
   try {
     copyForeshadowingLedger(userId, novelId, parentId, id);
   } catch (e) {
     console.warn("[branches] copy foreshadowing ledger failed:", (e as Error).message);
   }
-  const branch = getBranch(userId, novelId, id);
-  return NextResponse.json({ success: true, branch });
+  const fullText = resolveBranchText(userId, novelId, id);
+  return NextResponse.json({
+    success: true,
+    branch: {
+      id: row.id,
+      novel_id: row.novel_id,
+      name: row.name,
+      parent_offset: row.parent_offset,
+      parent_branch_id: row.parent_branch_id,
+      storage: row.storage,
+      char_count: fullText.length,
+      text: fullText,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    },
+  });
 }
 
 /** DELETE ?novelId=&branchId= — remove IF branch (not main) */

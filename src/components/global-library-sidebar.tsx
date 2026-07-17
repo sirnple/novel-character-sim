@@ -141,21 +141,25 @@ export default function GlobalLibrarySidebar({
       onMobileClose?.();
       return;
     }
-    const res = await fetch(`/api/novels?id=${id}`);
+    const res = await fetch(`/api/novels?id=${encodeURIComponent(id)}&meta=1`);
     const data = await res.json();
     if (!res.ok) return;
     setNovel({
       novelId: id,
       novelTitle: data.title,
-      novelText: data.text,
+      novelText: "",
+      novelLength:
+        typeof data.totalLength === "number"
+          ? data.totalLength
+          : 0,
       characters: data.characters || [],
       storyInfo: data.storyInfo || null,
       timeline: data.timeline || null,
       lastChapterStates: data.lastChapterStates || [],
       selectedStyleId: null,
       selectedIdeaIds: [],
+      branches: data.branches || [],
     });
-    if (data.branches) setNovel({ branches: data.branches });
     onMobileClose?.();
     router.push(`/novel/${id}`);
   };

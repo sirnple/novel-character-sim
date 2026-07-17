@@ -34,11 +34,25 @@ function getDb(): Database.Database {
  * Clear character data that uses the old flat schema
  * (speakingStyle/background as strings).  New code expects nested objects.
  */
+function ensureBranchColumn(
+  d: Database.Database,
+  name: string,
+  ddl: string,
+): void {
+  const cols = d.prepare("PRAGMA table_info(branches)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === name)) {
+    d.exec(`ALTER TABLE branches ADD COLUMN ${ddl}`);
+    console.log(`[DB] branches: added column ${name}`);
+  }
+}
+
 function migrateOldData(d: Database.Database): void {
   // Migrate branches table to (novel_id, id, user_id) PK so multiple novels can each have id="main".
   try {
     const cols = d.prepare("PRAGMA table_info(branches)").all() as { name: string }[];
-    if (cols.length > 0) {
+    // Only rebuild if table exists and still has legacy PK shape (no novel_id in PK detection is hard;
+    // keep prior migration once — if branches_old_pk missing and table has user_id, skip rebuild).
+    if (cols.length > 0 && !cols.some((c) => c.name === "user_id")) {
       d.exec(`ALTER TABLE branches RENAME TO branches_old_pk`);
       d.exec(`
         CREATE TABLE branches (
@@ -62,6 +76,20 @@ function migrateOldData(d: Database.Database): void {
     }
   } catch (e) {
     console.warn("[DB] branches migration skipped:", (e as Error).message);
+  }
+
+  // Phase 2 CoW columns (idempotent)
+  try {
+    ensureBranchColumn(d, "parent_branch_id", "parent_branch_id TEXT NOT NULL DEFAULT ''");
+    ensureBranchColumn(d, "storage", "storage TEXT NOT NULL DEFAULT 'full'");
+    ensureBranchColumn(d, "char_count", "char_count INTEGER NOT NULL DEFAULT 0");
+    // Backfill char_count for rows still at 0
+    d.exec(`
+      UPDATE branches SET char_count = length(COALESCE(text, ''))
+      WHERE char_count = 0 OR char_count IS NULL
+    `);
+  } catch (e) {
+    console.warn("[DB] CoW columns migration skipped:", (e as Error).message);
   }
 
   const rows = d.prepare("SELECT id, data FROM characters").all() as { id: string; data: string }[];
@@ -240,6 +268,9 @@ function initSchema(db: Database.Database) {
       name TEXT NOT NULL DEFAULT '',
       parent_offset INTEGER NOT NULL DEFAULT 0,
       text TEXT NOT NULL DEFAULT '',
+      parent_branch_id TEXT NOT NULL DEFAULT '',
+      storage TEXT NOT NULL DEFAULT 'full',
+      char_count INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
       PRIMARY KEY (novel_id, id, user_id)
@@ -416,11 +447,12 @@ export function importNovel(
     `INSERT OR REPLACE INTO novels (id, user_id, title, text, total_length, language, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(novelId, userId, title, text, text.length, "zh");
-  // Main working copy starts as the full imported text
+  // Main working copy starts as full imported text (storage=full). novels.text = import snapshot.
   d.prepare(
-    `INSERT OR REPLACE INTO branches (id, novel_id, user_id, name, parent_offset, text, updated_at)
-     VALUES ('main', ?, ?, '主线', 0, ?, datetime('now'))`
-  ).run(novelId, userId, text);
+    `INSERT OR REPLACE INTO branches
+      (id, novel_id, user_id, name, parent_offset, text, parent_branch_id, storage, char_count, updated_at)
+     VALUES ('main', ?, ?, '主线', 0, ?, '', 'full', ?, datetime('now'))`,
+  ).run(novelId, userId, text, text.length);
 }
 
 /**
@@ -1034,14 +1066,50 @@ export function deleteCodex(novelId: string): void {
 
 // ---- Branches ----
 
+/** storage=full: text is full body. storage=cow: text is suffix after parent[0:parent_offset]. */
+export type BranchStorage = "full" | "cow";
+
 export interface BranchRow {
   id: string;
   novel_id: string;
   name: string;
   parent_offset: number;
   text: string;
+  parent_branch_id: string;
+  storage: BranchStorage;
+  /** Logical full-body length (resolved). */
+  char_count: number;
   created_at: string;
   updated_at: string;
+}
+
+/** Branch list row without full text (safe for long novels / many forks). */
+export interface BranchMetaRow {
+  id: string;
+  novel_id: string;
+  name: string;
+  parent_offset: number;
+  char_count: number;
+  parent_branch_id: string;
+  storage: BranchStorage;
+  created_at: string;
+  updated_at: string;
+}
+
+function normalizeBranchRow(row: any): BranchRow | null {
+  if (!row) return null;
+  return {
+    id: row.id,
+    novel_id: row.novel_id,
+    name: row.name || "",
+    parent_offset: Number(row.parent_offset) || 0,
+    text: row.text || "",
+    parent_branch_id: row.parent_branch_id || "",
+    storage: row.storage === "cow" ? "cow" : "full",
+    char_count: Number(row.char_count) || 0,
+    created_at: row.created_at || "",
+    updated_at: row.updated_at || "",
+  };
 }
 
 export function saveBranch(
@@ -1050,13 +1118,93 @@ export function saveBranch(
   novelId: string,
   name: string,
   parentOffset: number,
-  text: string
+  text: string,
+  opts?: {
+    parentBranchId?: string;
+    storage?: BranchStorage;
+    charCount?: number;
+  },
 ): void {
   const d = getDb();
+  const storage: BranchStorage = opts?.storage || "full";
+  const parentBranchId = opts?.parentBranchId || "";
+  const charCount =
+    typeof opts?.charCount === "number" ? opts.charCount : (text || "").length;
   d.prepare(
-    `INSERT OR REPLACE INTO branches (id, novel_id, user_id, name, parent_offset, text, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
-  ).run(branchId, novelId, userId, name, parentOffset, text);
+    `INSERT OR REPLACE INTO branches
+      (id, novel_id, user_id, name, parent_offset, text, parent_branch_id, storage, char_count, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+  ).run(
+    branchId,
+    novelId,
+    userId,
+    name,
+    parentOffset,
+    text || "",
+    parentBranchId,
+    storage,
+    charCount,
+  );
+}
+
+/**
+ * Create an IF branch with CoW storage: only suffix after parent_offset is stored.
+ * Logical full text = resolve(parent)[0:offset] + suffix (initially empty).
+ */
+export function createCowBranch(
+  userId: string,
+  novelId: string,
+  branchId: string,
+  name: string,
+  parentBranchId: string,
+  parentOffset: number,
+): BranchRow {
+  ensureMainBranch(userId, novelId);
+  const parentId = parentBranchId || "main";
+  const { text: parentFull } = getBranchProse(userId, novelId, parentId);
+  const offset = Math.max(0, Math.min(parentOffset, parentFull.length));
+  saveBranch(userId, branchId, novelId, name, offset, "", {
+    parentBranchId: parentId,
+    storage: "cow",
+    charCount: offset,
+  });
+  const row = getBranch(userId, novelId, branchId);
+  if (!row) throw new Error("createCowBranch failed");
+  return row;
+}
+
+/**
+ * Resolve logical full prose for a branch (CoW chain).
+ * Depth-capped to avoid cycles.
+ */
+export function resolveBranchText(
+  userId: string,
+  novelId: string,
+  branchId: string,
+  depth = 0,
+  seen?: Set<string>,
+): string {
+  if (depth > 32) return "";
+  const visited = seen || new Set<string>();
+  if (visited.has(branchId)) return "";
+  visited.add(branchId);
+
+  if (branchId === "main") ensureMainBranch(userId, novelId);
+  const row = getBranch(userId, novelId, branchId);
+  if (!row) return "";
+
+  if (row.storage === "cow" && row.parent_branch_id) {
+    const parentFull = resolveBranchText(
+      userId,
+      novelId,
+      row.parent_branch_id,
+      depth + 1,
+      visited,
+    );
+    const off = Math.max(0, Math.min(row.parent_offset, parentFull.length));
+    return parentFull.slice(0, off) + (row.text || "");
+  }
+  return row.text || "";
 }
 
 // ---- Foreshadowing ledger (per branch) ----
@@ -1125,7 +1273,9 @@ export function copyForeshadowingLedger(
 
 /**
  * Append continuation prose onto a branch.
- * @param fromOffset if set, keep only text[0..fromOffset) then append (continue from mid-point)
+ * - full storage: read stored text, concat, write (working copy only — no novels dual-write)
+ * - cow storage: only rewrite suffix (+ update char_count); parent body untouched
+ * @param fromOffset absolute offset in *resolved* full body; keep [0, fromOffset) then append
  */
 export function appendBranchContent(
   userId: string,
@@ -1135,44 +1285,64 @@ export function appendBranchContent(
   fromOffset?: number,
 ): void {
   const d = getDb();
-  const branch = d.prepare(
-    "SELECT text FROM branches WHERE novel_id = ? AND id = ? AND user_id = ?",
-  ).get(novelId, branchId, userId) as { text: string } | undefined;
-  if (!branch) return;
+  const row = getBranch(userId, novelId, branchId);
+  if (!row) return;
   const incoming = (newContent || "").trim();
   if (!incoming) return;
 
-  let base = branch.text || "";
-  if (typeof fromOffset === "number" && fromOffset >= 0 && fromOffset < base.length) {
-    base = base.slice(0, fromOffset);
+  const resolved = resolveBranchText(userId, novelId, branchId);
+  let baseFull = resolved;
+  if (typeof fromOffset === "number" && fromOffset >= 0 && fromOffset < baseFull.length) {
+    baseFull = baseFull.slice(0, fromOffset);
   }
 
-  // Avoid double-append if the same continuation was already saved
-  if (base.endsWith(incoming) || base.includes("\n\n" + incoming)) {
+  if (baseFull.endsWith(incoming) || baseFull.includes("\n\n" + incoming)) {
     return;
   }
 
-  const combined = base ? base.replace(/\s*$/, "") + "\n\n" + incoming : incoming;
-  d.prepare(
-    "UPDATE branches SET text = ?, updated_at = datetime('now') WHERE novel_id = ? AND id = ? AND user_id = ?",
-  ).run(combined, novelId, branchId, userId);
+  const combined = baseFull
+    ? baseFull.replace(/\s*$/, "") + "\n\n" + incoming
+    : incoming;
 
-  // Keep novels.text in sync when writing main (write UI / list length use it for 主线)
-  if (branchId === "main") {
-    const novel = getNovel(userId, novelId);
-    if (novel) {
+  if (row.storage === "cow" && row.parent_branch_id) {
+    const parentFull = resolveBranchText(userId, novelId, row.parent_branch_id);
+    const off = Math.max(0, Math.min(row.parent_offset, parentFull.length));
+    const parentPrefix = parentFull.slice(0, off);
+    // Keep CoW if combined still starts with the frozen parent prefix
+    if (combined.startsWith(parentPrefix)) {
+      const suffix = combined.slice(off);
       d.prepare(
-        `UPDATE novels SET text = ?, total_length = ?, updated_at = datetime('now')
-         WHERE id = ? AND user_id = ?`,
-      ).run(combined, combined.length, novelId, userId);
+        `UPDATE branches SET text = ?, char_count = ?, updated_at = datetime('now')
+         WHERE novel_id = ? AND id = ? AND user_id = ?`,
+      ).run(suffix, combined.length, novelId, branchId, userId);
+    } else {
+      // Truncation crossed parent boundary — materialize full body
+      d.prepare(
+        `UPDATE branches SET text = ?, storage = 'full', parent_branch_id = '',
+            parent_offset = 0, char_count = ?, updated_at = datetime('now')
+         WHERE novel_id = ? AND id = ? AND user_id = ?`,
+      ).run(combined, combined.length, novelId, branchId, userId);
     }
+  } else {
+    d.prepare(
+      `UPDATE branches SET text = ?, char_count = ?, updated_at = datetime('now')
+       WHERE novel_id = ? AND id = ? AND user_id = ?`,
+    ).run(combined, combined.length, novelId, branchId, userId);
+  }
+
+  // novels.text stays import snapshot; only refresh total_length for library UI
+  if (branchId === "main") {
+    d.prepare(
+      `UPDATE novels SET total_length = ?, updated_at = datetime('now')
+       WHERE id = ? AND user_id = ?`,
+    ).run(combined.length, novelId, userId);
   }
 }
 
 export function getBranch(
   userId: string,
   novelId: string,
-  branchId: string
+  branchId: string,
 ): BranchRow | null {
   const d = getDb();
   return getBranchByNovelAndId(d, userId, novelId, branchId);
@@ -1182,21 +1352,60 @@ export function getBranchByNovelAndId(
   d: Database.Database,
   userId: string,
   novelId: string,
-  branchId: string
+  branchId: string,
 ): BranchRow | null {
-  return d.prepare(
-    "SELECT id, novel_id, name, parent_offset, text, created_at, updated_at FROM branches WHERE novel_id = ? AND id = ? AND user_id = ?"
-  ).get(novelId, branchId, userId) as BranchRow | null;
+  const row = d.prepare(
+    `SELECT id, novel_id, name, parent_offset, text,
+            COALESCE(parent_branch_id, '') AS parent_branch_id,
+            COALESCE(storage, 'full') AS storage,
+            COALESCE(char_count, 0) AS char_count,
+            created_at, updated_at
+     FROM branches WHERE novel_id = ? AND id = ? AND user_id = ?`,
+  ).get(novelId, branchId, userId);
+  return normalizeBranchRow(row);
 }
 
+/**
+ * List branches with metadata only (no `text`).
+ * char_count is logical full length (maintained on write).
+ */
 export function listBranches(
   userId: string,
-  novelId: string
+  novelId: string,
+): BranchMetaRow[] {
+  const d = getDb();
+  const rows = d.prepare(
+    `SELECT id, novel_id, name, parent_offset,
+            COALESCE(char_count, length(COALESCE(text, ''))) AS char_count,
+            COALESCE(parent_branch_id, '') AS parent_branch_id,
+            COALESCE(storage, 'full') AS storage,
+            created_at, updated_at
+     FROM branches
+     WHERE novel_id = ? AND user_id = ?
+     ORDER BY updated_at DESC`,
+  ).all(novelId, userId) as BranchMetaRow[];
+  return rows.map((r) => ({
+    ...r,
+    storage: r.storage === "cow" ? "cow" : "full",
+    char_count: Number(r.char_count) || 0,
+  }));
+}
+
+/** @deprecated Prefer listBranches (meta). Full-text list is expensive for long novels. */
+export function listBranchesWithText(
+  userId: string,
+  novelId: string,
 ): BranchRow[] {
   const d = getDb();
-  return d.prepare(
-    "SELECT id, novel_id, name, parent_offset, text, created_at, updated_at FROM branches WHERE novel_id = ? AND user_id = ? ORDER BY updated_at DESC"
-  ).all(novelId, userId) as BranchRow[];
+  const rows = d.prepare(
+    `SELECT id, novel_id, name, parent_offset, text,
+            COALESCE(parent_branch_id, '') AS parent_branch_id,
+            COALESCE(storage, 'full') AS storage,
+            COALESCE(char_count, 0) AS char_count,
+            created_at, updated_at
+     FROM branches WHERE novel_id = ? AND user_id = ? ORDER BY updated_at DESC`,
+  ).all(novelId, userId);
+  return rows.map((r) => normalizeBranchRow(r)!).filter(Boolean);
 }
 
 /**
@@ -1233,10 +1442,13 @@ export function ensureMainBranch(userId: string, novelId: string): void {
   if (getBranch(userId, novelId, "main")) return;
   const novel = getNovel(userId, novelId);
   if (!novel?.text?.trim()) return;
-  saveBranch(userId, "main", novelId, "主线", 0, novel.text);
+  saveBranch(userId, "main", novelId, "主线", 0, novel.text, {
+    storage: "full",
+    charCount: novel.text.length,
+  });
 }
 
-/** Branch working text for agents/UI. */
+/** Branch working text for agents/UI (always resolved full body). */
 export function getBranchProse(
   userId: string,
   novelId: string,
@@ -1245,8 +1457,10 @@ export function getBranchProse(
   if (branchId === "main") ensureMainBranch(userId, novelId);
   const branch = getBranch(userId, novelId, branchId);
   if (!branch) return { text: "", source: "empty", branch: null };
-  const text = branch.text || "";
+  const text = resolveBranchText(userId, novelId, branchId);
   if (text.trim()) return { text, source: "branch", branch };
+  // Empty CoW fork at offset 0 is valid empty branch
+  if (branch.storage === "cow") return { text: text || "", source: "branch", branch };
   return { text: "", source: "empty", branch };
 }
 

@@ -5,15 +5,21 @@ import type { CharacterProfile, StoryInfo, ChapterTimeline, CharacterChapterStat
 interface NovelState {
   novelId: string;
   novelTitle: string;
+  /**
+   * Main/working body cache when loaded. Prefer page-local body load for long novels;
+   * may be empty after meta-only open.
+   */
   novelText: string;
+  /** Authoritative length (from API totalLength / char_count) — do not require full novelText. */
+  novelLength: number;
   characters: CharacterProfile[];
   storyInfo: StoryInfo | null;
   timeline: ChapterTimeline | null;
   lastChapterStates: CharacterChapterState[];
+  /** Branch metadata only (no full text). */
   branches: Branch[];
   /** Empty string = writing target not chosen yet (no agent panel). */
   activeBranchId: string;
-  sessionNovelText?: string;
   sessionContinueOffset?: number;
   sessionContinueLabel?: string;
   generatedProse?: string;
@@ -45,6 +51,7 @@ const DEFAULT: NovelState = {
   novelId: "",
   novelTitle: "",
   novelText: "",
+  novelLength: 0,
   characters: [],
   storyInfo: null,
   timeline: null,
@@ -67,9 +74,13 @@ export function NovelProvider({ children }: { children: ReactNode }) {
         next.selectedStyleId = null;
         next.selectedIdeaIds = [];
         next.activeBranchId = "";
-        next.sessionNovelText = undefined;
         next.sessionContinueOffset = undefined;
         next.sessionContinueLabel = undefined;
+        next.generatedProse = undefined;
+      }
+      // Keep novelLength in sync when full text is replaced
+      if (typeof data.novelText === "string" && data.novelLength === undefined) {
+        next.novelLength = data.novelText.length;
       }
       return next;
     });
@@ -99,7 +110,7 @@ export function NovelProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setNovelText = useCallback((text: string) => {
-    setState(prev => ({ ...prev, novelText: text }));
+    setState(prev => ({ ...prev, novelText: text, novelLength: text.length }));
   }, []);
 
   const setSelectedStyleId = useCallback((id: string | null) => {

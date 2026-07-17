@@ -5,7 +5,8 @@ import { Upload, Loader2 } from "lucide-react";
 import { useRateLimitCooldown } from "@/lib/rate-limit-ui";
 
 interface NovelUploadProps {
-  onParsed: (title: string, fullText: string, preview: string, novelId?: string) => void;
+  /** totalLength replaces fullText — client must not hold 1M-char payload from upload. */
+  onParsed: (title: string, totalLength: number, preview: string, novelId?: string) => void;
 }
 
 export default function NovelUpload({ onParsed }: NovelUploadProps) {
@@ -44,7 +45,12 @@ export default function NovelUpload({ onParsed }: NovelUploadProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Parse failed");
 
-      onParsed(data.title, data.fullText, data.preview, data.novelId);
+      onParsed(
+        data.title,
+        typeof data.totalLength === "number" ? data.totalLength : 0,
+        data.preview || "",
+        data.novelId,
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to upload");
     } finally {

@@ -498,7 +498,10 @@ export interface Branch {
   novelId: string;
   name: string;
   parentOffset: number;
-  text: string;
+  /** Full body — only present when explicitly loaded (not on list APIs). */
+  text?: string;
+  /** length(text); list APIs always set this. */
+  charCount?: number;
   createdAt: string;
   updatedAt: string;
 }

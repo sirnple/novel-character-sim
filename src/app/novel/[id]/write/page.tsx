@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useNovel } from "@/lib/novel-context";
 import { GitBranch, BookOpen, Sparkles, Trash2, Download } from "lucide-react";
 import ScrollEdgeButtons from "@/components/scroll-edge-buttons";
@@ -11,42 +11,52 @@ import {
   useTextFindSegments,
 } from "@/components/text-find";
 import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
+import {
+  BODY_WINDOW_CHARS,
+  expandEarlier,
+  loadFullWindow,
+  takeTailWindow,
+  type TextWindow,
+} from "@/lib/text-window";
+import VirtualNovelBody, {
+  absoluteOffsetFromClick,
+  type VirtualChunk,
+} from "@/components/virtual-novel-body";
 
-interface BranchInfo { id: string; name: string; text: string; parent_offset: number; updated_at: string; }
+/** Branch list metadata (no full text). */
+interface BranchInfo {
+  id: string;
+  name: string;
+  parent_offset: number;
+  updated_at: string;
+  char_count?: number;
+}
 
 export default function WritePage() {
   const {
-    novelId, novelTitle, novelText, setNovel, generatedProse, setActiveBranchId,
+    novelId, novelTitle, novelLength, setNovel, generatedProse, setActiveBranchId, setNovelText,
   } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [activeBranchId, setLocalBranchId] = useState<string | null>(null);
   const [freeMode, setFreeMode] = useState(false);
   const readerRef = useRef<HTMLDivElement>(null);
   const [newBranchName, setNewBranchName] = useState("");
-  // Click-to-fork state
+  // Click-to-fork state — offsets are absolute in full branch body
   const [forkPoint, setForkPoint] = useState<{ offset: number; label: string; context: string } | null>(null);
   const [showForkDialog, setShowForkDialog] = useState(false);
   /** Mobile: branch list drawer (desktop uses permanent rail) */
   const [branchDrawerOpen, setBranchDrawerOpen] = useState(false);
 
+  /** Full body of the selected branch (only one loaded at a time). */
+  const [fullBody, setFullBody] = useState("");
+  const [bodyLoading, setBodyLoading] = useState(false);
+  const [win, setWin] = useState<TextWindow>(() => takeTailWindow(""));
+
   const activeBranch = branches.find(b => b.id === activeBranchId);
   const hasSelection = freeMode || activeBranchId === "main" || !!activeBranch;
-  // Prefer branch row for main when present (accepted 续写 lives on branches.main)
-  const mainBranchRow = branches.find((b) => b.id === "main");
-  const mainDisplayText =
-    (mainBranchRow?.text && mainBranchRow.text.length >= (novelText || "").length
-      ? mainBranchRow.text
-      : novelText) || "";
 
-  const currentText =
-    freeMode || activeBranchId === "main"
-      ? mainDisplayText
-      : activeBranch
-        ? (activeBranch.text || "")
-        : "";
-
-  const bodyText = freeMode ? mainDisplayText : (currentText || "");
-  // Draft only: never treat intermediate tool streams as body (agent-panel loads save_prose)
+  // Display = windowed body (tail by default for long novels)
+  const bodyText = win.text;
   const proseText = generatedProse || "";
   const find = useTextFindSegments([bodyText, proseText]);
   useFindShortcut(find.searchInputRef, hasSelection);
@@ -61,75 +71,142 @@ export default function WritePage() {
     setQueryLabel(params.get("label"));
   }, []);
 
+  // Metadata list only
   useEffect(() => {
-    fetch(`/api/branches?novelId=${novelId}`).then(r => r.json()).then(d => {
-      if (d.branches) setBranches(d.branches);
-    }).catch(() => {});
+    if (!novelId) return;
+    fetch(`/api/branches?novelId=${encodeURIComponent(novelId)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.branches) setBranches(d.branches);
+      })
+      .catch(() => {});
   }, [novelId]);
 
-  // Accept 续写后刷新本分支正文（避免列表/阅读区仍是旧 text）
+  const applyBody = useCallback((text: string, preferFull = false) => {
+    setFullBody(text);
+    setWin(preferFull || text.length <= BODY_WINDOW_CHARS ? loadFullWindow(text) : takeTailWindow(text));
+  }, []);
+
+  const loadBranchBody = useCallback(
+    async (branchId: string) => {
+      if (!novelId || !branchId) return;
+      setBodyLoading(true);
+      try {
+        const res = await fetch(
+          `/api/branches?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(branchId)}`,
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "load failed");
+        const text = String(data.branch?.text || "");
+        applyBody(text);
+        setBranches((prev) =>
+          prev.map((b) =>
+            b.id === branchId
+              ? { ...b, char_count: text.length, name: data.branch?.name || b.name }
+              : b,
+          ),
+        );
+        if (branchId === "main") {
+          setNovelText(text);
+          setNovel({ novelLength: text.length });
+        }
+      } catch {
+        applyBody("");
+      } finally {
+        setBodyLoading(false);
+      }
+    },
+    [novelId, applyBody, setNovel, setNovelText],
+  );
+
+  // Load body when selection changes
+  useEffect(() => {
+    if (freeMode) {
+      loadBranchBody("main");
+      return;
+    }
+    if (activeBranchId) {
+      loadBranchBody(activeBranchId);
+    } else {
+      applyBody("");
+    }
+  }, [activeBranchId, freeMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Accept 续写：refetch body (do not trust multi-MB event payloads)
   useEffect(() => {
     const onBranchUpdated = (ev: Event) => {
       const detail = (ev as CustomEvent).detail as {
         novelId?: string;
         branchId?: string;
         text?: string;
+        totalLength?: number;
       };
       if (!detail || detail.novelId !== novelId || !detail.branchId) return;
-      setBranches((prev) =>
-        prev.map((b) =>
-          b.id === detail.branchId ? { ...b, text: detail.text || "" } : b,
-        ),
-      );
-      // 若本地没有该分支行（仅 main 用 novelText），主线已由 agent-panel setNovelText
+      const bid = detail.branchId;
+      if (typeof detail.totalLength === "number") {
+        setBranches((prev) =>
+          prev.map((b) => (b.id === bid ? { ...b, char_count: detail.totalLength! } : b)),
+        );
+      }
+      // Prefer full text if small payload sent; else refetch
+      if (detail.text != null && detail.text.length > 0 && detail.text.length <= BODY_WINDOW_CHARS * 2) {
+        if (activeBranchId === bid || (freeMode && bid === "main")) {
+          applyBody(detail.text);
+        }
+        if (bid === "main") setNovelText(detail.text);
+      } else if (activeBranchId === bid || (freeMode && bid === "main") || bid === activeBranchId) {
+        loadBranchBody(bid);
+      } else {
+        // inactive branch: just refresh meta length via list
+        fetch(`/api/branches?novelId=${encodeURIComponent(novelId)}`)
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.branches) setBranches(d.branches);
+          })
+          .catch(() => {});
+      }
     };
     window.addEventListener("ncs:branch-updated", onBranchUpdated);
     return () => window.removeEventListener("ncs:branch-updated", onBranchUpdated);
-  }, [novelId]);
+  }, [novelId, activeBranchId, freeMode, applyBody, loadBranchBody, setNovelText]);
 
-  // Sync writing target to context only after explicit selection (no silent default to main)
+  // Sync writing target to context — ids/offset only (no full sessionNovelText)
   useEffect(() => {
-    if (activeBranchId && activeBranch) {
+    const total = fullBody.length || win.totalLength;
+    if (activeBranchId && activeBranch && !freeMode) {
       setNovel({
-        sessionNovelText: activeBranch.text,
-        sessionContinueOffset: activeBranch.text.length,
+        sessionContinueOffset: total,
         sessionContinueLabel: `分支: ${activeBranch.name}`,
       });
       setActiveBranchId(activeBranchId);
     } else if (activeBranchId === "main" && !freeMode) {
       setNovel({
-        sessionNovelText: novelText,
-        sessionContinueOffset: novelText.length,
+        sessionContinueOffset: total || novelLength,
         sessionContinueLabel: "主线",
       });
       setActiveBranchId("main");
     } else if (freeMode) {
       setNovel({
-        sessionNovelText: novelText,
         sessionContinueOffset: undefined,
         sessionContinueLabel: "自由创作",
       });
-      // Agent tools still bind to main line text; id marks "target chosen"
       setActiveBranchId("main");
     } else if (queryOffset) {
       setLocalBranchId("main");
       setFreeMode(false);
       setNovel({
-        sessionNovelText: novelText,
-        sessionContinueOffset: parseInt(queryOffset),
+        sessionContinueOffset: parseInt(queryOffset, 10),
         sessionContinueLabel: queryLabel || "续写点",
       });
       setActiveBranchId("main");
     } else {
-      // No branch chosen yet — clear so layout hides agent panel
       setNovel({
-        sessionNovelText: undefined,
         sessionContinueOffset: undefined,
         sessionContinueLabel: undefined,
       });
       setActiveBranchId(undefined);
     }
-  }, [activeBranchId, activeBranch?.text, freeMode, novelText, queryOffset, queryLabel]);
+  }, [activeBranchId, activeBranch?.name, freeMode, fullBody.length, win.totalLength, novelLength, queryOffset, queryLabel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const deleteBranchById = async (branchId: string, name: string) => {
     if (branchId === "main") return;
@@ -164,17 +241,12 @@ export default function WritePage() {
 
   const createBranch = async () => {
     if (!newBranchName.trim()) return;
-    // Source text of the line we're forking from (not "" when a branch is already selected)
-    const sourceText =
-      freeMode || !activeBranchId || activeBranchId === "main"
-        ? novelText || ""
-        : activeBranch?.text || novelText || "";
+    // CoW fork: only parentOffset + parentBranchId; server stores empty suffix
+    const sourceText = fullBody || "";
     const offset = Math.min(
       Math.max(0, forkPoint?.offset ?? sourceText.length),
       sourceText.length,
     );
-    // Branch body = text up to fork point (full source if forking at end)
-    const baseText = sourceText.slice(0, offset);
     const parentBranchId =
       freeMode || !activeBranchId || activeBranchId === "main" ? "main" : activeBranchId;
     const res = await fetch("/api/branches", {
@@ -184,41 +256,48 @@ export default function WritePage() {
         novelId,
         name: newBranchName,
         parentOffset: offset,
-        content: baseText,
         parentBranchId,
       }),
     });
     const data = await res.json();
     if (data.branch) {
-      setBranches(prev => [data.branch, ...prev]);
-      setLocalBranchId(data.branch.id);
+      const b = data.branch;
+      const meta: BranchInfo = {
+        id: b.id,
+        name: b.name || newBranchName,
+        parent_offset: b.parent_offset ?? offset,
+        updated_at: b.updated_at || new Date().toISOString(),
+        char_count: typeof b.char_count === "number" ? b.char_count : offset,
+      };
+      setBranches((prev) => [meta, ...prev.filter((x) => x.id !== meta.id)]);
+      setLocalBranchId(meta.id);
+      // Resolved full text from API (parent prefix + empty suffix)
+      applyBody(String(b.text || sourceText.slice(0, offset)));
       setShowForkDialog(false);
       setNewBranchName("");
       setForkPoint(null);
     }
   };
 
-  // Click handler for fork point selection
+  // Click handler for fork — virtual chunks report absolute offset within bodyText window
   const handleEditorClick = (e: React.MouseEvent) => {
-    if (!currentText || freeMode) return;
-    const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-    if (!range) return;
-    const el = readerRef.current; if (!el) return;
-    let offset = 0;
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    let node: Text | null;
-    while ((node = walker.nextNode() as Text | null)) {
-      if (node === range.startContainer) { offset += range.startOffset; break; }
-      offset += node.textContent?.length || 0;
-    }
-    // Cap to body text — ignore generated prose / chrome labels for fork offset
-    const capped = Math.min(offset, currentText.length);
-    const contextStart = Math.max(0, capped - 100);
-    const contextEnd = Math.min(currentText.length, capped + 100);
+    if (!bodyText || freeMode) return;
+    const el = readerRef.current;
+    if (!el) return;
+    const localInWindow = absoluteOffsetFromClick(
+      el,
+      e.clientX,
+      e.clientY,
+      bodyText.length,
+    );
+    if (localInWindow == null) return;
+    const abs = win.baseOffset + localInWindow;
+    const ctxStart = Math.max(0, abs - 100);
+    const ctxEnd = Math.min(fullBody.length, abs + 100);
     setForkPoint({
-      offset: capped,
-      label: `偏移 ${capped} 字`,
-      context: currentText.slice(contextStart, contextEnd),
+      offset: abs,
+      label: `偏移 ${abs.toLocaleString()} 字`,
+      context: fullBody.slice(ctxStart, ctxEnd),
     });
   };
 
@@ -256,25 +335,83 @@ export default function WritePage() {
       </span>
     ) : null;
 
-  const bodyHighlighted = renderHighlightedText({
-    text: bodyText,
-    matches: find.segmentMatches[0] || [],
-    queryLen: find.queryLen,
-    currentIndex: find.currentIndex,
-    matchIndexBase: find.matchIndexBase(0),
-    continueOffset: forkPoint && !freeMode ? forkPoint.offset : null,
-    continueNode: forkNode,
-  });
+  const localMatches = useCallback(
+    (global: number[], base: number, len: number) => {
+      const out: number[] = [];
+      for (const m of global) {
+        if (m >= base && m < base + len) out.push(m - base);
+      }
+      return out;
+    },
+    [],
+  );
 
-  const proseHighlighted = proseText
-    ? renderHighlightedText({
-        text: proseText,
-        matches: find.segmentMatches[1] || [],
-        queryLen: find.queryLen,
-        currentIndex: find.currentIndex,
-        matchIndexBase: find.matchIndexBase(1),
-      })
-    : null;
+  const renderBodyChunk = useCallback(
+    (chunk: VirtualChunk) => {
+      const matches = localMatches(
+        find.segmentMatches[0] || [],
+        chunk.baseOffset,
+        chunk.text.length,
+      );
+      let cont: number | null = null;
+      let node: React.ReactNode = null;
+      if (forkPoint && !freeMode) {
+        const absInWindow = forkPoint.offset - win.baseOffset;
+        if (
+          absInWindow >= chunk.baseOffset &&
+          absInWindow <= chunk.baseOffset + chunk.text.length
+        ) {
+          cont = absInWindow - chunk.baseOffset;
+          node = forkNode;
+        }
+      }
+      return (
+        <div className="reader-frame py-2 sm:py-3">
+          <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-4 sm:py-6">
+            <div className="prose-novel text-paper-foreground whitespace-pre-wrap">
+              {renderHighlightedText({
+                text: chunk.text,
+                matches,
+                queryLen: find.queryLen,
+                currentIndex: find.currentIndex,
+                matchIndexBase: find.matchIndexBase(0),
+                continueOffset: cont,
+                continueNode: node,
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    },
+    [
+      find.segmentMatches,
+      find.queryLen,
+      find.currentIndex,
+      find.matchIndexBase,
+      forkPoint,
+      freeMode,
+      win.baseOffset,
+      forkNode,
+      localMatches,
+    ],
+  );
+
+  const proseHighlighted = useMemo(
+    () =>
+      proseText
+        ? renderHighlightedText({
+            text: proseText,
+            matches: find.segmentMatches[1] || [],
+            queryLen: find.queryLen,
+            currentIndex: find.currentIndex,
+            matchIndexBase: find.matchIndexBase(1),
+          })
+        : null,
+    [proseText, find.segmentMatches, find.queryLen, find.currentIndex, find.matchIndexBase],
+  );
+
+  const charLabel = (b: BranchInfo) =>
+    (typeof b.char_count === "number" ? b.char_count : 0).toLocaleString();
 
   const branchList = (
     <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
@@ -290,7 +427,7 @@ export default function WritePage() {
         >
           <div className="flex items-center justify-between">
             <span>主线</span>
-            <span className="text-xs text-fog">{novelText.length.toLocaleString()}字</span>
+            <span className="text-xs text-fog">{(novelLength || 0).toLocaleString()}字</span>
           </div>
         </button>
       )}
@@ -315,7 +452,7 @@ export default function WritePage() {
             <div className="flex items-center justify-between gap-1">
               <span className="truncate">{b.name || b.id}</span>
               <span className="text-xs text-fog shrink-0">
-                {(b.text || "").length.toLocaleString()}字
+                {charLabel(b)}字
               </span>
             </div>
           </button>
@@ -416,7 +553,8 @@ export default function WritePage() {
             </span>
             {hasSelection && (
               <span className="text-fog shrink-0 hidden sm:inline text-xs">
-                {(currentText || novelText).length.toLocaleString()} 字
+                {(win.totalLength || novelLength || 0).toLocaleString()} 字
+                {bodyLoading ? " · 加载中" : ""}
               </span>
             )}
           </div>
@@ -476,59 +614,84 @@ export default function WritePage() {
               </button>
             </div>
           </div>
-        ) : freeMode ? (
-          <div ref={readerRef} onClick={handleEditorClick} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-            <div className="reader-frame py-4 sm:py-6">
-              <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12 min-h-[50vh]">
-                <div className="prose-novel text-paper-foreground whitespace-pre-wrap">
-                  {bodyHighlighted}
-                  {proseHighlighted && (
-                    <span className="text-primary/80">{proseHighlighted}</span>
-                  )}
+        ) : (
+          <div className="flex-1 flex flex-col min-h-0 relative">
+            {win.hasEarlier && (
+              <div className="shrink-0 px-3 sm:px-4 py-2 flex flex-wrap items-center gap-2 text-xs text-fog border-b border-border/40">
+                <span>
+                  全文 {win.totalLength.toLocaleString()} 字，当前窗口{" "}
+                  {bodyText.length.toLocaleString()} 字（虚拟滚动）
+                </span>
+                <button
+                  type="button"
+                  className="text-primary hover:underline"
+                  onClick={() => setWin(expandEarlier(fullBody, win))}
+                >
+                  加载更早内容
+                </button>
+                <button
+                  type="button"
+                  className="text-primary hover:underline"
+                  onClick={() => setWin(loadFullWindow(fullBody))}
+                >
+                  加载全文
+                </button>
+              </div>
+            )}
+            {bodyText || freeMode ? (
+              <div className="flex-1 flex flex-col min-h-0">
+                <VirtualNovelBody
+                  text={bodyText}
+                  scrollerRef={readerRef}
+                  onBodyClick={handleEditorClick}
+                  renderChunk={renderBodyChunk}
+                />
+                {proseHighlighted && (
+                  <div className="reader-frame pb-8 shrink-0">
+                    <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-4">
+                      <div className="prose-novel text-primary/80 whitespace-pre-wrap">
+                        {proseHighlighted}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : proseHighlighted ? (
+              <div className="flex-1 overflow-y-auto custom-scrollbar">
+                <div className="reader-frame py-4">
+                  <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8">
+                    <div className="prose-novel text-primary/90 whitespace-pre-wrap">
+                      {proseHighlighted}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-        ) : (
-          <div ref={readerRef} onClick={handleEditorClick} className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-            <div className="reader-frame py-4 sm:py-6">
-              {bodyText ? (
-                <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12 min-h-[50vh]">
-                  <div className="prose-novel text-paper-foreground whitespace-pre-wrap">
-                    {bodyHighlighted}
-                    {proseHighlighted && (
-                      <span className="text-primary/80">{proseHighlighted}</span>
-                    )}
-                  </div>
-                </div>
-              ) : proseHighlighted ? (
-                <div className="surface-paper px-5 sm:px-8 lg:px-12 xl:px-16 py-8 sm:py-10 lg:py-12 min-h-[50vh]">
-                  <div className="prose-novel text-primary/90 whitespace-pre-wrap">
-                    {proseHighlighted}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12 text-fog text-sm">
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-fog text-sm">
+                <div className="text-center py-12">
                   <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-30" />
                   这个分支还没有内容。在助手面板里说&ldquo;从这里续写&rdquo;开始创作。
                 </div>
-              )}
-              {forkPoint && (
-                <div className="mt-3 flex items-center gap-2 text-xs text-primary">
-                  <span>{forkPoint.label}</span>
-                  <button
-                    type="button"
-                    onClick={() => { setForkPoint(null); setShowForkDialog(false); }}
-                    className="text-fog hover:text-muted-foreground"
-                  >
-                    取消
-                  </button>
-                </div>
-              )}
-            </div>
+              </div>
+            )}
+            {forkPoint && !freeMode && (
+              <div className="shrink-0 px-4 py-2 flex items-center gap-2 text-xs text-primary border-t border-border/40">
+                <span>{forkPoint.label}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForkPoint(null);
+                    setShowForkDialog(false);
+                  }}
+                  className="text-fog hover:text-muted-foreground"
+                >
+                  取消
+                </button>
+              </div>
+            )}
+            <ScrollEdgeButtons scrollRef={readerRef} />
           </div>
         )}
-        {hasSelection && <ScrollEdgeButtons scrollRef={readerRef} />}
       </div>
 
       {/* Fork dialog */}

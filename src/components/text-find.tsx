@@ -11,15 +11,30 @@ import {
 } from "react";
 import { Search, ChevronUp, ChevronDown } from "lucide-react";
 
-/** Case-insensitive non-overlapping substring match start offsets. */
-export function findMatchOffsets(text: string, query: string): number[] {
-  if (!query) return [];
-  const hay = text.toLowerCase();
-  const needle = query.toLowerCase();
+import { FIND_MATCH_CAP } from "@/lib/text-window";
+
+/**
+ * Non-overlapping substring match start offsets.
+ * For pure CJK queries skip toLowerCase (avoids full-string copy).
+ * Caps at FIND_MATCH_CAP to prevent highlight DOM blow-up.
+ */
+export function findMatchOffsets(
+  text: string,
+  query: string,
+  maxMatches: number = FIND_MATCH_CAP,
+): number[] {
+  if (!query || !text) return [];
+  const needleRaw = query;
+  if (!needleRaw) return [];
+  // ASCII-ish → case-insensitive; pure CJK / mixed without A-Z → direct
+  const needsLower = /[A-Za-z]/.test(needleRaw);
+  const hay = needsLower ? text.toLowerCase() : text;
+  const needle = needsLower ? needleRaw.toLowerCase() : needleRaw;
   if (!needle) return [];
   const out: number[] = [];
   let from = 0;
-  while (from <= hay.length - needle.length) {
+  const limit = Math.max(1, maxMatches);
+  while (from <= hay.length - needle.length && out.length < limit) {
     const i = hay.indexOf(needle, from);
     if (i === -1) break;
     out.push(i);
@@ -195,7 +210,9 @@ export function useTextFind(text: string): UseTextFindResult {
       ? debouncedQuery
         ? "0 / 0"
         : ""
-      : `${currentIndex + 1} / ${matchCount}`;
+      : matchCount >= FIND_MATCH_CAP
+        ? `${currentIndex + 1} / ${matchCount}+`
+        : `${currentIndex + 1} / ${matchCount}`;
 
   return {
     query,
@@ -237,13 +254,22 @@ export function useTextFindSegments(segments: readonly string[]): UseTextFindSeg
   const debouncedQuery = useDebouncedQuery(query);
   const [currentIndex, setCurrentIndex] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const segmentsKey = segments.join("\u0001");
-
-  const segmentMatches = useMemo(
-    () => segments.map((s) => findMatchOffsets(s, debouncedQuery)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- segmentsKey captures content
-    [segmentsKey, debouncedQuery],
+  // Avoid joining multi-MB bodies every render — lengths + refs identity
+  const segmentsKey = useMemo(
+    () => segments.map((s) => s.length).join(",") + ":" + segments.length,
+    // segments array identity changes when body/prose change; length key is cheap
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [segments.length, ...segments.map((s) => s.length)],
   );
+  // Hold latest segments for search without putting full strings in dep array as join
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
+
+  const segmentMatches = useMemo(() => {
+    const segs = segmentsRef.current;
+    return segs.map((s) => findMatchOffsets(s, debouncedQuery));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- segmentsKey + query
+  }, [segmentsKey, debouncedQuery]);
 
   const matchCount = useMemo(
     () => segmentMatches.reduce((n, m) => n + m.length, 0),
@@ -282,7 +308,9 @@ export function useTextFindSegments(segments: readonly string[]): UseTextFindSeg
       ? debouncedQuery
         ? "0 / 0"
         : ""
-      : `${currentIndex + 1} / ${matchCount}`;
+      : matchCount >= FIND_MATCH_CAP
+        ? `${currentIndex + 1} / ${matchCount}+`
+        : `${currentIndex + 1} / ${matchCount}`;
 
   return {
     query,

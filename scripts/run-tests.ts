@@ -9,6 +9,8 @@ import { runCriticalMissTests } from "./tests/critical-miss.test";
 import { runSaveVerifyTests } from "./tests/save-verify.test";
 import { runCommitRealizationTests } from "./tests/commit-realization.test";
 import { runAcceptContinuationTests } from "./tests/accept-continuation.test";
+import { runTextWindowTests } from "./tests/text-window.test";
+import { runBranchCowTests } from "./tests/branch-cow.test";
 
 function main() {
   resetCounters();
@@ -20,6 +22,8 @@ function main() {
   runSaveVerifyTests();
   runCommitRealizationTests();
   runAcceptContinuationTests();
+  runTextWindowTests();
+  runBranchCowTests();
 
   const { failed } = summary();
   if (failed > 0) process.exitCode = 1;

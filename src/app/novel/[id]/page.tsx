@@ -7,10 +7,15 @@ import StoryInfoPanel from "@/components/story-info-panel";
 import ExtractModulesPanel from "@/components/extract-modules-panel";
 import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
 
-interface BranchInfo { id: string; name: string; text: string; created_at: string; }
+interface BranchInfo {
+  id: string;
+  name: string;
+  created_at?: string;
+  char_count?: number;
+}
 
 export default function NovelPage() {
-  const { novelId, novelTitle, novelText, characters, storyInfo, timeline, setNovel } = useNovel();
+  const { novelId, novelTitle, novelLength, characters, storyInfo, timeline, setNovel } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
@@ -38,7 +43,7 @@ export default function NovelPage() {
           <div className="min-w-0">
             <h2 className="text-xl font-semibold text-foreground truncate">{novelTitle}</h2>
             <p className="text-sm text-muted-foreground mt-1.5">
-              {novelText.length.toLocaleString()} 字 · {characters.length} 个角色 · {timeline?.totalChapters || 0} 章
+              {(novelLength || 0).toLocaleString()} 字 · {characters.length} 个角色 · {timeline?.totalChapters || 0} 章
             </p>
           </div>
           <div className="flex gap-2 sm:gap-3 shrink-0">
@@ -57,7 +62,6 @@ export default function NovelPage() {
         <div className="bg-card border border-border rounded-xl p-5 sm:p-6">
           <ExtractModulesPanel
             novelId={novelId}
-            novelText={novelText}
             defaultModules={storyInfo ? ["style", "ideas"] : ["story", "characters", "style", "ideas"]}
             onDone={(data) => {
               setNovel({
@@ -84,7 +88,7 @@ export default function NovelPage() {
                     {b.id === "main" ? "主线" : (b.name || b.id)}
                   </span>
                   <span className="text-fog text-xs shrink-0">
-                    {(b.text || (b.id === "main" ? novelText : "") || "").length.toLocaleString()} 字
+                    {(typeof b.char_count === "number" ? b.char_count : 0).toLocaleString()} 字
                   </span>
                   <button
                     type="button"

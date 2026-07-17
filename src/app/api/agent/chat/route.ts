@@ -412,16 +412,16 @@ export async function POST(request: NextRequest) {
                   }
                 }
                 sendTool("accept_continuation", "done", toolId, resultContent.slice(0, 3000));
-                // Parse branch length from store for UI event
+                // Notify UI with length only — avoid multi-MB SSE payloads; client refetches body
                 try {
                   const { getBranch } = await import("@/lib/db");
                   const b = getBranch(userId, novelId, branchId);
-                  if (b?.text) {
+                  if (b) {
                     send({
                       type: "continuation_accepted",
                       branchId,
                       novelId,
-                      text: b.text,
+                      totalLength: (b.text || "").length,
                       message: resultContent,
                     });
                   }

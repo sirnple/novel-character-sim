@@ -8,12 +8,11 @@ import GlobalLibrarySidebar from "@/components/global-library-sidebar";
 import NovelUpload from "@/components/novel-upload";
 import AuthBar from "@/components/auth-bar";
 import { useNovel } from "@/lib/novel-context";
-import { novelFingerprint } from "@/lib/utils";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { setNovel, clearNovel, novelTitle, novelText } = useNovel();
+  const { setNovel, clearNovel, novelTitle, novelText, novelLength } = useNovel();
   /** Desktop rail collapse only */
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   /** Mobile library drawer */
@@ -54,9 +53,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <>
               <span className="w-px h-4 bg-border shrink-0 hidden sm:block" />
               <span className="text-sm text-muted-foreground truncate hidden sm:inline">{novelTitle}</span>
-              {novelText && (
+              {(novelLength > 0 || novelText) && (
                 <span className="text-xs text-fog shrink-0 hidden md:inline">
-                  {novelText.length.toLocaleString()} 字
+                  {(novelLength || novelText.length).toLocaleString()} 字
                 </span>
               )}
             </>
@@ -97,14 +96,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
             <NovelUpload
-              onParsed={(title, fullText, _preview, novelId) => {
-                // Prefer server novelId (authoritative after saveNovel + main branch)
-                const id = novelId || novelFingerprint(fullText);
+              onParsed={(title, totalLength, _preview, novelId) => {
+                // Prefer server novelId (authoritative after import)
+                const id = novelId || "";
+                if (!id) return;
                 clearNovel();
                 setNovel({
                   novelId: id,
                   novelTitle: title,
-                  novelText: fullText,
+                  novelText: "",
+                  novelLength: totalLength || 0,
                   characters: [],
                   storyInfo: null,
                   timeline: null,

@@ -5,7 +5,9 @@ import {
   appendBranchContent,
   ensureMainBranch,
   getBranch,
+  getBranchProse,
   getForeshadowingLedger,
+  resolveBranchText,
   saveForeshadowingLedger,
 } from "@/lib/db";
 import {
@@ -69,10 +71,14 @@ export function acceptContinuation(input: AcceptContinuationInput): AcceptContin
     return { ok: false, error: "分支不存在", code: "NO_BRANCH" };
   }
 
-  if (existing?.text && content.length > existing.text.length + 20) {
-    const base = existing.text;
-    if (content.startsWith(base.slice(0, Math.min(500, base.length))) && content.startsWith(base)) {
-      content = content.slice(base.length).replace(/^\s+/, "");
+  // Compare against resolved full body (CoW-safe)
+  const resolvedBefore = getBranchProse(userId, novelId, branchId).text || "";
+  if (resolvedBefore && content.length > resolvedBefore.length + 20) {
+    if (
+      content.startsWith(resolvedBefore.slice(0, Math.min(500, resolvedBefore.length))) &&
+      content.startsWith(resolvedBefore)
+    ) {
+      content = content.slice(resolvedBefore.length).replace(/^\s+/, "");
     }
   }
 
@@ -106,7 +112,7 @@ export function acceptContinuation(input: AcceptContinuationInput): AcceptContin
     content,
     Number.isFinite(input.fromOffset as number) ? input.fromOffset : undefined,
   );
-  const after = getBranch(userId, novelId, branchId);
+  const afterText = resolveBranchText(userId, novelId, branchId);
 
   const ledger = getForeshadowingLedger(userId, novelId, branchId);
   const next = commitRealization(ledger, realization);
@@ -115,7 +121,8 @@ export function acceptContinuation(input: AcceptContinuationInput): AcceptContin
 
   return {
     ok: true,
-    branchText: after?.text || "",
+    // Length only needed by callers; avoid shipping multi-MB strings in tool results
+    branchText: afterText,
     branchId,
     realizationPass: getForeshadowRealization(novelId, branchId) ? !!pass : null,
     foreshadowNote,

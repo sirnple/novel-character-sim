@@ -399,7 +399,6 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     selectedStyleId,
     selectedIdeaIds,
     autoPickIdeas,
-    setNovelText,
   } = useNovel();
 
   const refreshFsStatus = useCallback(async () => {
@@ -685,21 +684,30 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                 }]);
               }
             } else if (event.type === "continuation_accepted") {
-              const text = String(event.text || "");
               const bid = String(event.branchId || branchId || "main");
-              if (text) {
-                if (bid === "main") {
-                  setNovelText(text);
-                  setNovel({ novelText: text, generatedProse: undefined });
-                } else {
-                  setNovel({ generatedProse: undefined });
-                }
-                window.dispatchEvent(
-                  new CustomEvent("ncs:branch-updated", {
-                    detail: { novelId: event.novelId || novelId, branchId: bid, text },
-                  }),
-                );
+              const totalLength =
+                typeof event.totalLength === "number"
+                  ? event.totalLength
+                  : typeof event.text === "string"
+                    ? event.text.length
+                    : undefined;
+              setNovel({ generatedProse: undefined });
+              if (bid === "main" && typeof totalLength === "number") {
+                setNovel({ novelLength: totalLength });
               }
+              // Client refetches branch body; optional small text still supported
+              window.dispatchEvent(
+                new CustomEvent("ncs:branch-updated", {
+                  detail: {
+                    novelId: event.novelId || novelId,
+                    branchId: bid,
+                    totalLength,
+                    text: typeof event.text === "string" && event.text.length <= 160_000
+                      ? event.text
+                      : undefined,
+                  },
+                }),
+              );
               refreshFsStatus();
             }
           } catch {}

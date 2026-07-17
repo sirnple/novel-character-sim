@@ -138,10 +138,10 @@ export async function POST(request: NextRequest) {
     importNovel(userId, novelId, title, novelText);
     console.log(`[NovelParse] imported ${novelId} (${novelText.length} chars) user=${userId}`);
 
+    // Do not echo fullText — multi-MB response freezes browser; client loads by novelId
     return NextResponse.json({
       novelId,
       title,
-      fullText: novelText,
       totalLength: parsed.totalLength,
       chunkCount: parsed.chunks.length,
       preview: parsed.chunks[0]?.content.substring(0, 500) || "",
