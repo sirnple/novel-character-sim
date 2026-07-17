@@ -14,7 +14,7 @@ import {
 import StoryInfoPanel, {
   CharacterPreviewCard,
 } from "@/components/story-info-panel";
-import ExtractModulesPanel from "@/components/extract-modules-panel";
+import AnalyzeFab from "@/components/analyze-fab";
 import FormSummaryCard from "@/components/form-summary-card";
 import RelationshipGraph from "@/components/relationship-graph";
 import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
@@ -88,11 +88,25 @@ export default function NovelPage() {
     [storyInfo, characters.length, hasForm, timeline],
   );
   const readyCount = statusItems.filter((c) => c.ok).length;
-  const needsAnalysis = readyCount < statusItems.length;
+  /** Core covenant required before continue writing */
+  const canContinue =
+    hasForm && characters.length > 0 && !!storyInfo?.plotSummary;
+  const needsAnalysis = !canContinue;
+
+  const onAnalyzeDone = (data: any) => {
+    setNovel({
+      characters: data.characters ?? characters,
+      storyInfo: data.storyInfo !== undefined ? data.storyInfo : storyInfo,
+      timeline: data.timeline !== undefined ? data.timeline : timeline,
+      lastChapterStates: data.lastChapterStates ?? undefined,
+    });
+    setFormRefreshKey((k) => k + 1);
+    setHasForm(!!data.form || hasForm);
+  };
 
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar bg-background">
-      <div className="max-w-5xl mx-auto px-4 py-8 sm:px-8 sm:py-10">
+    <div className="flex-1 overflow-y-auto custom-scrollbar bg-background relative">
+      <div className="max-w-5xl mx-auto px-4 py-8 sm:px-8 sm:py-10 pb-28">
         {/* Hero */}
         <header className="mb-10">
           <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card px-5 py-6 sm:px-7 sm:py-7">
@@ -285,35 +299,20 @@ export default function NovelPage() {
           )}
         </div>
 
-        <footer className="mt-14 pt-8 border-t border-border/40">
-          <p className="text-xs font-medium uppercase tracking-wider text-fog mb-3">
-            维护
+        {needsAnalysis && (
+          <p className="mt-10 text-center text-xs text-fog">
+            资料未齐（故事 · 角色 · 形态）。点右下角{" "}
+            <span className="text-primary font-medium">分析</span>{" "}
+            完成后可续写。
           </p>
-          <div className="ov-card p-5">
-            <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-              {needsAnalysis
-                ? "部分资料尚未齐全。分析写入本书；文笔与点子进入侧栏库。"
-                : "资料已齐。需要更新时再运行分析。"}
-            </p>
-            <ExtractModulesPanel
-              novelId={novelId}
-              compact
-              onDone={(data) => {
-                setNovel({
-                  characters: data.characters ?? characters,
-                  storyInfo:
-                    data.storyInfo !== undefined ? data.storyInfo : storyInfo,
-                  timeline:
-                    data.timeline !== undefined ? data.timeline : timeline,
-                  lastChapterStates: data.lastChapterStates ?? undefined,
-                });
-                setFormRefreshKey((k) => k + 1);
-                setHasForm(!!data.form || hasForm);
-              }}
-            />
-          </div>
-        </footer>
+        )}
       </div>
+
+      <AnalyzeFab
+        novelId={novelId}
+        urgent={needsAnalysis}
+        onDone={onAnalyzeDone}
+      />
     </div>
   );
 }

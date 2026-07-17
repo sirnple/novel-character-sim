@@ -1,7 +1,8 @@
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import Link from "next/link";
 import { useNovel } from "@/lib/novel-context";
-import { GitBranch, BookOpen, Download, ListTree } from "lucide-react";
+import { GitBranch, BookOpen, Download, ListTree, Sparkles } from "lucide-react";
 import ScrollEdgeButtons from "@/components/scroll-edge-buttons";
 import {
   TextFindBar,
@@ -34,11 +35,13 @@ interface BranchInfo {
 export default function WritePage() {
   const {
     novelId, novelTitle, novelLength, setNovel, generatedProse, setActiveBranchId, setNovelText,
-    timeline,
+    timeline, characters, storyInfo,
   } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [activeBranchId, setLocalBranchId] = useState<string | null>(null);
   const [freeMode, setFreeMode] = useState(false);
+  const [hasForm, setHasForm] = useState(false);
+  const [analysisChecked, setAnalysisChecked] = useState(false);
   const readerRef = useRef<HTMLDivElement>(null);
   const [newBranchName, setNewBranchName] = useState("");
   // Click-to-fork state — offsets are absolute in full branch body
@@ -107,6 +110,33 @@ export default function WritePage() {
       })
       .catch(() => {});
   }, [novelId]);
+
+  // Gate: require form + story + characters before writing
+  useEffect(() => {
+    if (!novelId) return;
+    let cancelled = false;
+    fetch(
+      `/api/chapter-meta?novelId=${encodeURIComponent(novelId)}&branchId=main`,
+    )
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setHasForm(!!d.form);
+      })
+      .catch(() => {
+        if (!cancelled) setHasForm(false);
+      })
+      .finally(() => {
+        if (!cancelled) setAnalysisChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [novelId]);
+
+  const canContinue =
+    hasForm &&
+    (characters?.length ?? 0) > 0 &&
+    !!storyInfo?.plotSummary;
 
   // Chapter catalog for current branch
   useEffect(() => {
@@ -569,6 +599,30 @@ export default function WritePage() {
       retryingUnitId={retryingUnitId}
     />
   );
+
+  if (analysisChecked && !canContinue) {
+    return (
+      <div className="flex flex-1 items-center justify-center min-h-0 p-6">
+        <div className="max-w-sm text-center space-y-4">
+          <div className="mx-auto w-14 h-14 rounded-2xl bg-ember-soft flex items-center justify-center">
+            <Sparkles className="w-7 h-7 text-primary" />
+          </div>
+          <h2 className="text-lg font-semibold text-foreground">请先完成原著分析</h2>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            续写需要本书的故事、角色与形态/章法资料。请回到概览，使用右下角
+            <span className="text-primary font-medium"> 分析 </span>
+            按钮一键分析后再进入写作。
+          </p>
+          <Link
+            href={`/novel/${novelId}`}
+            className="btn-primary inline-flex"
+          >
+            返回概览分析
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-1 overflow-hidden min-h-0">
