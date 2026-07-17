@@ -43,7 +43,7 @@ const FS_READ = foreshadowTools
     parameters: t.parameters as Record<string, unknown>,
   }));
 
-/** Create: outline + branch + foreshadow + save_prose */
+/** Create: outline + branch + form + foreshadow + save_prose */
 const CREATE_TOOLS = [
   ...schemas([
     "get_outline",
@@ -51,14 +51,16 @@ const CREATE_TOOLS = [
     "get_branch_characters",
     "get_branch_timeline",
     "get_branch_world",
+    "get_branch_meta",
+    "get_novel_form",
   ]),
   ...FS_READ,
   SAVE_SCHEMA,
 ];
 
-/** Rewrite: prose + findings + save_prose */
+/** Rewrite: prose + findings + form + save_prose */
 const REWRITE_TOOLS = [
-  ...schemas(["get_prose", "get_findings", "get_branch_text"]),
+  ...schemas(["get_prose", "get_findings", "get_branch_text", "get_novel_form"]),
   ...FS_READ,
   SAVE_SCHEMA,
 ];

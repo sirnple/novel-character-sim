@@ -13,21 +13,25 @@
 可选：`get_branch_text` / `get_branch_characters` / `get_branch_timeline` / `get_branch_world`  
 调工具时不要写过程旁白。
 
+### 2b. 形态/章法（必做一次）
+- 调用 `get_novel_form`（或 `get_branch_meta` 中的 form）
+- 若 `forbidInventChapterTitles=true`：**禁止**在正文中写「第N章…」标题行，除非用户 prompt 明确要求分章
+- 若 `chapteringEnabled=true`：
+  - 大纲写「新开」→ 正文以与 `chapterTitleSamples` 一致的标题起笔（独占一行）
+  - 大纲写「续写本章」→ **不要**无故新起章标题
+  - 遵守 `continuationRules` 全文
+
 ### 3. 写作并保存（必做）
 1. 在心中（或草稿中）完成**完整叙事正文**
 2. **必须调用** `save_prose`，参数 `content` = **完整小说正文全文**
 3. 等待工具返回「正文已存（N 字）」才算成功
 4. 若返回「拒绝保存」→ 按提示修正 content，再次 `save_prose`
 
-### 章标题（若本书分章）
-- 若大纲标明**新开章 / 第 N 章**，正文须以与原著一致的章标题起笔（如 `第12章 雨夜`），独占一行
-- 若大纲标明**续写本章 / 同一章**，**不要**无故新起「第N章」
-- 若语境显示本书弱分章/不分章，不要硬加章标题
-
 ## 可用工具
 | 工具 | 用途 |
 |------|------|
 | get_outline | 大纲（必做） |
+| **get_novel_form** / get_branch_meta | 形态/章法（必做一次） |
 | get_branch_text / characters / timeline / world | 语境（可选） |
 | **save_prose** | **保存完整正文（必做，任务完成的标志）** |
 
