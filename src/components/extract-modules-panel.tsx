@@ -74,12 +74,10 @@ export default function ExtractModulesPanel({
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           <Sparkles className="w-4 h-4 text-primary shrink-0" />
           <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground leading-tight">原著分析</p>
-            {!compact && (
-              <p className="text-[11px] text-fog leading-snug mt-0.5">
-                故事·角色·形态·文笔·点子·时间线一次跑完
-              </p>
-            )}
+            <p className="text-sm font-medium text-foreground leading-tight">重新分析全书</p>
+            <p className="text-[11px] text-fog leading-snug mt-0.5">
+              故事·角色·形态·文笔·点子·时间线
+            </p>
           </div>
         </div>
         <label className="flex items-center gap-1.5 text-[11px] text-fog cursor-pointer shrink-0 select-none">
@@ -90,13 +88,13 @@ export default function ExtractModulesPanel({
             className="accent-primary scale-90"
           />
           <RotateCcw className="w-3 h-3" />
-          强制重跑
+          忽略缓存
         </label>
         <button
           type="button"
           disabled={loading}
           onClick={run}
-          className="btn-primary !px-4 !py-2 text-sm shrink-0 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm rounded-lg border border-border bg-secondary hover:bg-panel-elevated text-foreground font-medium shrink-0 disabled:opacity-50 transition-colors"
         >
           {loading ? (
             <>
@@ -104,7 +102,7 @@ export default function ExtractModulesPanel({
               分析中
             </>
           ) : (
-            "开始分析"
+            "运行分析"
           )}
         </button>
       </div>
