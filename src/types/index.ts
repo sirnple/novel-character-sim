@@ -527,7 +527,7 @@ import type { StreamEvent } from "@/core/agents/types";
 
 // --- LLM Provider ---
 
-export type LLMProviderType = "claude" | "openai" | "deepseek";
+export type LLMProviderType = "claude" | "openai" | "deepseek" | "opencode-go";
 
 export interface LLMProviderConfig {
   type: LLMProviderType;
@@ -615,6 +615,16 @@ export interface AppConfig {
       analysisModel: string;
       /** Agent 续写 / simulation / review */
       writeModel: string;
+      baseURL: string;
+    };
+    /**
+     * OpenCode Go gateway — https://opencode.ai/docs/zh-cn/go/
+     * Models reuse deepseek.analysisModel / deepseek.writeModel (same env keys).
+     */
+    opencodeGo: {
+      /** Defaults to DEEPSEEK_API_KEY when unset */
+      apiKey: string;
+      /** OpenAI-compatible base (`…/zen/go/v1`) */
       baseURL: string;
     };
     maxTokens: number;

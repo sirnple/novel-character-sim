@@ -16,6 +16,8 @@ export interface NameCluster {
   unitHits: number;
   firstUnit: number;
   lastUnit: number;
+  /** Sorted unique unit indices (anchors for detail / relationship context) */
+  unitIndices: number[];
 }
 
 function normalize(s: string): string {
@@ -151,6 +153,13 @@ export function softClusterAggregates(
       }
     }
 
+    const unitIndices = Array.from(units).sort((a, b) => a - b);
+    // If unit set empty, fall back to span endpoints only
+    if (!unitIndices.length && firstUnit !== Number.MAX_SAFE_INTEGER) {
+      unitIndices.push(firstUnit);
+      if (lastUnit !== firstUnit) unitIndices.push(lastUnit);
+    }
+
     clusters.push({
       canonical,
       surfaces: members,
@@ -159,6 +168,7 @@ export function softClusterAggregates(
       unitHits,
       firstUnit: firstUnit === Number.MAX_SAFE_INTEGER ? 0 : firstUnit,
       lastUnit,
+      unitIndices,
     });
   }
 
@@ -174,5 +184,6 @@ export function clusterToAggregateShape(c: NameCluster): NameAggregate {
     aliases: c.aliases,
     firstUnit: c.firstUnit,
     lastUnit: c.lastUnit,
+    unitIndices: c.unitIndices,
   };
 }

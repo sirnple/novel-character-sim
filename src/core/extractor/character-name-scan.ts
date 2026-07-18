@@ -6,6 +6,7 @@
 import type { LLMProvider } from "@/types";
 import { extractJSON } from "@/lib/utils";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
+import { isServerDebugMode } from "@/lib/debug-mode";
 import { buildNameScanUnits, type TextUnit } from "./character-name-units";
 import {
   aggregateUnitHits,
@@ -148,7 +149,10 @@ export async function scanNamesByUnits(
 ): Promise<NameScanResult> {
   const t0 = Date.now();
   const zh = options.zh !== false;
-  const concurrency = options.concurrency ?? 4;
+  // Debug/dev: unlimited (capped only by unit count). Prod default 4.
+  const concurrency =
+    options.concurrency ??
+    (isServerDebugMode() ? Number.POSITIVE_INFINITY : 4);
 
   const units = buildNameScanUnits(fullText);
   console.log(

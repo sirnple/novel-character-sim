@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ArrowLeft,
   Key,
@@ -12,7 +12,9 @@ import {
   AlertCircle,
   BarChart3,
   RefreshCw,
+  Loader2,
 } from "lucide-react";
+import { isClientDebugMode } from "@/lib/debug-mode";
 
 interface AgentRow {
   agent_id: string;
@@ -100,16 +102,18 @@ function PasswordGate({ onUnlock }: { onUnlock: (token: string) => void }) {
   const [pw, setPw] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const debugMode = isClientDebugMode();
+  /** Strict Mode remounts effects; only auto-unlock once per gate mount cycle. */
+  const autoUnlockStarted = useRef(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const unlock = async (password: string) => {
     setLoading(true);
     setError("");
     try {
       const res = await fetch("/api/admin/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: pw }),
+        body: JSON.stringify({ password }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -123,6 +127,37 @@ function PasswordGate({ onUnlock }: { onUnlock: (token: string) => void }) {
       setLoading(false);
     }
   };
+
+  // Debug/dev: skip password gate automatically (once — avoid remount loop)
+  useEffect(() => {
+    if (!debugMode || autoUnlockStarted.current) return;
+    autoUnlockStarted.current = true;
+    void unlock("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once on mount in debug
+  }, [debugMode]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await unlock(pw);
+  };
+
+  if (debugMode) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm">
+        <div className="w-full max-w-sm px-8 py-10 border border-border rounded-lg bg-card shadow-2xl shadow-black/50 text-center">
+          <Loader2 className="w-6 h-6 animate-spin text-primary mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground font-mono">
+            debug 模式：免密进入管理后台…
+          </p>
+          {error && (
+            <p className="text-xs text-red-400 mt-3 flex items-center justify-center gap-1">
+              <AlertCircle className="w-3 h-3" /> {error}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm">

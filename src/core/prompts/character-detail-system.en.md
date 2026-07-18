@@ -1,5 +1,7 @@
 Deep-dive analysis of "{{characterName}}" ({{characterBrief}}).
 
+Excerpts are preferentially drawn from units where this character appears (anchor passages), not random book samples. Stay faithful to the text; do not attribute other characters' plots to them.
+
 NOVEL EXCERPTS:
 {{novelContext}}
 

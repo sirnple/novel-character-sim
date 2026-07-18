@@ -8,8 +8,19 @@ export class ClaudeProvider implements LLMProvider {
   private client: Anthropic;
   private defaultModel: string;
 
-  constructor(apiKey: string, defaultModel: string = "claude-sonnet-4-6") {
-    this.client = new Anthropic({ apiKey });
+  /**
+   * @param baseURL - Optional Anthropic-compatible root (SDK appends `/v1/messages`).
+   *   e.g. OpenCode Go: `https://opencode.ai/zen/go`
+   */
+  constructor(
+    apiKey: string,
+    defaultModel: string = "claude-sonnet-4-6",
+    baseURL?: string
+  ) {
+    this.client = new Anthropic({
+      apiKey,
+      ...(baseURL ? { baseURL } : {}),
+    });
     this.defaultModel = defaultModel;
   }
 

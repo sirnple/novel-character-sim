@@ -2,6 +2,7 @@ import type { LLMProvider, LLMUsageRole } from "@/types";
 import { getAppConfig } from "@/lib/config";
 import { ClaudeProvider } from "./claude";
 import { OpenAIProvider } from "./openai";
+import { OpencodeGoProvider } from "./opencode-go";
 
 const cached = new Map<string, LLMProvider>();
 
@@ -10,7 +11,7 @@ function resolveModel(role: LLMUsageRole = "write"): string {
   const { provider, claude, openai, deepseek } = config.llm;
   if (provider === "claude") return claude.model;
   if (provider === "openai") return openai.model;
-  // deepseek: role-specific models
+  // deepseek + opencode-go: same DEEPSEEK_* analysis / write model env keys
   if (role === "analysis") {
     return deepseek.analysisModel || deepseek.model || "deepseek-v4-flash";
   }
@@ -22,7 +23,7 @@ function resolveModel(role: LLMUsageRole = "write"): string {
  */
 export function createLLMProvider(role: LLMUsageRole = "write"): LLMProvider {
   const config = getAppConfig();
-  const { provider, claude, openai, deepseek } = config.llm;
+  const { provider, claude, openai, deepseek, opencodeGo } = config.llm;
   const model = resolveModel(role);
   const cacheKey = `${provider}:${role}:${model}`;
 
@@ -57,6 +58,22 @@ export function createLLMProvider(role: LLMUsageRole = "write"): LLMProvider {
         );
       }
       instance = new OpenAIProvider(deepseek.apiKey, model, deepseek.baseURL);
+      break;
+
+    case "opencode-go":
+      if (
+        !opencodeGo.apiKey ||
+        opencodeGo.apiKey === "your-deepseek-api-key-here"
+      ) {
+        throw new Error(
+          "OPENCODE_API_KEY or DEEPSEEK_API_KEY not configured for opencode-go. Get a key from https://opencode.ai/auth",
+        );
+      }
+      instance = new OpencodeGoProvider(
+        opencodeGo.apiKey,
+        model,
+        opencodeGo.baseURL,
+      );
       break;
 
     default:

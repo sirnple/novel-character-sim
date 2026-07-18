@@ -42,9 +42,24 @@ export default function CharacterJobStatus({
   const [starting, setStarting] = useState(false);
   const [scanMsg, setScanMsg] = useState("");
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (preferJobId?: string | null) => {
     if (!novelId) return null;
     try {
+      // Prefer polling the specific job we started — avoids "latest" flipping
+      // to an old interrupted row after server restart.
+      if (preferJobId) {
+        const res = await fetch(
+          `/api/characters/job?jobId=${encodeURIComponent(preferJobId)}`,
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const j = (data.job || null) as JobState | null;
+          if (j) {
+            setJob(j);
+            return j;
+          }
+        }
+      }
       const res = await fetch(
         `/api/characters/job?novelId=${encodeURIComponent(novelId)}`,
       );
@@ -79,14 +94,15 @@ export default function CharacterJobStatus({
     void refresh();
   }, [novelId, refresh]);
 
-  // Poll while running
+  // Poll while running (by job id when available)
   useEffect(() => {
     if (!novelId || !job) return;
     if (!RUNNING.has(job.status)) return;
 
+    const jobId = job.id;
     setPolling(true);
     const t = setInterval(async () => {
-      const latest = await refresh();
+      const latest = await refresh(jobId);
       if (
         latest &&
         (latest.status === "done" ||
@@ -103,6 +119,8 @@ export default function CharacterJobStatus({
           );
         } else if (latest.status === "error") {
           setScanMsg(latest.error || latest.message || "角色抽取失败");
+        } else if (latest.status === "cancelled") {
+          setScanMsg(latest.message || "已取消");
         }
       }
     }, 2000);
@@ -132,6 +150,10 @@ export default function CharacterJobStatus({
         data.message ||
           `已启动 · ${data.job?.total ?? "?"} 段（forceRefresh，忽略分段缓存）`,
       );
+      // Immediate follow-up by jobId so UI does not latch onto old interrupted rows
+      if (data.job?.id) {
+        void refresh(data.job.id);
+      }
     } catch (e) {
       setScanMsg(e instanceof Error ? e.message : "启动失败");
     } finally {

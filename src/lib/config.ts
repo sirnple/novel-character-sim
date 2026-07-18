@@ -36,6 +36,12 @@ export function getAppConfig(): AppConfig {
         ),
         baseURL: env("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
       },
+      opencodeGo: {
+        // Prefer OPENCODE_API_KEY; fall back to DEEPSEEK_API_KEY so model/key
+        // env names stay the same as the DeepSeek role setup.
+        apiKey: env("OPENCODE_API_KEY", env("DEEPSEEK_API_KEY")),
+        baseURL: env("OPENCODE_BASE_URL", "https://opencode.ai/zen/go/v1"),
+      },
       maxTokens: parseInt(env("LLM_MAX_TOKENS", "4096"), 10),
       temperature: parseFloat(env("LLM_TEMPERATURE", "0.7")),
     },

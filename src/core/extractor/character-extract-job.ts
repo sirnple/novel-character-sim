@@ -12,6 +12,7 @@ import type { UnitNameHit } from "@/core/extractor/character-name-aggregate";
 import { extractJSON, isChinese, novelFingerprint } from "@/lib/utils";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
 import { runWithTokenContext } from "@/lib/token-usage-context";
+import { isServerDebugMode } from "@/lib/debug-mode";
 import {
   getBranchProse,
   getCharacters,
@@ -77,24 +78,36 @@ function touch(job: CharacterExtractJob) {
   }
 }
 
-export function normalizeCharJobAfterHydrate(job: CharacterExtractJob): CharacterExtractJob {
-  if (
-    job.status === "scanning" ||
-    job.status === "clustering" ||
-    job.status === "merging" ||
-    job.status === "detail" ||
-    job.status === "relationships" ||
-    job.status === "queued"
-  ) {
-    return {
-      ...job,
-      status: "error",
-      phase: "error",
-      error: job.error || "进程已重启，请重新分析角色",
-      updatedAt: new Date().toISOString(),
-    };
-  }
-  return job;
+const RUNNING_PHASES = new Set<CharJobPhase>([
+  "queued",
+  "scanning",
+  "clustering",
+  "merging",
+  "detail",
+  "relationships",
+]);
+
+export function isCharJobRunning(status: string | undefined): boolean {
+  return !!status && RUNNING_PHASES.has(status as CharJobPhase);
+}
+
+/**
+ * After process restart, in-flight jobs cannot continue.
+ * Keep original updatedAt so a freshly interrupted row does not sort above a new job.
+ */
+export function normalizeCharJobAfterHydrate(
+  job: CharacterExtractJob,
+): CharacterExtractJob {
+  if (!isCharJobRunning(job.status)) return job;
+  return {
+    ...job,
+    status: "error",
+    phase: "error",
+    error: job.error || "进程已重启，请重新分析角色",
+    message: job.message || "进程已重启，请重新分析角色",
+    // Do NOT bump updatedAt — otherwise every poll rewrites orphans to "latest"
+    // and the UI sticks on 进程已重启 forever.
+  };
 }
 
 function asCharJob(raw: unknown): CharacterExtractJob | null {
@@ -120,23 +133,81 @@ export function getCharacterExtractJob(jobId: string): CharacterExtractJob | nul
   return normalized;
 }
 
+function jobSortKey(j: CharacterExtractJob): string {
+  // Running (esp. in-memory live work) first, then recency
+  const live = isCharJobRunning(j.status) ? "2" : j.status === "done" ? "1" : "0";
+  return `${live}:${j.updatedAt || ""}`;
+}
+
 export function listCharacterExtractJobs(
   userId: string,
   novelId: string,
 ): CharacterExtractJob[] {
   const byId = new Map<string, CharacterExtractJob>();
+  // Live workers always win over SQLite snapshots
   Array.from(store().jobs.values()).forEach((j) => {
     if (j.userId === userId && j.novelId === novelId) byId.set(j.id, j);
   });
   for (const row of listCharacterExtractJobRows(userId, novelId)) {
     const j = asCharJob(row);
     if (!j) continue;
+    if (byId.has(j.id)) continue; // prefer memory
     const normalized = normalizeCharJobAfterHydrate(j);
-    if (!byId.has(normalized.id)) byId.set(normalized.id, normalized);
+    if (normalized.status !== j.status) {
+      try {
+        saveCharacterExtractJobRow(normalized);
+      } catch {
+        /* ignore */
+      }
+    }
+    byId.set(normalized.id, normalized);
   }
   return Array.from(byId.values()).sort((a, b) =>
-    (b.updatedAt || "").localeCompare(a.updatedAt || ""),
+    jobSortKey(b).localeCompare(jobSortKey(a)),
   );
+}
+
+/** Mark other in-flight jobs for this novel as cancelled (new run supersedes). */
+function supersedeOtherJobs(
+  userId: string,
+  novelId: string,
+  keepId: string,
+) {
+  const s = store();
+  Array.from(s.jobs.values()).forEach((j) => {
+    if (
+      j.userId === userId &&
+      j.novelId === novelId &&
+      j.id !== keepId &&
+      isCharJobRunning(j.status)
+    ) {
+      s.cancel.add(j.id);
+      j.status = "cancelled";
+      j.phase = "cancelled";
+      j.message = "已被新的角色提取任务取代";
+      j.error = undefined;
+      touch(j);
+    }
+  });
+  for (const row of listCharacterExtractJobRows(userId, novelId)) {
+    const j = asCharJob(row);
+    if (!j || j.id === keepId) continue;
+    if (!isCharJobRunning(j.status)) continue;
+    if (s.jobs.has(j.id)) continue; // already handled
+    const dead: CharacterExtractJob = {
+      ...j,
+      status: "cancelled",
+      phase: "cancelled",
+      message: "已被新的角色提取任务取代",
+      error: undefined,
+      // keep original updatedAt so new job stays latest
+    };
+    try {
+      saveCharacterExtractJobRow(dead);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export function cancelCharacterExtractJob(jobId: string): boolean {
@@ -292,6 +363,10 @@ export function startCharacterExtractJob(input: {
     updatedAt: new Date().toISOString(),
   };
 
+  // Drop stale in-flight jobs from prior runs / pre-restart DB rows so UI
+  // "latest" is the new job, not "进程已重启".
+  supersedeOtherJobs(input.userId, input.novelId, id);
+
   store().jobs.set(id, job);
   store().cancel.delete(id);
   touch(job);
@@ -332,9 +407,16 @@ async function runCharacterJob(
   const unitHits: UnitNameHit[][] = new Array(units.length);
   const unitIndexBySurface = new Map<string, Set<number>>();
 
+  // Production: cap fan-out. Debug/dev: no concurrency limit (full unit parallelism).
+  const scanConcurrency = isServerDebugMode() ? units.length : 4;
+  console.log(
+    `[char-job] ${jobId} scan units=${units.length} concurrency=${scanConcurrency}` +
+      (isServerDebugMode() ? " (debug unlimited)" : ""),
+  );
+
   await mapPool(
     units,
-    4,
+    scanConcurrency,
     async (unit, i) => {
       if (stop()) return [] as UnitNameHit[];
 
@@ -385,10 +467,16 @@ async function runCharacterJob(
 
       unitHits[i] = hits;
       for (const h of hits) {
-        const name = (h.name || "").replace(/\s+/g, "").trim();
-        if (!name) continue;
-        if (!unitIndexBySurface.has(name)) unitIndexBySurface.set(name, new Set());
-        unitIndexBySurface.get(name)!.add(i);
+        const surfaces = [
+          h.name,
+          ...(h.aliases || []),
+        ]
+          .map((s) => (s || "").replace(/\s+/g, "").trim())
+          .filter((s) => s.length >= 1);
+        for (const name of surfaces) {
+          if (!unitIndexBySurface.has(name)) unitIndexBySurface.set(name, new Set());
+          unitIndexBySurface.get(name)!.add(i);
+        }
       }
 
       job.completed = unitHits.filter(Boolean).length;
@@ -454,8 +542,16 @@ async function runCharacterJob(
 
   job.phase = "detail";
   job.status = "detail";
-  job.message = `深挖人设 Top5 / ${rawList.length}…`;
+  job.message = `深挖人设（锚点章节）/ ${rawList.length}…`;
   touch(job);
+
+  // Prefer kept aggregates (have unitIndices); fall back to full clusters
+  const scanClusters =
+    pipe.kept?.length > 0
+      ? pipe.kept
+      : pipe.clusters?.length
+        ? pipe.clusters
+        : [];
 
   const profiles = await runWithTokenContext(
     {
@@ -464,16 +560,26 @@ async function runCharacterJob(
       agentId: "extract_characters",
       category: "extract",
     },
-    () => extractor.completeFromRawList(llm, rawList, {
-      onPhase: (p, msg) => {
-        if (p === "relationships") {
-          job.phase = "relationships";
-          job.status = "relationships";
-          job.message = msg;
-          touch(job);
-        }
-      },
-    }),
+    () =>
+      extractor.completeFromRawList(llm, rawList, {
+        units,
+        scanClusters,
+        // No fixed top-12: focus count follows appearance importance thresholds
+        onPhase: (p, msg) => {
+          if (p === "detail") {
+            job.phase = "detail";
+            job.status = "detail";
+            job.message = msg;
+            touch(job);
+          }
+          if (p === "relationships") {
+            job.phase = "relationships";
+            job.status = "relationships";
+            job.message = msg;
+            touch(job);
+          }
+        },
+      }),
   );
 
   saveCharacters(job.userId, job.novelId, profiles);

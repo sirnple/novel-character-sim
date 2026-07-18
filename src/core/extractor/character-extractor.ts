@@ -3,6 +3,19 @@ import { createLLMProvider } from "@/core/llm/factory";
 import { buildNovelContext } from "@/core/parser/novel-parser";
 import { generateId, isChinese } from "@/lib/utils";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
+import type { TextUnit } from "./character-name-units";
+import type { NameCluster } from "./character-name-cluster";
+import type { NameAggregate } from "./character-name-aggregate";
+import {
+  buildAnchorIndex,
+  buildContextFromUnits,
+  cooccurringNames,
+  resolveAnchor,
+  selectDetailTargets,
+  selectRelationshipFocus,
+  type CharacterAnchor,
+} from "./character-anchor-context";
+import { isServerDebugMode } from "@/lib/debug-mode";
 
 // ============================================================
 // Character Extraction Engine
@@ -11,9 +24,7 @@ import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
 //   2. Deep-dive each character (personality, behavior, values, etc.)
 //   3. Extract relationship graph
 //
-// NOTE: Unit-wise Flash name scan is specified in
-// docs/superpowers/specs/2026-07-18-character-name-scan-design.md
-// and is NOT the default path until that spec is grill-frozen.
+// Async unit-scan path: Pass2/3 use per-character unit anchors for context.
 // ============================================================
 
 const CHARACTER_LIST_SCHEMA = {
@@ -417,33 +428,58 @@ export class CharacterExtractor {
 
   /**
    * Pass2 + Pass3 from a raw list (used by async character job).
+   * When `units` + scan anchors are provided, detail/rel use per-character
+   * unit context (not the global 5-chunk excerpt).
    */
   async completeFromRawList(
     llm: ReturnType<typeof createLLMProvider>,
     rawCharacters: RawCharacter[],
-    opts?: { onPhase?: (phase: "detail" | "relationships", message: string) => void },
+    opts?: {
+      onPhase?: (phase: "detail" | "relationships", message: string) => void;
+      /** Name-scan units (chapter/windows) for anchor context */
+      units?: TextUnit[];
+      /** Clusters or kept aggregates with unitIndices */
+      scanClusters?: NameCluster[] | NameAggregate[];
+      /** Optional safety cost caps only (undefined = frequency threshold only) */
+      detailHardCap?: number;
+      relHardCap?: number;
+    },
   ): Promise<CharacterProfile[]> {
     if (rawCharacters.length === 0) {
       throw new Error("No characters found in the novel text.");
     }
 
-    const MAX_DETAIL_CHARS = 5;
-    const priorityOrder = ["protagonist", "antagonist", "supporting"];
-    const sortedChars = [...rawCharacters].sort(
-      (a, b) => priorityOrder.indexOf(a.role) - priorityOrder.indexOf(b.role),
-    );
-    const detailChars = sortedChars.slice(0, MAX_DETAIL_CHARS);
+    const units = opts?.units || [];
+    const { bySurface } = buildAnchorIndex(opts?.scanClusters || []);
+
+    // Importance = appearance frequency; count is dynamic, not a fixed top-N
+    const detailChars = selectDetailTargets(rawCharacters, bySurface, {
+      hardCap: opts?.detailHardCap,
+    });
     opts?.onPhase?.(
       "detail",
-      `深挖人设 ${detailChars.length}/${rawCharacters.length}…`,
+      `深挖人设 ${detailChars.length}/${rawCharacters.length}` +
+        (units.length ? "（按出现频次·锚点章节）" : "（按出现频次）") +
+        "…",
     );
 
     const characterMap = new Map<string, CharacterProfile>();
+    /** normalized name / alias → profile name key in characterMap */
+    const nameResolve = new Map<string, string>();
+
     for (const raw of rawCharacters) {
+      const anchor = resolveAnchor(raw.name, bySurface);
+      const aliases = Array.from(
+        new Set([
+          ...(raw.aliases || []),
+          ...(anchor?.aliases || []),
+          ...(anchor?.surfaces || []).filter((s) => s !== raw.name),
+        ]),
+      );
       characterMap.set(raw.name, {
         id: generateId(),
         name: raw.name,
-        aliases: raw.aliases || [],
+        aliases,
         appearance: { summary: raw.briefDescription },
         personality: {
           traits: [],
@@ -473,11 +509,20 @@ export class CharacterExtractor {
         background: { origin: "", keyEvents: [], description: "" },
         relationships: [],
       });
+      const keys = [raw.name, ...aliases, anchor?.canonical].filter(Boolean) as string[];
+      for (const k of keys) {
+        const nk = k.replace(/\s+/g, "").trim();
+        if (nk) nameResolve.set(nk, raw.name);
+      }
     }
 
-    for (let i = 0; i < detailChars.length; i++) {
-      const raw = detailChars[i];
-      const detail = await this.extractCharacterDetail(llm, raw);
+    const applyDetail = async (raw: RawCharacter, i: number) => {
+      const ctx = this.contextForCharacter(raw.name, units, bySurface);
+      console.log(
+        `[Extractor] Pass 2 [${i + 1}/${detailChars.length}]: "${raw.name}" ` +
+          `ctxLen=${ctx.length}`,
+      );
+      const detail = await this.extractCharacterDetail(llm, raw, ctx);
       const existing = characterMap.get(raw.name)!;
       existing.appearance = detail.appearance;
       existing.personality = detail.personality;
@@ -488,36 +533,145 @@ export class CharacterExtractor {
       existing.speakingStyle = detail.speakingStyle;
       existing.voice = detail.voice || { description: "" };
       existing.background = detail.background;
+    };
+
+    const unlimited = isServerDebugMode();
+    if (unlimited) {
+      console.log(
+        `[Extractor] Pass 2 parallel detail x${detailChars.length} (debug unlimited)`,
+      );
+      await Promise.all(detailChars.map((raw, i) => applyDetail(raw, i)));
+    } else {
+      for (let i = 0; i < detailChars.length; i++) {
+        await applyDetail(detailChars[i], i);
+      }
     }
 
-    opts?.onPhase?.("relationships", `关系网 ${rawCharacters.length} 人…`);
-    const rawRelationships = await this.extractRelationships(
-      llm,
-      rawCharacters.map((r) => r.name),
+    const rosterNames = rawCharacters.map((r) => r.name);
+    // Relationship focus: same frequency ranking, lower relative bar than detail
+    let relFocus = selectRelationshipFocus(rawCharacters, bySurface, {
+      hardCap: opts?.relHardCap,
+    });
+    // Ensure every detail target also gets a relationship pass
+    const relNames = new Set(relFocus.map((c) => c.name));
+    for (const d of detailChars) {
+      if (!relNames.has(d.name)) {
+        relFocus.push(d);
+        relNames.add(d.name);
+      }
+    }
+
+    opts?.onPhase?.(
+      "relationships",
+      units.length
+        ? `关系网（${relFocus.length} 重要角色视角 × 共现）…`
+        : `关系网 ${rawCharacters.length} 人…`,
     );
 
-    for (const rel of rawRelationships) {
-      const charA = characterMap.get(rel.characterA);
-      const charB = characterMap.get(rel.characterB);
-      if (charA) {
-        charA.relationships.push({
-          characterId: charB?.id || "",
-          characterName: rel.characterB,
-          type: rel.type,
-          description: rel.description,
-          history: rel.history || "",
-          dynamics: rel.dynamics || "",
+    const edgeKey = (a: string, b: string) => {
+      const x = a.replace(/\s+/g, "");
+      const y = b.replace(/\s+/g, "");
+      return x < y ? `${x}||${y}` : `${y}||${x}`;
+    };
+    const seenEdges = new Set<string>();
+
+    if (units.length && bySurface.size > 0) {
+      const runRelFocus = async (
+        focus: (typeof relFocus)[0],
+        i: number,
+      ): Promise<{ focusName: string; edges: RawRelationship[] } | null> => {
+        const anchor = resolveAnchor(focus.name, bySurface);
+        if (!anchor) {
+          console.log(
+            `[Extractor] Pass 3 skip "${focus.name}" (no unit anchor)`,
+          );
+          return null;
+        }
+        let candidates = cooccurringNames(anchor, rosterNames, bySurface, {
+          maxCandidates: 15,
         });
+        if (!candidates.length) {
+          candidates = rosterNames
+            .filter((n) => n !== focus.name)
+            .slice(0, 10);
+        }
+        if (!candidates.length) return null;
+
+        const ctx = this.contextForCharacter(focus.name, units, bySurface);
+        if (!unlimited) {
+          opts?.onPhase?.(
+            "relationships",
+            `关系 ${i + 1}/${relFocus.length}：${focus.name}（${candidates.length} 候选）…`,
+          );
+        }
+        console.log(
+          `[Extractor] Pass 3 [${i + 1}/${relFocus.length}]: "${focus.name}" ` +
+            `candidates=${candidates.length} ctxLen=${ctx.length}`,
+        );
+
+        try {
+          const edges = await this.extractRelationshipsFromFocus(
+            llm,
+            focus.name,
+            candidates,
+            ctx,
+          );
+          return { focusName: focus.name, edges };
+        } catch (e) {
+          console.warn(
+            `[Extractor] Pass 3 focus "${focus.name}" failed:`,
+            (e as Error).message,
+          );
+          return null;
+        }
+      };
+
+      let relResults: Array<{ focusName: string; edges: RawRelationship[] } | null>;
+      if (unlimited) {
+        console.log(
+          `[Extractor] Pass 3 parallel rel focus x${relFocus.length} (debug unlimited)`,
+        );
+        opts?.onPhase?.(
+          "relationships",
+          `关系网并行 ${relFocus.length} 视角（debug）…`,
+        );
+        relResults = await Promise.all(
+          relFocus.map((focus, i) => runRelFocus(focus, i)),
+        );
+      } else {
+        relResults = [];
+        for (let i = 0; i < relFocus.length; i++) {
+          relResults.push(await runRelFocus(relFocus[i], i));
+        }
       }
-      if (charB) {
-        charB.relationships.push({
-          characterId: charA?.id || "",
-          characterName: rel.characterA,
-          type: rel.type,
-          description: rel.description,
-          history: rel.history || "",
-          dynamics: rel.dynamics || "",
-        });
+
+      for (const pack of relResults) {
+        if (!pack) continue;
+        for (const rel of pack.edges) {
+          this.attachRelationship(
+            characterMap,
+            nameResolve,
+            rel,
+            seenEdges,
+            edgeKey,
+            pack.focusName,
+          );
+        }
+      }
+    } else {
+      // Legacy single-shot relationship pass (no unit anchors)
+      const rawRelationships = await this.extractRelationships(
+        llm,
+        rosterNames,
+      );
+      for (const rel of rawRelationships) {
+        this.attachRelationship(
+          characterMap,
+          nameResolve,
+          rel,
+          seenEdges,
+          edgeKey,
+        );
       }
     }
 
@@ -525,21 +679,112 @@ export class CharacterExtractor {
     return this.extractAllResults;
   }
 
+  private contextForCharacter(
+    name: string,
+    units: TextUnit[],
+    bySurface: Map<string, CharacterAnchor>,
+  ): string {
+    if (!units.length) return this.novelContext;
+    const anchor = resolveAnchor(name, bySurface);
+    if (!anchor?.unitIndices?.length) return this.novelContext;
+    const ctx = buildContextFromUnits(units, anchor.unitIndices, {
+      maxChars: 18_000,
+      maxUnits: 8,
+    });
+    return ctx.trim() || this.novelContext;
+  }
+
+  private resolveProfileName(
+    name: string,
+    nameResolve: Map<string, string>,
+    characterMap: Map<string, CharacterProfile>,
+  ): string | null {
+    if (characterMap.has(name)) return name;
+    const nk = name.replace(/\s+/g, "").trim();
+    const hit = nameResolve.get(nk);
+    if (hit && characterMap.has(hit)) return hit;
+    // soft match
+    const entries = Array.from(nameResolve.entries());
+    for (let i = 0; i < entries.length; i++) {
+      const k = entries[i][0];
+      const v = entries[i][1];
+      if (k.length >= 2 && nk.length >= 2 && (k.endsWith(nk) || nk.endsWith(k))) {
+        if (characterMap.has(v)) return v;
+      }
+    }
+    return null;
+  }
+
+  private attachRelationship(
+    characterMap: Map<string, CharacterProfile>,
+    nameResolve: Map<string, string>,
+    rel: RawRelationship,
+    seenEdges: Set<string>,
+    edgeKey: (a: string, b: string) => string,
+    preferA?: string,
+  ) {
+    let nameA = this.resolveProfileName(rel.characterA, nameResolve, characterMap);
+    let nameB = this.resolveProfileName(rel.characterB, nameResolve, characterMap);
+    // If model swapped names, try to pin focus as A
+    if (preferA) {
+      const focusKey = this.resolveProfileName(preferA, nameResolve, characterMap);
+      if (focusKey) {
+        if (nameB === focusKey && nameA !== focusKey) {
+          // swap so focus is A for description direction only; store undirected
+          const t = nameA;
+          nameA = nameB;
+          nameB = t;
+        }
+        if (!nameA && nameB && nameB !== focusKey) {
+          nameA = focusKey;
+        }
+        if (!nameB && nameA && nameA !== focusKey) {
+          nameB = this.resolveProfileName(rel.characterB, nameResolve, characterMap);
+        }
+      }
+    }
+    if (!nameA || !nameB || nameA === nameB) return;
+
+    const ek = edgeKey(nameA, nameB);
+    if (seenEdges.has(ek)) return;
+    seenEdges.add(ek);
+
+    const charA = characterMap.get(nameA)!;
+    const charB = characterMap.get(nameB)!;
+    charA.relationships.push({
+      characterId: charB.id,
+      characterName: nameB,
+      type: rel.type,
+      description: rel.description,
+      history: rel.history || "",
+      dynamics: rel.dynamics || "",
+    });
+    charB.relationships.push({
+      characterId: charA.id,
+      characterName: nameA,
+      type: rel.type,
+      description: rel.description,
+      history: rel.history || "",
+      dynamics: rel.dynamics || "",
+    });
+  }
+
   private async extractCharacterDetail(
     llm: ReturnType<typeof createLLMProvider>,
-    character: RawCharacter
+    character: RawCharacter,
+    novelContext?: string,
   ): Promise<CharacterDetail> {
     const prompt = resolveAgentSystem("character_detail", this.zh ? "zh" : "en", {
       characterName: character.name,
       characterBrief: character.briefDescription,
       characterRole: character.role,
-      novelContext: this.novelContext,
+      novelContext: novelContext || this.novelContext,
     });
 
     const result = await llm.chatWithTool<CharacterDetail>(
       [{ role: "user", content: prompt }],
       CHARACTER_DETAIL_SCHEMA,
-      { temperature: 0.5, maxTokens: 8192 }
+      { temperature: 0.25, maxTokens: 8192 },
     );
 
     return result;
@@ -547,19 +792,54 @@ export class CharacterExtractor {
 
   private async extractRelationships(
     llm: ReturnType<typeof createLLMProvider>,
-    characterNames: string[]
+    characterNames: string[],
   ): Promise<RawRelationship[]> {
     const prompt = resolveAgentSystem("relationships", this.zh ? "zh" : "en", {
       characterNames: characterNames.join(", "),
       novelContext: this.novelContext,
+      focusCharacter: "",
+      focusInstruction: "",
     });
 
     const result = await llm.chatWithTool<{ relationships: RawRelationship[] }>(
       [{ role: "user", content: prompt }],
       RELATIONSHIP_SCHEMA,
-      { temperature: 0.3, maxTokens: 16384 }
+      { temperature: 0.2, maxTokens: 8192 },
     );
 
     return result.relationships || [];
+  }
+
+  /** Multi-round: one focus character's relations to co-occurring candidates. */
+  private async extractRelationshipsFromFocus(
+    llm: ReturnType<typeof createLLMProvider>,
+    focusName: string,
+    candidateNames: string[],
+    novelContext: string,
+  ): Promise<RawRelationship[]> {
+    const focusInstruction = this.zh
+      ? `请以「${focusName}」为视角，只描述 TA 与下列角色之间有原文依据的重要关系。characterA 必须是「${focusName}」，characterB 为对方。不要编造未在节选中出现的关系。`
+      : `From the perspective of "${focusName}" only. characterA must be "${focusName}". Only include relationships supported by the excerpts.`;
+
+    const prompt = resolveAgentSystem("relationships", this.zh ? "zh" : "en", {
+      characterNames: candidateNames.join(", "),
+      novelContext,
+      focusCharacter: focusName,
+      focusInstruction,
+    });
+
+    const result = await llm.chatWithTool<{ relationships: RawRelationship[] }>(
+      [{ role: "user", content: prompt }],
+      RELATIONSHIP_SCHEMA,
+      { temperature: 0.2, maxTokens: 4096 },
+    );
+
+    return (result.relationships || []).filter((r) => {
+      // keep edges involving focus (either side, after resolve)
+      const a = (r.characterA || "").replace(/\s+/g, "");
+      const b = (r.characterB || "").replace(/\s+/g, "");
+      const f = focusName.replace(/\s+/g, "");
+      return a === f || b === f || a.includes(f) || b.includes(f) || f.includes(a) || f.includes(b);
+    });
   }
 }

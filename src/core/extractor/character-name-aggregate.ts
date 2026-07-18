@@ -22,6 +22,8 @@ export interface NameAggregate {
   /** First unit index (0-based) */
   firstUnit: number;
   lastUnit: number;
+  /** Exact unit indices when known (from scan anchors); used for detail/rel context */
+  unitIndices?: number[];
 }
 
 export interface MentionThreshold {
