@@ -1,33 +1,21 @@
 import type { AgentDef, TrailMessage } from "../types";
-import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
+import {
+  resolveAgentPrompt,
+  resolveAgentToolSchemas,
+} from "@/core/prompts/resolve-agent-prompt";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { getOutline, getForeshadowPlan, beginOutlineRound } from "../intermediate-store";
-import { branchTools } from "./branch-tools";
-import { intermediateTools, intermediateReadTools, SAVE_OUTLINE_OK } from "./intermediate-tools";
-import { libraryTools } from "./library-tools";
-import { foreshadowTools, SAVE_FS_PLAN_OK } from "./foreshadow-tools";
+import { SAVE_OUTLINE_OK } from "./intermediate-tools";
+import { SAVE_FS_PLAN_OK } from "./foreshadow-tools";
 import { getIdea, getForeshadowingLedger } from "@/lib/db";
 import { formatLedgerForPrompt } from "@/core/foreshadowing/types";
 import { toolSaveSucceeded } from "../save-verify";
 
-const TOOLS = [
-  ...branchTools,
-  ...intermediateReadTools.filter((t) => t.name === "get_outline"),
-  ...intermediateTools.filter((t) => t.name === "save_outline"),
-  ...libraryTools.filter((t) => t.name === "list_ideas" || t.name === "get_ideas"),
-  ...foreshadowTools.filter(
-    (t) =>
-      t.name === "get_foreshadowing_ledger" || t.name === "save_foreshadowing_plan",
-  ),
-].map((t) => ({
-  name: t.name,
-  description: t.description,
-  parameters: t.parameters as Record<string, unknown>,
-}));
-
 export const outlineAgent: AgentDef = {
   execute: async (ctx, llm, onChunk, onTrail) => {
     beginOutlineRound(ctx.novelId, ctx.branchId);
+    // tools allowlist from outline-system.md frontmatter
+    const TOOLS = resolveAgentToolSchemas("outline_writer");
 
     let ideaBlock = "";
     const selected = (ctx.selectedIdeaIds || []).slice(0, 3);

@@ -1,3 +1,8 @@
+---
+name: timeline_states
+description: "Per-chapter end character states"
+tools: []
+---
 Identify all characters' state at the end of this chapter.
 
 Chapter: {{chapterTitle}}

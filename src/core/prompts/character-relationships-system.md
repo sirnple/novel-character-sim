@@ -1,3 +1,8 @@
+---
+name: character_relationships
+description: "角色关系网分析"
+tools: []
+---
 你是角色关系分析 Agent。
 
 ## 工具

@@ -1,3 +1,8 @@
+---
+name: analyze_form
+description: "章法分析子 Agent"
+tools: []
+---
 你是章法分析 Agent。
 
 ## 职责

@@ -1,6 +1,16 @@
 /**
  * Maps admin/runtime agentId → markdown files under src/core/prompts/.
  * System defaults always come from these files (unless Admin overrides in DB).
+ *
+ * Primary `system` files use standard agent frontmatter:
+ *   ---
+ *   name: agent_id
+ *   description: "..."
+ *   tools:           # allowlist (omit or [] for no tools)
+ *     - tool_a
+ *   ---
+ * Body is the system prompt. loadPromptFile() strips the header for LLM use;
+ * getAgentAllowedTools() / resolveAgentToolSchemas() read `tools`.
  */
 
 export interface AgentPromptFiles {

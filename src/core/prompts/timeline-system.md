@@ -1,3 +1,8 @@
+---
+name: timeline
+description: "逐章提取关键事件、涉及角色和事件结果"
+tools: []
+---
 梳理下列小说章节中发生的关键事件，按时间顺序列出。
 
 章节: {{chapterTitle}}

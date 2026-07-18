@@ -1,3 +1,8 @@
+---
+name: extract_style
+description: "风格提取 Agent"
+tools: []
+---
 你是文风提取 Agent。
 
 ## 工具

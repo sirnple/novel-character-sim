@@ -6,7 +6,10 @@ import { getTool, buildToolSchemas } from "@/core/agents/registry";
 import { getAgent } from "@/core/agents/agent-registry";
 import { initRegistry } from "@/core/agents/init";
 import { runReviewsParallel } from "@/core/agents/agents/run-reviews";
-import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
+import {
+  resolveAgentSystem,
+  getAgentAllowedTools,
+} from "@/core/prompts/resolve-agent-prompt";
 import {
   ONE_CLICK_CONTINUE_SYSTEM_APPEND,
   pickAutoPassAnswer,
@@ -51,16 +54,8 @@ export async function POST(request: NextRequest) {
   const autoPass = !!autoPassCheckpoints && !isAnalysis;
   const llm = createLLMProvider(isAnalysis ? "analysis" : "write");
   const encoder = new TextEncoder();
-  // 主 agent 只调度与展示摘要；域工作走 agent()→runAgent（子卡 + trail），不是 runDataTool
-  const WRITE_TOOL_ALLOW = new Set([
-    "agent",
-    "ask_question",
-    "run_reviews",
-    "accept_continuation",
-    "get_branch_text", "get_branch_characters", "get_branch_timeline", "get_branch_world", "get_branch_meta",
-    "get_novel_form",
-    "get_outline", "get_findings", "clear_findings",
-  ]);
+  // write 模式白名单来自 master-system.md frontmatter；analysis 用 ANALYSIS_MASTER_TOOL_NAMES
+  const WRITE_TOOL_ALLOW = new Set(getAgentAllowedTools("master"));
   const ANALYSIS_TOOL_ALLOW = new Set<string>([...ANALYSIS_MASTER_TOOL_NAMES]);
   const MASTER_TOOL_ALLOW = isAnalysis ? ANALYSIS_TOOL_ALLOW : WRITE_TOOL_ALLOW;
   // Mode-scoped agent() schema (write vs analysis enums) — do not use registry's mixed enum

@@ -1,3 +1,8 @@
+---
+name: extract_ideas
+description: "点子提取 Agent"
+tools: []
+---
 你是点子提取 Agent。
 
 ## 工具

@@ -1,3 +1,8 @@
+---
+name: chapter_end_states
+description: "Snapshot character states at novel end"
+tools: []
+---
 Analyze the END-state of all characters in the latest content. This is a "now" snapshot, not a full-book summary.
 
 Recent content:
