@@ -12,6 +12,7 @@ import { runWithTokenContext } from "@/lib/token-usage-context";
 import iconv from "iconv-lite";
 import AdmZip from "adm-zip";
 import type { LLMMessage } from "@/types";
+import { isServerDebugMode } from "@/lib/debug-mode";
 
 function decodeChineseText(buffer: Buffer): string {
   const utf8 = buffer.toString("utf8");
@@ -36,7 +37,7 @@ function decodeChineseText(buffer: Buffer): string {
   return utf8;
 }
 
-const MAX_FILE_BYTES = 5 * 1024 * 1024;  // 5 MB
+const MAX_FILE_BYTES = 5 * 1024 * 1024;  // 5 MB (production / non-debug)
 
 export async function POST(request: NextRequest) {
   const userId = getUserId(request);
@@ -58,13 +59,19 @@ export async function POST(request: NextRequest) {
 
     const fileName = file.name.toLowerCase();
     const fileBytes = file.size;
+    const debugMode = isServerDebugMode();
 
-    // Size check
-    if (fileBytes > MAX_FILE_BYTES) {
+    // Size check — skipped in debug (local large TXT testing)
+    if (!debugMode && fileBytes > MAX_FILE_BYTES) {
       const mb = (fileBytes / (1024 * 1024)).toFixed(1);
       return NextResponse.json(
         { error: `文件过大（${mb} MB），限制为 5 MB。请拆分章节后重新上传。` },
         { status: 413 }
+      );
+    }
+    if (debugMode && fileBytes > MAX_FILE_BYTES) {
+      console.log(
+        `[NovelParse] debug: allowing large upload ${(fileBytes / (1024 * 1024)).toFixed(1)} MB`,
       );
     }
 

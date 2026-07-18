@@ -221,11 +221,11 @@ export default function NovelPage() {
                 <span className="text-xs text-fog font-normal">· 点击查看</span>
               )}
               {novelId && (
-                <span className="ml-auto max-w-[min(100%,20rem)] text-right">
+                <span className="ml-auto max-w-[min(100%,22rem)] text-right shrink-0">
                   <CharacterJobStatus
                     novelId={novelId}
-                    onCharactersReady={() => {
-                      // soft refresh overview data
+                    onCharactersReady={(chars) => {
+                      if (chars) setCharacters(chars);
                       window.dispatchEvent(new Event(LIBRARIES_REFRESH_EVENT));
                     }}
                   />
@@ -234,7 +234,10 @@ export default function NovelPage() {
             </div>
             {characters.length === 0 ? (
               <div className="ov-card border-dashed py-10 text-center text-sm text-fog">
-                暂无角色
+                <p>暂无角色</p>
+                <p className="text-xs mt-2 text-fog/80">
+                  调试模式下可点「单独提取角色」；正式路径走全书分析中的角色模块
+                </p>
               </div>
             ) : (
               <div className="flex gap-3.5 overflow-x-auto pb-2 custom-scrollbar">

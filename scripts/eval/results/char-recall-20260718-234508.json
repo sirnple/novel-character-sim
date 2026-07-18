@@ -1,0 +1,71 @@
+{
+  "ranAt": "2026-07-18T15:45:08.296Z",
+  "codeVersion": {
+    "commit": "e254913a5a993dd41abeb895880375365cbfd218",
+    "commitShort": "e254913",
+    "branch": "master",
+    "dirty": true,
+    "packageVersion": "0.1.0",
+    "describe": "e254913-dirty"
+  },
+  "dbPath": "C:\\Users\\57864\\Repositories\\novel-character-sim\\data\\novels.db",
+  "userIdFilter": "guest_18fl",
+  "goldFilter": "novel_bnf7gh",
+  "includePublic": false,
+  "passBars": {
+    "short": 0.9,
+    "long": 0.85
+  },
+  "books": [
+    {
+      "goldId": "novel_bnf7gh",
+      "title": "欲孽灼心",
+      "novelFound": true,
+      "userIdUsed": "guest_18fl",
+      "tier": "short",
+      "passBar": 0.9,
+      "mustFindCount": 17,
+      "rosterCount": 31,
+      "hit": [
+        "周屿",
+        "秦予嫣",
+        "许栀",
+        "周航",
+        "周伯彦",
+        "王铎",
+        "张达",
+        "肖诺",
+        "裴冉",
+        "黑仔",
+        "阿龙",
+        "王建国",
+        "短发大叔",
+        "长脸大叔",
+        "老阿伯",
+        "果园老头"
+      ],
+      "miss": [
+        "老吴"
+      ],
+      "recall": 0.9411764705882353,
+      "passed": true,
+      "extraSample": [
+        "屿仔",
+        "小兄弟",
+        "小航",
+        "嫂子",
+        "父亲",
+        "胖小孩",
+        "瘦小孩",
+        "西瓜头小孩"
+      ]
+    }
+  ],
+  "summary": {
+    "scored": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "allPassed": true
+  }
+}
