@@ -6,6 +6,10 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { loadEnvLocal } from "../lib/load-env-local";
+
+loadEnvLocal();
+
 import { saveNovel, ensureMainBranch, getBranchProse } from "../../src/lib/db";
 
 const SLUG_MAP: Record<string, { file: string; id: string; title: string }> = {

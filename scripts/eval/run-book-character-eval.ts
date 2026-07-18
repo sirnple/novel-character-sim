@@ -5,8 +5,11 @@
  *
  *   npx tsx scripts/eval/run-book-character-eval.ts xiyouji
  */
-import { execSync, spawn } from "node:child_process";
-import path from "node:path";
+import { execSync } from "node:child_process";
+import { loadEnvLocal } from "../lib/load-env-local";
+
+loadEnvLocal();
+
 import {
   startCharacterExtractJob,
   getCharacterExtractJob,

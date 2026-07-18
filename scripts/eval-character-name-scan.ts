@@ -235,11 +235,31 @@ function listUserIdsForNovel(db: Database.Database, novelId: string): string[] {
   return rows.map((r) => r.user_id);
 }
 
+/** Primary names + aliases from CharacterProfile rows (for matching gold). */
 function loadCharacterNames(
   db: Database.Database,
   novelId: string,
   userId: string | null,
 ): { names: string[]; userIdUsed: string | null } {
+  const parseRows = (rows: { data: string }[]): string[] => {
+    const out: string[] = [];
+    for (const r of rows) {
+      try {
+        const c = JSON.parse(r.data) as {
+          name?: string;
+          aliases?: string[];
+        };
+        if (c.name) out.push(c.name);
+        for (const a of c.aliases || []) {
+          if (a) out.push(a);
+        }
+      } catch {
+        /* skip */
+      }
+    }
+    return out.filter(Boolean);
+  };
+
   if (userId) {
     const rows = db
       .prepare(
@@ -247,13 +267,7 @@ function loadCharacterNames(
       )
       .all(novelId, userId) as { data: string }[];
     return {
-      names: rows.map((r) => {
-        try {
-          return (JSON.parse(r.data) as { name?: string }).name || "";
-        } catch {
-          return "";
-        }
-      }).filter(Boolean),
+      names: parseRows(rows),
       userIdUsed: userId,
     };
   }
