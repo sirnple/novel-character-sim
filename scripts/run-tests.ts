@@ -21,6 +21,7 @@ import { runTitleResolveTests } from "./tests/title-resolve.test";
 import { runCharacterCandidatesTests } from "./tests/character-candidates.test";
 import { runCharacterNameFrequencyTests } from "./tests/character-name-frequency.test";
 import { runSharePayloadTests } from "./tests/share-payload.test";
+import { runShareStoreTests } from "./tests/share-store.test";
 
 function main() {
   resetCounters();
@@ -44,6 +45,7 @@ function main() {
   runCharacterCandidatesTests();
   runCharacterNameFrequencyTests();
   runSharePayloadTests();
+  runShareStoreTests();
 
   const { failed } = summary();
   if (failed > 0) process.exitCode = 1;

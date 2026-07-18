@@ -7,6 +7,7 @@ import type {
 } from "@/types";
 import type { ForeshadowingLedger } from "@/core/foreshadowing/types";
 import { emptyLedger } from "@/core/foreshadowing/types";
+import type { ShareOverviewPayload, ShareVisibility } from "@/lib/share-payload";
 
 const DB_PATH = path.join(process.cwd(), "data", "novels.db");
 
@@ -411,6 +412,19 @@ function initSchema(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+    CREATE TABLE IF NOT EXISTS share_overviews (
+      token TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL,
+      novel_id TEXT NOT NULL,
+      visibility TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      revoked_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_share_overviews_owner_novel
+      ON share_overviews(owner_user_id, novel_id);
   `);
 
   // Migrate old tables that may be missing user_id.
@@ -567,6 +581,11 @@ export function listNovels(userId: string): { id: string; title: string; total_l
 export function deleteNovel(userId: string, id: string): void {
   const d = getDb();
   const tx = d.transaction(() => {
+    // Soft-revoke share links (keep rows for uniform 404; do not hard-delete)
+    d.prepare(
+      `UPDATE share_overviews SET revoked_at = datetime('now')
+       WHERE owner_user_id = ? AND novel_id = ? AND revoked_at IS NULL`,
+    ).run(userId, id);
     d.prepare("DELETE FROM novels WHERE id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM story_info WHERE novel_id = ? AND user_id = ?").run(id, userId);
     d.prepare("DELETE FROM characters WHERE novel_id = ? AND user_id = ?").run(id, userId);
@@ -591,6 +610,134 @@ export function deleteNovel(userId: string, id: string): void {
     ).run(userId, id);
   });
   tx();
+}
+
+// ---- Share overviews (public/auth snapshot links) ----
+
+export interface ShareOverviewRow {
+  token: string;
+  ownerUserId: string;
+  novelId: string;
+  visibility: ShareVisibility;
+  payload: ShareOverviewPayload;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
+export interface ShareOverviewListItem {
+  token: string;
+  visibility: ShareVisibility;
+  createdAt: string;
+  revokedAt: string | null;
+  url: string;
+}
+
+function mapShareRow(row: any): ShareOverviewRow {
+  return {
+    token: row.token,
+    ownerUserId: row.owner_user_id,
+    novelId: row.novel_id,
+    visibility: row.visibility as ShareVisibility,
+    payload: JSON.parse(row.payload) as ShareOverviewPayload,
+    createdAt: row.created_at,
+    revokedAt: row.revoked_at ?? null,
+  };
+}
+
+export function createShareOverview(input: {
+  token: string;
+  ownerUserId: string;
+  novelId: string;
+  visibility: ShareVisibility;
+  payload: ShareOverviewPayload;
+}): void {
+  const d = getDb();
+  d.prepare(
+    `INSERT INTO share_overviews (token, owner_user_id, novel_id, visibility, payload, created_at, revoked_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'), NULL)`,
+  ).run(
+    input.token,
+    input.ownerUserId,
+    input.novelId,
+    input.visibility,
+    JSON.stringify(input.payload),
+  );
+}
+
+export function getShareOverviewByToken(token: string): ShareOverviewRow | null {
+  const d = getDb();
+  const row = d.prepare(`SELECT * FROM share_overviews WHERE token = ?`).get(token) as any;
+  return row ? mapShareRow(row) : null;
+}
+
+export function listShareOverviews(
+  ownerUserId: string,
+  novelId: string,
+  opts?: { includeRevoked?: boolean },
+): ShareOverviewListItem[] {
+  const d = getDb();
+  const includeRevoked = !!opts?.includeRevoked;
+  const rows = includeRevoked
+    ? (d
+        .prepare(
+          `SELECT token, visibility, created_at, revoked_at FROM share_overviews
+           WHERE owner_user_id = ? AND novel_id = ?
+           ORDER BY created_at DESC`,
+        )
+        .all(ownerUserId, novelId) as any[])
+    : (d
+        .prepare(
+          `SELECT token, visibility, created_at, revoked_at FROM share_overviews
+           WHERE owner_user_id = ? AND novel_id = ? AND revoked_at IS NULL
+           ORDER BY created_at DESC`,
+        )
+        .all(ownerUserId, novelId) as any[]);
+  return rows.map((r) => ({
+    token: r.token,
+    visibility: r.visibility as ShareVisibility,
+    createdAt: r.created_at,
+    revokedAt: r.revoked_at ?? null,
+    url: `/share/${r.token}`,
+  }));
+}
+
+export function revokeShareOverview(
+  token: string,
+  ownerUserId: string,
+): { ok: true } | { ok: false; reason: "not_found" | "forbidden" } {
+  const d = getDb();
+  const row = d.prepare(`SELECT owner_user_id, revoked_at FROM share_overviews WHERE token = ?`).get(token) as
+    | { owner_user_id: string; revoked_at: string | null }
+    | undefined;
+  if (!row) return { ok: false, reason: "not_found" };
+  if (row.owner_user_id !== ownerUserId) return { ok: false, reason: "forbidden" };
+  if (row.revoked_at) return { ok: true };
+  d.prepare(`UPDATE share_overviews SET revoked_at = datetime('now') WHERE token = ?`).run(token);
+  return { ok: true };
+}
+
+export function updateShareVisibility(
+  token: string,
+  ownerUserId: string,
+  visibility: ShareVisibility,
+): { ok: true } | { ok: false; reason: "not_found" | "forbidden" | "revoked" } {
+  const d = getDb();
+  const row = d.prepare(`SELECT owner_user_id, revoked_at FROM share_overviews WHERE token = ?`).get(token) as
+    | { owner_user_id: string; revoked_at: string | null }
+    | undefined;
+  if (!row) return { ok: false, reason: "not_found" };
+  if (row.owner_user_id !== ownerUserId) return { ok: false, reason: "forbidden" };
+  if (row.revoked_at) return { ok: false, reason: "revoked" };
+  d.prepare(`UPDATE share_overviews SET visibility = ? WHERE token = ?`).run(visibility, token);
+  return { ok: true };
+}
+
+export function revokeShareOverviewsForNovel(ownerUserId: string, novelId: string): void {
+  const d = getDb();
+  d.prepare(
+    `UPDATE share_overviews SET revoked_at = datetime('now')
+     WHERE owner_user_id = ? AND novel_id = ? AND revoked_at IS NULL`,
+  ).run(ownerUserId, novelId);
 }
 
 // ---- Story Info ----
