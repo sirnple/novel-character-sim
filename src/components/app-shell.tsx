@@ -29,6 +29,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
+  // Share pages: read-only, no workbench chrome (sidebar / auth / admin / import)
+  if (pathname?.startsWith("/share")) {
+    return (
+      <div className="app-shell-height overflow-y-auto custom-scrollbar bg-background">
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell-height flex flex-col overflow-hidden bg-background">
       <header className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3 border-b border-border bg-card shrink-0">

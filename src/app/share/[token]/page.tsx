@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import Link from "next/link";
 import ShareOverviewView from "@/components/share-overview-view";
 import type { ShareOverviewPayload } from "@/lib/share-payload";
 
@@ -47,7 +46,7 @@ export default function SharePage() {
     load();
   }, [load]);
 
-  // After login in another tab/window, retry when page regains focus
+  // After login in another tab, retry when this tab regains focus
   useEffect(() => {
     if (state.kind !== "auth_required") return;
     const onFocus = () => load();
@@ -57,44 +56,32 @@ export default function SharePage() {
 
   if (state.kind === "loading") {
     return (
-      <div className="flex-1 overflow-y-auto p-8 text-center text-fog text-sm">
-        加载中…
-      </div>
+      <div className="min-h-full p-8 text-center text-fog text-sm">加载中…</div>
     );
   }
   if (state.kind === "not_found") {
     return (
-      <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center justify-center gap-3">
+      <div className="min-h-full p-8 flex flex-col items-center justify-center gap-2">
         <p className="text-foreground font-medium">链接不存在或已失效</p>
-        <Link href="/" className="text-sm text-primary">
-          返回首页
-        </Link>
       </div>
     );
   }
   if (state.kind === "auth_required") {
     return (
-      <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center justify-center gap-3">
-        <p className="text-foreground font-medium">需要登录后查看</p>
-        <p className="text-sm text-fog">
-          请使用右上角登录；登录成功后回到本页或刷新
+      <div className="min-h-full p-8 flex flex-col items-center justify-center gap-3">
+        <p className="text-foreground font-medium">此链接仅登录用户可查看</p>
+        <p className="text-sm text-fog text-center max-w-sm">
+          请先在其他标签页登录本站账号，再回到此页刷新。
         </p>
         <button
           type="button"
-          className="text-sm text-primary"
+          className="text-sm text-primary hover:underline"
           onClick={() => load()}
         >
-          我已登录，重试
+          刷新重试
         </button>
-        <Link href="/" className="text-sm text-fog">
-          返回首页
-        </Link>
       </div>
     );
   }
-  return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar bg-background">
-      <ShareOverviewView payload={state.payload} />
-    </div>
-  );
+  return <ShareOverviewView payload={state.payload} />;
 }

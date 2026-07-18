@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import type { ShareCharacter, ShareOverviewPayload } from "@/lib/share-payload";
 import OverviewDetailSheet from "@/components/overview-detail-sheet";
 import { BookOpen, Globe, Users } from "lucide-react";
@@ -145,12 +144,9 @@ export default function ShareOverviewView({
         )}
       </section>
 
-      {/* Footer */}
-      <footer className="pt-4 border-t border-border/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-sm text-fog">
-        <span>由小说创作工作台生成</span>
-        <Link href="/" className="text-primary hover:underline">
-          返回首页
-        </Link>
+      {/* Footer — attribution only; no navigation (read-only share) */}
+      <footer className="pt-4 border-t border-border/50 text-sm text-fog">
+        由小说创作工作台生成 · 只读分享
       </footer>
     </div>
   );
