@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import type { CharacterProfile, StoryInfo } from "@/types";
 
 export type ShareVisibility = "public" | "auth";
@@ -34,9 +33,14 @@ export interface ShareOverviewPayload {
   characters: ShareCharacter[];
 }
 
-/** ≥108 bits entropy, url-safe. */
+/** ≥108 bits entropy, url-safe. Uses Web Crypto (works in Node + browser bundles). */
 export function mintShareToken(): string {
-  return randomBytes(18).toString("base64url");
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  // base64url without padding
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 export function toShareCharacter(c: CharacterProfile): ShareCharacter {
