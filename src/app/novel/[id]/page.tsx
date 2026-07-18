@@ -10,6 +10,7 @@ import {
   Check,
   Minus,
   ChevronRight,
+  Share2,
 } from "lucide-react";
 import StoryInfoPanel, {
   CharacterPreviewCard,
@@ -18,6 +19,7 @@ import FormSummaryCard from "@/components/form-summary-card";
 import TimelineSummaryCard from "@/components/timeline-summary-card";
 import RelationshipGraph from "@/components/relationship-graph";
 import CharacterJobStatus from "@/components/character-job-status";
+import ShareDialog from "@/components/share-dialog";
 import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
 import { LIBRARIES_REFRESH_EVENT } from "@/lib/library-events";
 import type { ChapterTimeline } from "@/types";
@@ -49,6 +51,7 @@ export default function NovelPage() {
   /** Catalog extracted (TOC entries) — required for write */
   const [hasCatalog, setHasCatalog] = useState(false);
   const [catalogCount, setCatalogCount] = useState(0);
+  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     if (!novelId) return;
@@ -165,6 +168,14 @@ export default function NovelPage() {
                   </span>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={() => setShareOpen(true)}
+                className="mt-4 inline-flex items-center gap-1.5 text-sm rounded-xl border border-border/60 px-3 py-1.5 hover:bg-secondary transition-colors"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                分享概览
+              </button>
             </div>
           </div>
         </header>
@@ -362,6 +373,14 @@ export default function NovelPage() {
           </p>
         )}
       </div>
+
+      {novelId && (
+        <ShareDialog
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+          novelId={novelId}
+        />
+      )}
     </div>
   );
 }
