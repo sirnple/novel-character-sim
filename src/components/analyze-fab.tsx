@@ -106,7 +106,10 @@ export default function AnalyzeFab({
             ? " · 未提取到目录"
             : "";
       const tlNote = data.timelineJobId ? " · 时间线后台进行中" : "";
-      const msg = `${ran}${skipped ? `；跳过 ${skipped}` : ""}${formNote}${tlNote}`;
+      const charNote = data.characterJobId
+        ? " · 角色分段扫描后台进行中"
+        : "";
+      const msg = `${ran}${skipped ? `；跳过 ${skipped}` : ""}${formNote}${tlNote}${charNote}`;
 
       markAnalysisDone(targetNovelId, msg);
       notifyLibrariesRefresh();
@@ -116,6 +119,36 @@ export default function AnalyzeFab({
           jobId: String(data.timelineJobId),
           branchId: "main",
         });
+      }
+      // Poll character job until done so overview can refresh cards
+      if (data.characterJobId) {
+        const cj = String(data.characterJobId);
+        void (async () => {
+          for (let i = 0; i < 600; i++) {
+            await new Promise((r) => setTimeout(r, 2000));
+            try {
+              const r = await fetch(
+                `/api/characters/job?jobId=${encodeURIComponent(cj)}`,
+              );
+              const d = await r.json();
+              const st = d.job?.status;
+              if (st === "done" || st === "error" || st === "cancelled") {
+                notifyLibrariesRefresh();
+                if (novelIdRef.current === targetNovelId && d.characters) {
+                  onDoneRef.current?.({
+                    ...data,
+                    characters: d.characters,
+                    characterJobId: cj,
+                    characterJob: d.job,
+                  });
+                }
+                break;
+              }
+            } catch {
+              /* ignore poll errors */
+            }
+          }
+        })();
       }
       // Only refresh page state if still on this novel (avoid hijacking other book)
       if (novelIdRef.current === targetNovelId) {

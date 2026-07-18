@@ -9,6 +9,11 @@
     "lint": "next lint",
     "test": "npx tsx scripts/run-tests.ts",
     "test:store": "npx tsx scripts/test-shared-store.ts",
+    "eval:characters": "npx tsx scripts/eval-character-name-scan.ts",
+    "eval:download-wiki-gold": "npx tsx scripts/eval/download-wiki-character-gold.ts",
+    "eval:download-public-texts": "npx tsx scripts/eval/download-public-domain-texts.ts",
+    "eval:import-public": "npx tsx scripts/eval/import-public-novel.ts",
+    "eval:run-book": "npx tsx scripts/eval/run-book-character-eval.ts",
     "prepare": "husky"
   },
   "dependencies": {

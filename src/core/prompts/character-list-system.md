@@ -1,6 +1,14 @@
-你是文学分析家。阅读以下小说节选，识别所有有名有姓的角色。
+你是文学分析家。请根据「频次人名名单」（若有）与「小说节选」裁定故事角色。
 
-小说节选：
+## 频次合格人名（全书分段扫描后按出现次数过滤；可能为空）
+{{frequencyRoster}}
+
+## 小说节选（代表性片段）
 {{novelContext}}
 
-对每个角色提供 name（名字）、aliases（别名列表）、role（protagonist/antagonist/supporting/minor）、briefDescription（一句话简介，20字以内）。列出所有角色。
+## 任务
+1. 若上方名单非空：以名单为主要来源，删掉非角色，合并别名；节选中确有重要遗漏可少量补充。
+2. 若名单标明为节选直抽 / 为空：仅根据小说节选列出角色（兼容旧路径）。
+3. 对每个保留角色给出：name、aliases、role（protagonist/antagonist/supporting/minor）、briefDescription（一句话，20字内）。
+4. 尽量列全具名重要与次要角色；不要只写主角。
+5. 不要在此步写长篇性格、关系网、世界观。

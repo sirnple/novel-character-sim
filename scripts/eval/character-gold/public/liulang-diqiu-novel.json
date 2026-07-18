@@ -1,0 +1,20 @@
+{
+  "id": "public_liulang_diqiu_novel",
+  "title": "流浪地球（小说）",
+  "tier": "short",
+  "source": "wikipedia-download",
+  "sourceUrl": "https://zh.wikipedia.org/wiki/%E6%B5%81%E6%B5%AA%E5%9C%B0%E7%90%83_(%E5%B0%8F%E8%AF%B4)",
+  "sourceWikiTitle": "流浪地球_(小说)",
+  "fetchedAt": "2026-07-18T15:17:03.788Z",
+  "licenseNote": "Names extracted from Chinese Wikipedia (CC BY-SA). For evaluation only.",
+  "mustFind": [
+    "小星老师",
+    "阿东",
+    "灵儿",
+    "爸爸",
+    "妈妈",
+    "父亲"
+  ],
+  "aliasOf": {},
+  "notes": "小说条目几乎无角色表；mustFind 仅用 prefer（通行小说人物），preferOnly。非电影。 维基抽取候选 19，mustFind 6。prefer 名单保证主线人物在列。导入正文后请校对 id 与 mustFind。"
+}

@@ -1208,6 +1208,146 @@ export function getTimelineJobRow(id: string): TimelineJobPersist | null {
   }
 }
 
+// ---- Character extract jobs + per-unit name cache ----
+
+function ensureCharacterExtractTables(d: Database.Database): void {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS character_extract_jobs (
+      id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      novel_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
+      status TEXT NOT NULL,
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_char_extract_jobs_novel
+      ON character_extract_jobs (user_id, novel_id, updated_at);
+
+    CREATE TABLE IF NOT EXISTS character_name_unit_cache (
+      user_id TEXT NOT NULL,
+      novel_id TEXT NOT NULL,
+      cache_key TEXT NOT NULL,
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, novel_id, cache_key)
+    );
+  `);
+}
+
+export function saveCharacterExtractJobRow(job: {
+  id: string;
+  userId: string;
+  novelId: string;
+  branchId?: string;
+  status: string;
+  updatedAt?: string;
+  createdAt?: string;
+  // full job JSON-serialized
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [k: string]: any;
+}): void {
+  const d = getDb();
+  ensureCharacterExtractTables(d);
+  const updatedAt = String(job.updatedAt || new Date().toISOString());
+  const existing = d
+    .prepare(`SELECT created_at FROM character_extract_jobs WHERE id = ?`)
+    .get(job.id) as { created_at?: string } | undefined;
+  const createdAt = String(
+    existing?.created_at || job.createdAt || updatedAt,
+  );
+  d.prepare(
+    `INSERT OR REPLACE INTO character_extract_jobs
+      (id, user_id, novel_id, branch_id, status, data, updated_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    job.id,
+    job.userId,
+    job.novelId,
+    job.branchId || "main",
+    job.status,
+    JSON.stringify(job),
+    updatedAt,
+    createdAt,
+  );
+}
+
+export function getCharacterExtractJobRow(id: string): Record<string, unknown> | null {
+  const d = getDb();
+  ensureCharacterExtractTables(d);
+  const row = d
+    .prepare(`SELECT data FROM character_extract_jobs WHERE id = ?`)
+    .get(id) as { data: string } | undefined;
+  if (!row?.data) return null;
+  try {
+    return JSON.parse(row.data) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+export function listCharacterExtractJobRows(
+  userId: string,
+  novelId: string,
+): Record<string, unknown>[] {
+  const d = getDb();
+  ensureCharacterExtractTables(d);
+  const rows = d
+    .prepare(
+      `SELECT data FROM character_extract_jobs
+       WHERE user_id = ? AND novel_id = ?
+       ORDER BY updated_at DESC LIMIT 20`,
+    )
+    .all(userId, novelId) as { data: string }[];
+  return rows
+    .map((r) => {
+      try {
+        return JSON.parse(r.data) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean) as Record<string, unknown>[];
+}
+
+export function getNameUnitCache(
+  userId: string,
+  novelId: string,
+  cacheKey: string,
+): { name: string; aliases?: string[]; count?: number }[] | null {
+  const d = getDb();
+  ensureCharacterExtractTables(d);
+  const row = d
+    .prepare(
+      `SELECT data FROM character_name_unit_cache
+       WHERE user_id = ? AND novel_id = ? AND cache_key = ?`,
+    )
+    .get(userId, novelId, cacheKey) as { data: string } | undefined;
+  if (!row?.data) return null;
+  try {
+    return JSON.parse(row.data);
+  } catch {
+    return null;
+  }
+}
+
+export function saveNameUnitCache(
+  userId: string,
+  novelId: string,
+  cacheKey: string,
+  hits: { name: string; aliases?: string[]; count?: number }[],
+): void {
+  const d = getDb();
+  ensureCharacterExtractTables(d);
+  d.prepare(
+    `INSERT OR REPLACE INTO character_name_unit_cache
+      (user_id, novel_id, cache_key, data, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))`,
+  ).run(userId, novelId, cacheKey, JSON.stringify(hits));
+}
+
 export function listTimelineJobRows(
   userId: string,
   novelId: string,

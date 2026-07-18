@@ -23,9 +23,15 @@ export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
   },
 
   // ---- Extraction ----
+  character_names_unit: {
+    system: "character-names-unit-system.md",
+    systemEn: "character-names-unit-system.en.md",
+    // vars: unitLabel, unitText
+  },
   character_list: {
     system: "character-list-system.md",
     systemEn: "character-list-system.en.md",
+    // vars: novelContext, frequencyRoster
   },
   character_detail: {
     system: "character-detail-system.md",

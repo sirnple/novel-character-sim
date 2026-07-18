@@ -28,11 +28,19 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
 
   // ---- Extraction ----
   {
+    agentId: "character_names_unit",
+    name: "分段人名扫描",
+    description: "按章/窗只抽取本段出现的人名与别名（无性格/关系）",
+    category: "extraction",
+    variables: ["unitLabel", "unitText"],
+    bilingual: true,
+  },
+  {
     agentId: "character_list",
     name: "角色列表提取 (Pass 1)",
-    description: "从小说节选中识别所有具名角色，提取名字、别名、角色定位",
+    description: "对频次过滤后的人名名单裁定角色（别名/定位/简介）",
     category: "extraction",
-    variables: ["novelContext"],
+    variables: ["novelContext", "frequencyRoster"],
     bilingual: true,
   },
   {

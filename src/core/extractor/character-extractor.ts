@@ -7,9 +7,13 @@ import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
 // ============================================================
 // Character Extraction Engine
 // Multi-pass extraction:
-//   1. Identify all character names + basic info
+//   1. Identify character names + basic info (legacy excerpt Pass1)
 //   2. Deep-dive each character (personality, behavior, values, etc.)
 //   3. Extract relationship graph
+//
+// NOTE: Unit-wise Flash name scan is specified in
+// docs/superpowers/specs/2026-07-18-character-name-scan-design.md
+// and is NOT the default path until that spec is grill-frozen.
 // ============================================================
 
 const CHARACTER_LIST_SCHEMA = {
@@ -358,11 +362,14 @@ export class CharacterExtractor {
   private extractAllResults: import("@/types").CharacterProfile[] = [];
 
   private async extractCharacterList(llm: ReturnType<typeof createLLMProvider>): Promise<RawCharacter[]> {
+    // Legacy excerpt-based Pass1 (sync extractAll). Unit-scan uses mergeFrequencyRoster via job.
     console.log(`[Extractor] Pass 1: Identifying characters (contextLen=${this.novelContext.length})...`);
     const t0 = Date.now();
 
     const prompt = resolveAgentSystem("character_list", this.zh ? "zh" : "en", {
       novelContext: this.novelContext,
+      frequencyRoster:
+        "（当前为节选直抽模式。请仅根据下方小说节选列出角色。）",
     });
 
     const result = await llm.chatWithTool<{ characters: RawCharacter[] }>(
@@ -371,8 +378,151 @@ export class CharacterExtractor {
       { temperature: 0.3, maxTokens: 8192 }
     );
 
-    console.log(`[Extractor] Pass 1 done: ${result.characters?.length || 0} characters found (${Date.now() - t0}ms)`);
+    console.log(
+      `[Extractor] Pass 1 done: ${result.characters?.length || 0} characters found (${Date.now() - t0}ms)`,
+    );
     return result.characters || [];
+  }
+
+  /**
+   * Pass1b for unit-scan path: merge frequency-qualified roster into roles + brief.
+   */
+  async mergeFrequencyRoster(
+    llm: ReturnType<typeof createLLMProvider>,
+    frequencyRoster: string,
+  ): Promise<RawCharacter[]> {
+    console.log(
+      `[Extractor] Pass 1b merge roster (contextLen=${this.novelContext.length})...`,
+    );
+    const t0 = Date.now();
+    const prompt = resolveAgentSystem("character_list", this.zh ? "zh" : "en", {
+      novelContext: this.novelContext,
+      frequencyRoster:
+        frequencyRoster ||
+        "（无频次名单）",
+    });
+
+    const result = await llm.chatWithTool<{ characters: RawCharacter[] }>(
+      [{ role: "user", content: prompt }],
+      CHARACTER_LIST_SCHEMA,
+      { temperature: 0.3, maxTokens: 8192 },
+    );
+
+    // Chunked merge if model returns nothing but roster huge — caller may retry batches
+    console.log(
+      `[Extractor] Pass 1b done: ${result.characters?.length || 0} (${Date.now() - t0}ms)`,
+    );
+    return result.characters || [];
+  }
+
+  /**
+   * Pass2 + Pass3 from a raw list (used by async character job).
+   */
+  async completeFromRawList(
+    llm: ReturnType<typeof createLLMProvider>,
+    rawCharacters: RawCharacter[],
+    opts?: { onPhase?: (phase: "detail" | "relationships", message: string) => void },
+  ): Promise<CharacterProfile[]> {
+    if (rawCharacters.length === 0) {
+      throw new Error("No characters found in the novel text.");
+    }
+
+    const MAX_DETAIL_CHARS = 5;
+    const priorityOrder = ["protagonist", "antagonist", "supporting"];
+    const sortedChars = [...rawCharacters].sort(
+      (a, b) => priorityOrder.indexOf(a.role) - priorityOrder.indexOf(b.role),
+    );
+    const detailChars = sortedChars.slice(0, MAX_DETAIL_CHARS);
+    opts?.onPhase?.(
+      "detail",
+      `深挖人设 ${detailChars.length}/${rawCharacters.length}…`,
+    );
+
+    const characterMap = new Map<string, CharacterProfile>();
+    for (const raw of rawCharacters) {
+      characterMap.set(raw.name, {
+        id: generateId(),
+        name: raw.name,
+        aliases: raw.aliases || [],
+        appearance: { summary: raw.briefDescription },
+        personality: {
+          traits: [],
+          description: raw.briefDescription,
+          decisionStyle: "",
+          underPressure: "",
+        },
+        drive: {
+          goal: "",
+          motivation: "",
+          fear: "",
+          weakness: "",
+          bottomLine: "",
+          secret: "",
+        },
+        behavior: { patterns: [], habits: [], attitudeToAuthority: "" },
+        worldview: "",
+        values: [],
+        speakingStyle: {
+          description: "",
+          catchphrases: [],
+          sentenceStyle: "",
+          vocabulary: "",
+          emotionalExpression: "",
+        },
+        voice: { description: "" },
+        background: { origin: "", keyEvents: [], description: "" },
+        relationships: [],
+      });
+    }
+
+    for (let i = 0; i < detailChars.length; i++) {
+      const raw = detailChars[i];
+      const detail = await this.extractCharacterDetail(llm, raw);
+      const existing = characterMap.get(raw.name)!;
+      existing.appearance = detail.appearance;
+      existing.personality = detail.personality;
+      existing.drive = detail.drive;
+      existing.behavior = detail.behavior;
+      existing.worldview = detail.worldview;
+      existing.values = detail.values;
+      existing.speakingStyle = detail.speakingStyle;
+      existing.voice = detail.voice || { description: "" };
+      existing.background = detail.background;
+    }
+
+    opts?.onPhase?.("relationships", `关系网 ${rawCharacters.length} 人…`);
+    const rawRelationships = await this.extractRelationships(
+      llm,
+      rawCharacters.map((r) => r.name),
+    );
+
+    for (const rel of rawRelationships) {
+      const charA = characterMap.get(rel.characterA);
+      const charB = characterMap.get(rel.characterB);
+      if (charA) {
+        charA.relationships.push({
+          characterId: charB?.id || "",
+          characterName: rel.characterB,
+          type: rel.type,
+          description: rel.description,
+          history: rel.history || "",
+          dynamics: rel.dynamics || "",
+        });
+      }
+      if (charB) {
+        charB.relationships.push({
+          characterId: charA?.id || "",
+          characterName: rel.characterA,
+          type: rel.type,
+          description: rel.description,
+          history: rel.history || "",
+          dynamics: rel.dynamics || "",
+        });
+      }
+    }
+
+    this.extractAllResults = Array.from(characterMap.values());
+    return this.extractAllResults;
   }
 
   private async extractCharacterDetail(

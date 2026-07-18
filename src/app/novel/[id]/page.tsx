@@ -17,6 +17,7 @@ import StoryInfoPanel, {
 import FormSummaryCard from "@/components/form-summary-card";
 import TimelineSummaryCard from "@/components/timeline-summary-card";
 import RelationshipGraph from "@/components/relationship-graph";
+import CharacterJobStatus from "@/components/character-job-status";
 import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
 import { LIBRARIES_REFRESH_EVENT } from "@/lib/library-events";
 import type { ChapterTimeline } from "@/types";
@@ -218,6 +219,17 @@ export default function NovelPage() {
               <span className="text-xs text-fog font-normal">{characters.length}</span>
               {characters.length > 0 && (
                 <span className="text-xs text-fog font-normal">· 点击查看</span>
+              )}
+              {novelId && (
+                <span className="ml-auto max-w-[min(100%,20rem)] text-right">
+                  <CharacterJobStatus
+                    novelId={novelId}
+                    onCharactersReady={() => {
+                      // soft refresh overview data
+                      window.dispatchEvent(new Event(LIBRARIES_REFRESH_EVENT));
+                    }}
+                  />
+                </span>
               )}
             </div>
             {characters.length === 0 ? (

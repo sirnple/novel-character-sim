@@ -7,12 +7,12 @@
  * - Phase 2: timeline after unit split (and characters if needed)
  */
 import { parseNovel } from "@/core/parser/novel-parser";
-import { CharacterExtractor } from "@/core/extractor/character-extractor";
 import { StoryExtractor } from "@/core/extractor/story-extractor";
 import { extractWritingStyle } from "@/core/extractor/style-extractor";
 import { extractIdeas } from "@/core/extractor/idea-extractor";
 import { analyzeNovelForm } from "@/core/form/form-analyzer";
 import { startTimelineJob } from "@/core/form/timeline-job";
+import { startCharacterExtractJob } from "@/core/extractor/character-extract-job";
 import {
   saveNovel, saveStoryInfo, saveCharacters,
   getStoryInfo, getCharacters, getTimeline, getChapterStates, getNovel,
@@ -51,6 +51,8 @@ export interface ModularExtractResult {
   chapterCatalogCount?: number;
   /** Async timeline job id when timeline module selected */
   timelineJobId?: string;
+  /** Async character unit-scan job id */
+  characterJobId?: string;
   ran: ExtractModule[];
   skipped: { module: ExtractModule; reason: string }[];
 }
@@ -178,18 +180,26 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
     }
 
     if (mod === "characters") {
-      console.log("[Extract] characters...");
-      const characters = await runWithTokenContext({ agentId: "extract_characters" }, () =>
-        new CharacterExtractor(parsed).extractAll(),
-      );
-      saveCharacters(userId, novelId, characters);
-      saveGenerationLog({
-        id: crypto.randomUUID(), userId, novelId, category: "extract", label: "角色提取",
-        inputSummary: text.slice(0, 200),
-        outputPreview: characters.map((c) => c.name).join(", "),
-        fullOutput: JSON.stringify(characters),
+      // Async unit-scan job (spec); do not block HTTP like timeline
+      console.log("[Extract] characters → async unit-scan job");
+      const job = startCharacterExtractJob({
+        userId,
+        novelId,
+        branchId,
+        forceRefresh,
+        text,
       });
-      return { mod, characters } as const;
+      saveGenerationLog({
+        id: crypto.randomUUID(),
+        userId,
+        novelId,
+        category: "extract",
+        label: "角色异步任务",
+        inputSummary: text.slice(0, 200),
+        outputPreview: `job=${job.id} units=${job.total}`,
+        fullOutput: JSON.stringify({ jobId: job.id, total: job.total }),
+      });
+      return { mod, characterJobId: job.id } as const;
     }
 
     if (mod === "style") {
@@ -270,8 +280,14 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
       result.storyInfo = r.storyInfo;
       result.ran.push("story");
     } else if (r.mod === "characters") {
-      result.characters = r.characters;
-      result.ran.push("characters");
+      if ("characterJobId" in r && r.characterJobId) {
+        result.characterJobId = r.characterJobId as string;
+        result.characters = getCharacters(userId, novelId);
+        result.ran.push("characters");
+      } else if ("characters" in r) {
+        result.characters = (r as { characters?: CharacterProfile[] }).characters;
+        result.ran.push("characters");
+      }
     } else if (r.mod === "form") {
       result.form = r.form;
       result.chapterCatalogCount = r.chapterCatalogCount;
@@ -298,7 +314,12 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
   }
 
   // ---- Phase 2: timeline (async full job — does not block HTTP) ----
-  if (want("timeline")) {
+  if (want("timeline") && result.characterJobId) {
+    result.skipped.push({
+      module: "timeline",
+      reason: "角色分段扫描进行中，请完成后重新分析时间线",
+    });
+  } else if (want("timeline")) {
     // Hard dependency (D7): form/catalog before timeline units when possible
     if (!result.form) {
       result.form = getNovelForm(userId, novelId);

@@ -18,6 +18,8 @@ import { runAcceptChapterMetaTests } from "./tests/accept-chapter-meta.test";
 import { runTimelineBranchScopeTests } from "./tests/timeline-branch-scope.test";
 import { runExportTxtTocTests } from "./tests/export-txt-toc.test";
 import { runTitleResolveTests } from "./tests/title-resolve.test";
+import { runCharacterCandidatesTests } from "./tests/character-candidates.test";
+import { runCharacterNameFrequencyTests } from "./tests/character-name-frequency.test";
 
 function main() {
   resetCounters();
@@ -38,6 +40,8 @@ function main() {
   runTimelineBranchScopeTests();
   runExportTxtTocTests();
   runTitleResolveTests();
+  runCharacterCandidatesTests();
+  runCharacterNameFrequencyTests();
 
   const { failed } = summary();
   if (failed > 0) process.exitCode = 1;

@@ -1,0 +1,13 @@
+{
+  "id": "novel_bnf7gh",
+  "title": "欲孽灼心",
+  "tier": "short",
+  "source": "user-owned",
+  "sourceNote": "用户自有正文。下列为会话中出现过的种子名单，请主人按自己的 txt 增删。",
+  "mustFind": ["周屿", "许栀", "秦予嫣", "周航", "王铎", "张达", "肖诺"],
+  "aliasOf": {
+    "许老师": "许栀"
+  },
+  "notes": "你负责维护；可改 mustFind / aliasOf。"
+}
+
