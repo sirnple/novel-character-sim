@@ -18,6 +18,7 @@ export interface ShareCharacter {
     fear?: string;
   };
   relationships?: Array<{
+    characterId?: string;
     characterName: string;
     type: string;
     description?: string;
@@ -56,11 +57,67 @@ export function toShareCharacter(c: CharacterProfile): ShareCharacter {
       fear: c.drive?.fear || "",
     },
     relationships: (c.relationships || []).slice(0, 24).map((r) => ({
+      characterId: r.characterId || "",
       characterName: r.characterName,
       type: r.type,
       description: r.description || "",
     })),
   };
+}
+
+/**
+ * Lift whitelist share characters into CharacterProfile shape for read-only
+ * RelationshipGraph (edges resolve by id or name).
+ */
+export function shareCharactersToProfiles(
+  chars: ShareCharacter[],
+): CharacterProfile[] {
+  const nameToId = new Map(
+    chars.map((c) => [c.name, c.id || c.name] as const),
+  );
+  return chars.map((c) => ({
+    id: c.id || c.name,
+    name: c.name,
+    aliases: c.aliases || [],
+    appearance: { summary: c.appearance?.summary || "" },
+    personality: {
+      traits: c.personality?.traits || [],
+      description: c.personality?.description || "",
+      decisionStyle: "",
+      underPressure: "",
+    },
+    drive: {
+      goal: c.drive?.goal || "",
+      motivation: c.drive?.motivation || "",
+      fear: c.drive?.fear || "",
+      weakness: "",
+      bottomLine: "",
+      secret: "",
+    },
+    behavior: { patterns: [], habits: [], attitudeToAuthority: "" },
+    worldview: "",
+    values: [],
+    speakingStyle: {
+      description: "",
+      catchphrases: [],
+      sentenceStyle: "",
+      vocabulary: "",
+      emotionalExpression: "",
+    },
+    voice: { description: "" },
+    background: { origin: "", keyEvents: [], description: "" },
+    relationships: (c.relationships || []).map((r) => ({
+      characterId:
+        r.characterId ||
+        nameToId.get(r.characterName) ||
+        r.characterName,
+      characterName: r.characterName,
+      type: r.type,
+      description: r.description || "",
+      history: "",
+      dynamics: "",
+    })),
+  }));
 }
 
 export function buildSharePayload(input: {

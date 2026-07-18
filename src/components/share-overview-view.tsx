@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ShareCharacter, ShareOverviewPayload } from "@/lib/share-payload";
+import { shareCharactersToProfiles } from "@/lib/share-payload";
 import OverviewDetailSheet from "@/components/overview-detail-sheet";
+import RelationshipGraph from "@/components/relationship-graph";
 import { BookOpen, Globe, Users } from "lucide-react";
 
 function formatGeneratedAt(iso: string): string {
@@ -20,9 +22,16 @@ export default function ShareOverviewView({
 }) {
   const story = payload.story;
   const characters = payload.characters || [];
+  const graphCharacters = useMemo(
+    () => shareCharactersToProfiles(characters),
+    [characters],
+  );
+  const hasAnyRel = graphCharacters.some(
+    (c) => (c.relationships?.length ?? 0) > 0,
+  );
 
   return (
-    <div className="mx-auto max-w-3xl px-4 sm:px-6 py-8 sm:py-10 space-y-8">
+    <div className="mx-auto max-w-5xl px-4 sm:px-6 py-8 sm:py-10 space-y-8">
       {/* Header */}
       <header className="space-y-2">
         <p className="text-xs font-medium text-fog tracking-wide">分享的小说概览</p>
@@ -143,6 +152,17 @@ export default function ShareOverviewView({
           </div>
         )}
       </section>
+
+      {/* Relationship graph — read-only snapshot */}
+      {characters.length > 0 && hasAnyRel && (
+        <section className="ov-card p-4 sm:p-5">
+          <RelationshipGraph
+            characters={graphCharacters}
+            height={440}
+            readOnly
+          />
+        </section>
+      )}
 
       {/* Footer — attribution only; no navigation (read-only share) */}
       <footer className="pt-4 border-t border-border/50 text-sm text-fog">

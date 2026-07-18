@@ -107,6 +107,7 @@ export function runSharePayloadTests(): void {
       assert.ok(!("background" in s));
       assert.ok(!("speakingStyle" in s));
       assert.equal(s.relationships?.[0]?.characterName, "贾宝玉");
+      assert.equal(s.relationships?.[0]?.characterId, "x");
       assert.equal(s.relationships?.[0]?.type, "知己");
       assert.equal(s.relationships?.[0]?.description, "木石前盟");
       assert.ok(!("history" in (s.relationships?.[0] || {})));
