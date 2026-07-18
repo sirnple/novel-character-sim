@@ -29,10 +29,17 @@ export default function ShareDialog({
 
   const refresh = useCallback(async () => {
     if (!novelId) return;
-    const res = await fetch(`/api/share?novelId=${encodeURIComponent(novelId)}`);
-    if (!res.ok) return;
-    const data = await res.json();
-    setShares(data.shares || []);
+    try {
+      const res = await fetch(`/api/share?novelId=${encodeURIComponent(novelId)}`);
+      if (!res.ok) {
+        setError("加载分享列表失败");
+        return;
+      }
+      const data = await res.json();
+      setShares(data.shares || []);
+    } catch {
+      setError("加载分享列表失败");
+    }
   }, [novelId]);
 
   useEffect(() => {
@@ -80,18 +87,52 @@ export default function ShareDialog({
   };
 
   const revoke = async (token: string) => {
-    await fetch(`/api/share/${encodeURIComponent(token)}`, { method: "DELETE" });
-    await refresh();
+    setError("");
+    try {
+      const res = await fetch(`/api/share/${encodeURIComponent(token)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        let message = "撤销失败";
+        try {
+          const data = await res.json();
+          message = data.message || data.error || message;
+        } catch {
+          /* ignore parse errors */
+        }
+        setError(message);
+      }
+      await refresh();
+    } catch {
+      setError("撤销失败");
+      await refresh();
+    }
   };
 
   const toggleVis = async (item: ShareItem) => {
+    setError("");
     const next: ShareVisibility = item.visibility === "public" ? "auth" : "public";
-    await fetch(`/api/share/${encodeURIComponent(item.token)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ visibility: next }),
-    });
-    await refresh();
+    try {
+      const res = await fetch(`/api/share/${encodeURIComponent(item.token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: next }),
+      });
+      if (!res.ok) {
+        let message = "更改可见性失败";
+        try {
+          const data = await res.json();
+          message = data.message || data.error || message;
+        } catch {
+          /* ignore parse errors */
+        }
+        setError(message);
+        return;
+      }
+      await refresh();
+    } catch {
+      setError("更改可见性失败");
+    }
   };
 
   if (!open) return null;
