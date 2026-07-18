@@ -20,6 +20,7 @@ import { runExportTxtTocTests } from "./tests/export-txt-toc.test";
 import { runTitleResolveTests } from "./tests/title-resolve.test";
 import { runCharacterCandidatesTests } from "./tests/character-candidates.test";
 import { runCharacterNameFrequencyTests } from "./tests/character-name-frequency.test";
+import { runSharePayloadTests } from "./tests/share-payload.test";
 
 function main() {
   resetCounters();
@@ -42,6 +43,7 @@ function main() {
   runTitleResolveTests();
   runCharacterCandidatesTests();
   runCharacterNameFrequencyTests();
+  runSharePayloadTests();
 
   const { failed } = summary();
   if (failed > 0) process.exitCode = 1;

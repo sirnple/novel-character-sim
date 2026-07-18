@@ -1,0 +1,94 @@
+import { randomBytes } from "node:crypto";
+import type { CharacterProfile, StoryInfo } from "@/types";
+
+export type ShareVisibility = "public" | "auth";
+
+export interface ShareCharacter {
+  id: string;
+  name: string;
+  aliases: string[];
+  appearance?: { summary?: string };
+  personality?: {
+    traits?: string[];
+    description?: string;
+  };
+  drive?: {
+    goal?: string;
+    motivation?: string;
+    fear?: string;
+  };
+  relationships?: Array<{
+    characterName: string;
+    type: string;
+    description?: string;
+  }>;
+}
+
+export interface ShareOverviewPayload {
+  version: 1;
+  title: string;
+  language?: string;
+  generatedAt: string;
+  story: StoryInfo | null;
+  characters: ShareCharacter[];
+}
+
+/** ≥108 bits entropy, url-safe. */
+export function mintShareToken(): string {
+  return randomBytes(18).toString("base64url");
+}
+
+export function toShareCharacter(c: CharacterProfile): ShareCharacter {
+  return {
+    id: c.id || "",
+    name: c.name || "",
+    aliases: Array.isArray(c.aliases) ? c.aliases.slice() : [],
+    appearance: c.appearance?.summary
+      ? { summary: c.appearance.summary }
+      : undefined,
+    personality: {
+      traits: c.personality?.traits?.slice() || [],
+      description: c.personality?.description || "",
+    },
+    drive: {
+      goal: c.drive?.goal || "",
+      motivation: c.drive?.motivation || "",
+      fear: c.drive?.fear || "",
+    },
+    relationships: (c.relationships || []).slice(0, 24).map((r) => ({
+      characterName: r.characterName,
+      type: r.type,
+      description: r.description || "",
+    })),
+  };
+}
+
+export function buildSharePayload(input: {
+  title: string;
+  language?: string;
+  story: StoryInfo | null;
+  characters: CharacterProfile[];
+  generatedAt?: string;
+}): ShareOverviewPayload {
+  return {
+    version: 1,
+    title: input.title || "未命名",
+    language: input.language,
+    generatedAt: input.generatedAt || new Date().toISOString(),
+    story: input.story,
+    characters: (input.characters || []).map(toShareCharacter),
+  };
+}
+
+export function isShareVisibility(v: unknown): v is ShareVisibility {
+  return v === "public" || v === "auth";
+}
+
+/** True if payload has something worth showing. */
+export function hasShareableContent(
+  story: StoryInfo | null,
+  characters: CharacterProfile[],
+): boolean {
+  const hasStory = !!(story && (story.plotSummary || story.mainStoryline || story.title));
+  return hasStory || (characters?.length ?? 0) > 0;
+}
