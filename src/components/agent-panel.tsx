@@ -141,7 +141,7 @@ const TOOL_LABELS: Record<string, string> = {
   build_form_draft: "建章法草稿",
   enrich_form_draft: "LLM补全章法",
   submit_form: "提交章法",
-  ensure_name_scan: "扫名建候选",
+  scan_character_mentions: "扫描角色指称",
   list_surface_candidates: "列出称呼候选",
   lookup_surface: "查称呼上下文",
   lookup_offset: "按位置读文",

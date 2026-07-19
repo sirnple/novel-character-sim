@@ -3,10 +3,13 @@
  *
  * name    = 真实姓名 (e.g. 孙悟空, 猪八戒)
  * aliases = 封号/外号/法号/绰号 (e.g. 齐天大圣, 美猴王, 天蓬元帅) — never another person
+ *         · 仅第三人称稳定指称；剔除 我爸/你妈 等第一二人称指示语
  *
  * Safety: only merge on name↔name string relatedness. Cross-character alias
  * pollution is stripped by sanitizeAliasesAgainstRoster.
  */
+
+
 
 export interface ConsolidatableCharacter {
   name: string;

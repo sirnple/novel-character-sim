@@ -8,21 +8,38 @@ import type {
 import type { ForeshadowingLedger } from "@/core/foreshadowing/types";
 import { emptyLedger } from "@/core/foreshadowing/types";
 
-const DB_PATH = path.join(process.cwd(), "data", "novels.db");
+/** Default app DB. Override with NCS_DB_PATH or NOVEL_DB_PATH (absolute or cwd-relative). */
+export function resolveDbPath(): string {
+  const fromEnv = (process.env.NCS_DB_PATH || process.env.NOVEL_DB_PATH || "").trim();
+  if (fromEnv) {
+    return path.isAbsolute(fromEnv) ? fromEnv : path.join(process.cwd(), fromEnv);
+  }
+  return path.join(process.cwd(), "data", "novels.db");
+}
 
 let db: Database.Database | null = null;
+let dbPathOpened: string | null = null;
 
 let migrated = false;
 
 function getDb(): Database.Database {
+  const DB_PATH = resolveDbPath();
+  if (db && dbPathOpened && dbPathOpened !== DB_PATH) {
+    throw new Error(
+      `[DB] Already opened ${dbPathOpened}; cannot switch to ${DB_PATH} in the same process. ` +
+        `Set NCS_DB_PATH before first DB access.`,
+    );
+  }
   if (!db) {
     const dir = path.dirname(DB_PATH);
     const fs = require("fs");
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
     db = new Database(DB_PATH);
+    dbPathOpened = DB_PATH;
     db.pragma("journal_mode = WAL");
     initSchema(db);
+    console.log(`[DB] open ${DB_PATH}`);
   }
   if (!migrated) {
     migrateOldData(db!);

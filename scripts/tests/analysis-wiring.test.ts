@@ -34,7 +34,47 @@ import { getCharacterExtractWorkspace } from "../../src/core/extractor/character
 import { ANALYSIS_OK } from "../../src/core/agents/agents/analysis-tools";
 import type { LLMProvider } from "../../src/types";
 
+/** Dummy for tools that don't need LLM. */
 const dummyLlm = {} as LLMProvider;
+
+/**
+ * Minimal mock for scan_character_mentions: chatWithTool returns 2–4 char CJK tokens
+ * found in the unit text (simulates LLM unit mention extract).
+ */
+const unitScanLlm = {
+  async chatWithTool(_messages: unknown, _schema: unknown) {
+    const user = (_messages as { role: string; content: string }[]).find(
+      (m) => m.role === "user",
+    );
+    const content = user?.content || "";
+    // unit body is after label in prompt; pull CJK bigrams that look like names
+    const found = new Set<string>();
+    const re = /[\u4e00-\u9fff]{2,4}/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) && found.size < 12) {
+      const t = m[0];
+      // Prefer common test names
+      if (
+        /孙|唐|猪|悟|僧|悟空|三藏|八戒|周|许|秦/.test(t) ||
+        found.size < 4
+      ) {
+        found.add(t);
+      }
+    }
+    // Always include 孙悟空/唐僧 if present in prompt text
+    for (const n of ["孙悟空", "唐僧", "猪八戒"]) {
+      if (content.includes(n)) found.add(n);
+    }
+    return {
+      characters: Array.from(found)
+        .slice(0, 10)
+        .map((name) => ({ name, aliases: [] })),
+    };
+  },
+  async chat() {
+    return '{"characters":[]}';
+  },
+} as unknown as LLMProvider;
 
 export async function runAnalysisWiringTests(): Promise<void> {
   await suiteAsync("analysis-wiring", async () => {
@@ -93,7 +133,7 @@ export async function runAnalysisWiringTests(): Promise<void> {
       assert.ok(getAgent("analyze_form"), "analyze_form agent registered");
       // Domain work is not master tools
       assert.ok(!getTool("run_story_world_agent"), "run_*_agent wrappers must not exist");
-      assert.ok(!ANALYSIS_MASTER_TOOL_NAMES.includes("ensure_name_scan" as any));
+      assert.ok(!ANALYSIS_MASTER_TOOL_NAMES.includes("scan_character_mentions" as any));
       assert.ok(!ANALYSIS_MASTER_TOOL_NAMES.includes("get_kept_roster" as any));
     });
 
@@ -189,7 +229,7 @@ export async function runAnalysisWiringTests(): Promise<void> {
           const formTool = getTool("run_form_analysis")!;
           const storyTool = getTool("submit_story_world")!;
           const finishTool = getTool("finish_novel_analysis")!;
-          const scanTool = getTool("ensure_name_scan")!;
+          const scanTool = getTool("scan_character_mentions")!;
 
           const nRes = await novelTool.execute({}, ctx, dummyLlm);
           assert.ok(nRes.content.includes(novelId), nRes.content);
@@ -228,15 +268,26 @@ export async function runAnalysisWiringTests(): Promise<void> {
           assert.ok(st.content.includes("nextActions") || st.content.includes("form"), st.content);
           assert.ok(st.content.includes('"form": true') || st.content.includes("form\": true"), st.content);
 
-          const sRes = await scanTool.execute({ forceRefresh: true }, ctx, dummyLlm);
+          // scan_character_mentions = LLM unit mention extract (agent-callable tool)
+          const sRes = await getTool("scan_character_mentions")!.execute(
+            { forceRefresh: true },
+            ctx,
+            unitScanLlm,
+          );
           assert.ok(
-            sRes.content.includes(ANALYSIS_OK.scan) || sRes.content.includes("扫名"),
+            sRes.content.includes(ANALYSIS_OK.scan) ||
+              sRes.content.includes("指称") ||
+              sRes.content.includes("扫"),
             sRes.content,
           );
           assert.ok(sRes.content.trim().length > 20, "scan tool must return non-empty summary");
           assert.ok(
             sRes.content.includes("候选") || sRes.content.includes("surfaces="),
             sRes.content,
+          );
+          assert.ok(
+            sRes.content.includes("LLM") || sRes.content.includes("分段") || sRes.content.includes("catalog"),
+            `should state LLM mention catalog: ${sRes.content.slice(0, 120)}`,
           );
           const cws = getCharacterExtractWorkspace(userId, novelId, branchId);
           assert.ok(

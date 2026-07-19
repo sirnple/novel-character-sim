@@ -4,7 +4,10 @@
  */
 
 import type { SurfaceCatalog } from "./character-surface-catalog";
-import type { ResolvedEntity } from "./character-entity-types";
+import {
+  mergeResolvedEntities,
+  type ResolvedEntity,
+} from "./character-entity-types";
 
 export interface CharacterExtractWorkspace {
   fullText: string;
@@ -58,24 +61,46 @@ export function getCharacterExtractWorkspace(
   return store().get(key(userId, novelId, branchId)) || null;
 }
 
+/**
+ * Persist entities into extract workspace.
+ * Default **merge** by name so multi-batch submit_character_entities is safe.
+ * Pass replace:true only when intentionally wiping the roster.
+ */
 export function saveResolvedEntities(
   userId: string,
   novelId: string,
   branchId: string,
   entities: ResolvedEntity[],
-): { ok: boolean; message: string } {
+  opts?: { replace?: boolean },
+): {
+  ok: boolean;
+  message: string;
+  batchCount: number;
+  totalCount: number;
+  entities: ResolvedEntity[];
+} {
   const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
   if (!ws) {
     return {
       ok: false,
-      message: "无角色抽取工作区（请先完成分段扫名）。",
+      message: "无角色抽取工作区（请先 scan_character_mentions）。",
+      batchCount: 0,
+      totalCount: 0,
+      entities: [],
     };
   }
-  ws.entities = entities;
+  const batchCount = entities.length;
+  const next = opts?.replace
+    ? entities
+    : mergeResolvedEntities(ws.entities, entities);
+  ws.entities = next;
   ws.updatedAt = new Date().toISOString();
   return {
     ok: true,
-    message: `已存 ${entities.length} 个角色实体。`,
+    message: `本批 ${batchCount} 人，累计 ${next.length} 人。`,
+    batchCount,
+    totalCount: next.length,
+    entities: next,
   };
 }
 

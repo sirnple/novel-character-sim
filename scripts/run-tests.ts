@@ -43,7 +43,7 @@ async function main() {
   runExportTxtTocTests();
   runTitleResolveTests();
   runCharacterCandidatesTests();
-  runCharacterNameFrequencyTests();
+  await runCharacterNameFrequencyTests();
   await runAnalysisWiringTests();
   await runAnalysisCommitTests();
 

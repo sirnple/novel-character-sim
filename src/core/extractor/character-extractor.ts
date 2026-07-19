@@ -28,6 +28,7 @@ import {
   surfaceCountsFromRoster,
 } from "./character-name-consolidate";
 
+
 // ============================================================
 // Character Extraction Engine
 // Multi-pass extraction:
@@ -698,13 +699,8 @@ export class CharacterExtractor {
     for (const raw of listChars) {
       const anchor = resolveAnchor(raw.name, bySurface);
       // Only attach anchor surfaces that belong to this person (same cluster)
-      const anchorSurfaces = [
-        ...(anchor?.aliases || []),
-        ...(anchor?.surfaces || []),
-      ].filter((s) => s && s !== raw.name);
-      const aliases = Array.from(
-        new Set([...(raw.aliases || []), ...anchorSurfaces]),
-      );
+      // Prefer list-agent third-person aliases; do not dump all catalog surfaces into aliases
+      const aliases = Array.from(new Set([...(raw.aliases || [])]));
       characterMap.set(raw.name, {
         id: generateId(),
         name: raw.name,

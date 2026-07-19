@@ -19,18 +19,22 @@
 
 ## 跑评测
 
+**Eval 使用隔离库** `data/eval/novels.db`，**不会**写入 `data/novels.db`（主应用库）。  
+主库正文可只读复制进 eval（如 `eval-yunie-roster`）。
+
 只评测**本目录一层**的 `*.json`（默认不扫 `public/`，避免未导入时全 SKIP）：
 
 ```bash
 npm run eval:characters
+# 等价于读 data/eval/novels.db；强制主库只读评分：加 --main-db
 ```
 
 把公共 gold 用于某次导入：
 
-1. `cp public/santi.json ./santi.local.json`  
-2. 把 `id` 改成库里的 novel id  
-3. 按你导入的是第几部/是否删节 **裁剪 mustFind**  
-4. `npm run eval:characters`  
+1. `npx tsx scripts/eval/import-public-novel.ts xiyouji`（写入 eval DB）  
+2. 跑角色提取 job / 列表 Agent（userId=`eval`）  
+3. `npm run eval:characters -- --only=public_xiyouji --userId=eval`  
+
 
 ## JSON 字段
 

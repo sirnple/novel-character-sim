@@ -1,6 +1,7 @@
 /**
- * Entity-level frequency AFTER LLM coreference (pipeline A).
- * Counts are summed across all surfaces of each resolved person.
+ * Entity-level counting AFTER LLM coreference (pipeline A).
+ * Roster keep/drop is decided by LLM gate (see character-roster-gate.ts),
+ * not by hard frequency / kinship rules.
  */
 
 import type { NameAggregate } from "./character-name-aggregate";
@@ -13,6 +14,7 @@ function norm(s: string): string {
 
 /**
  * Attach unitHits / mentions to each entity using the surface catalog.
+ * Stats are features for the model gate, not automatic drop criteria.
  */
 export function countResolvedEntities(
   entities: ResolvedEntity[],
@@ -37,17 +39,21 @@ export function countResolvedEntities(
     const aliases = new Set<string>();
 
     for (const s of surfaces) {
-      if (s !== norm(name)) aliases.add(s);
+      // Prefer entity-declared aliases; surfaces only for counting
+      if (s !== norm(name) && (e.aliases || []).some((a) => norm(a) === s)) {
+        aliases.add(s);
+      }
       const st = statBy.get(s);
       if (st) {
         mentions += Math.max(st.textHits, st.unitHits);
         for (const u of st.unitIndices) unitSet.add(u);
-      } else {
-        // surface not in catalog — still keep as alias, no count
       }
     }
+    for (const a of e.aliases || []) {
+      const an = norm(a);
+      if (an && an !== norm(name)) aliases.add(an);
+    }
 
-    // If nothing matched catalog, give minimal presence so entity isn't zeroed
     if (mentions === 0) mentions = 1;
     const unitIndices = Array.from(unitSet).sort((a, b) => a - b);
     const unitHits = unitIndices.length || 1;

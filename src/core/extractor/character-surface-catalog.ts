@@ -45,7 +45,7 @@ function collectSurfacesFromUnitHits(unitHits: UnitNameHit[][]): Map<string, Set
     for (const h of unitHits[ui] || []) {
       const names = [h.name, ...(h.aliases || [])]
         .map(norm)
-        .filter((s) => s.length >= 1 && s.length <= 16);
+        .filter((s) => s.length >= 1 && s.length <= 24);
       for (const s of names) {
         if (!map.has(s)) map.set(s, new Set());
         map.get(s)!.add(ui);

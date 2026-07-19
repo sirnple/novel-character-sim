@@ -106,7 +106,7 @@
 2. run_form_analysis（**工具**；要单元/目录时必跑）
 3. run_story_world（可与 form 并行意图；实现上可先后）
 4. run_character_pipeline
-     ensure_name_scan → roster → frequency_gate → detail → relationships
+     scan_character_mentions → roster → frequency_gate → detail → relationships
 5. run_timeline_*（**硬依赖章法结果**；域内怎么抽事件后议）
 6. style / ideas（**P0 纳入**）
 7. finish_novel_analysis
@@ -206,7 +206,7 @@ Key：`userId::novelId::branchId`（P1 可加 jobId 防并发）。
 ## 工具
 get_analysis_status, ensure_text_ready,
 run_form_analysis_agent, run_story_world_agent,
-ensure_name_scan, run_character_roster_agent, apply_entity_frequency_gate,
+scan_character_mentions, run_character_roster_agent, apply_entity_frequency_gate,
 run_character_detail_agent, run_character_relationships_agent,
 run_timeline_analysis_agent,
 （可选 run_style_agent / run_ideas_agent）
@@ -234,7 +234,7 @@ modules={{modules}} forceRefresh={{forceRefresh}}
 | `ensure_text_ready` | 写 | 确认 fullText 已挂载 |
 | `run_form_analysis` | **程序工具** | 包装 `analyzeNovelForm`；非重型子 agent（G3） |
 | `run_story_world_agent` | 子 agent | 故事/世界 |
-| `ensure_name_scan` | 程序/并行 | 分段扫名 + 建 catalog（P0 程序 map） |
+| `scan_character_mentions` | 程序/并行 | 分段扫名 + 建 catalog（P0 程序 map） |
 | `run_character_roster_agent` | 子 agent | 名单消解 |
 | `apply_entity_frequency_gate` | 程序 | 实体计次门槛 |
 | `run_character_detail_agent` | 子 agent | args: focusNames / mode |
@@ -311,7 +311,7 @@ submit_story_world(story_json=...)
 
 | 步骤 | 执行者 |
 |------|--------|
-| `ensure_name_scan` | **程序并行** unit Flash（`character_names_unit` prompt） |
+| `scan_character_mentions` | **程序并行** unit Flash（`character_names_unit` prompt） |
 | `apply_entity_frequency_gate` | **程序**（消解后计次） |
 
 ### 8.2 `character_roster`（名单 + 指代消解）
@@ -400,7 +400,7 @@ submit_timeline_events(timeline_json=...)
 
 `get_analysis_status` · `ensure_text_ready` · `finish_novel_analysis`  
 `run_form_analysis_agent` · `run_story_world_agent` · `run_timeline_analysis_agent`  
-`ensure_name_scan` · `run_character_roster_agent` · `apply_entity_frequency_gate`  
+`scan_character_mentions` · `run_character_roster_agent` · `apply_entity_frequency_gate`  
 `run_character_detail_agent` · `run_character_relationships_agent`  
 `get_kept_roster` ·（P1 `run_style_agent` / `run_ideas_agent` / `run_phase1_parallel`）
 

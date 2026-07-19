@@ -47,6 +47,9 @@ export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
     system: "character-names-unit-system.md",
     systemEn: "character-names-unit-system.en.md",
   },
+  character_roster_gate: {
+    system: "character-roster-gate-system.md",
+  },
   analyze_character_list: {
     system: "character-entity-resolve-system.md",
     systemEn: "character-entity-resolve-system.en.md",

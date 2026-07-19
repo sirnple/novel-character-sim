@@ -46,11 +46,21 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
   },
   {
     agentId: "character_names_unit",
-    name: "分段人名扫描",
-    description: "按章/窗收集人物称呼表面串（不做全局指代消解）",
+    name: "分段角色指称扫描",
+    description:
+      "按章/窗找出所有人物指称（姓名/外号/亲属与描述指代，不限有正式姓名；不做全局消解）",
     category: "extraction",
     variables: ["unitLabel", "unitText"],
     bilingual: true,
+  },
+  {
+    agentId: "character_roster_gate",
+    name: "角色名单 LLM 筛选",
+    description:
+      "根据角色信息卡（提及次数/角色/简介等）由模型决定保留谁，无死板频次/亲属规则",
+    category: "extraction",
+    variables: ["candidatesJson", "textLength", "unitCount", "candidateCount"],
+    bilingual: false,
   },
   {
     agentId: "analyze_character_list",

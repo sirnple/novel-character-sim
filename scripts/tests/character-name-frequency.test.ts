@@ -1,7 +1,7 @@
 /**
  * Frequency threshold + entity counting after coref (pipeline A).
  */
-import { assert, suite, test } from "../lib/test-harness";
+import { assert, suite, suiteAsync, test, testAsync } from "../lib/test-harness";
 import {
   aggregateUnitHits,
   defaultMentionThreshold,
@@ -11,8 +11,19 @@ import {
 import { buildNameScanUnits } from "../../src/core/extractor/character-name-units";
 import { buildSurfaceCatalog } from "../../src/core/extractor/character-surface-catalog";
 import { countResolvedEntities } from "../../src/core/extractor/character-entity-frequency";
+import {
+  findFirstSecondPersonAliasIssues,
+  isFirstOrSecondPersonDeictic,
+  mergeResolvedEntities,
+  normalizeResolvedEntities,
+} from "../../src/core/extractor/character-entity-types";
+import {
+  buildRosterCandidateCards,
+  gateRosterWithLlm,
+} from "../../src/core/extractor/character-roster-gate";
+import type { LLMProvider } from "../../src/types";
 
-export function runCharacterNameFrequencyTests(): void {
+export async function runCharacterNameFrequencyTests(): Promise<void> {
   suite("character-name-frequency", () => {
     test("default threshold rises with book length", () => {
       const short = defaultMentionThreshold(20_000, 5);
@@ -186,5 +197,179 @@ export function runCharacterNameFrequencyTests(): void {
       const passerby = r.kept.find((k) => k.name === "路人甲");
       assert.ok(!passerby || passerby.unitHits > 1);
     });
+
+    test("buildRosterCandidateCards exposes mentions as model features", () => {
+      const entities = [
+        {
+          name: "周屿",
+          aliases: ["屿哥"],
+          role: "protagonist",
+          briefDescription: "男主",
+          surfaces: ["周屿", "屿哥"],
+        },
+        {
+          name: "周屿的母亲",
+          aliases: [],
+          role: "supporting",
+          briefDescription: "已故",
+          surfaces: ["周屿的母亲"],
+        },
+      ];
+      const counted = [
+        {
+          name: "周屿",
+          mentions: 50,
+          unitHits: 20,
+          aliases: ["屿哥"],
+          firstUnit: 0,
+          lastUnit: 19,
+        },
+        {
+          name: "周屿的母亲",
+          mentions: 1,
+          unitHits: 1,
+          aliases: [] as string[],
+          firstUnit: 0,
+          lastUnit: 0,
+        },
+      ];
+      const cards = buildRosterCandidateCards(entities as any, counted);
+      assert.equal(cards.length, 2);
+      assert.equal(cards[0].name, "周屿");
+      assert.equal(cards[0].mentions, 50);
+      assert.ok(cards.some((c) => c.name === "周屿的母亲" && c.mentions === 1));
+    });
+
+  });
+
+  suite("third-person-aliases-on-submit", () => {
+    test("findFirstSecondPersonAliasIssues flags 我爸/你妈 for submit reject", () => {
+      assert.ok(isFirstOrSecondPersonDeictic("我爸"));
+      assert.ok(isFirstOrSecondPersonDeictic("我屿哥"));
+      assert.ok(!isFirstOrSecondPersonDeictic("周屿的父亲"));
+      assert.ok(!isFirstOrSecondPersonDeictic("屿哥"));
+
+      const issues = findFirstSecondPersonAliasIssues([
+        {
+          name: "周伯彦",
+          aliases: ["周总", "我爸", "你爸"],
+        },
+        { name: "周屿", aliases: ["屿哥"] },
+      ]);
+      assert.ok(issues.some((x) => x.includes("我爸")), issues.join(","));
+      assert.ok(issues.some((x) => x.includes("你爸")), issues.join(","));
+      assert.ok(!issues.some((x) => x.includes("屿哥")));
+    });
+
+    test("normalize keeps only third-person aliases", () => {
+      const ents = normalizeResolvedEntities([
+        {
+          name: "周伯彦",
+          aliases: ["周总", "我爸", "周屿的父亲"],
+          surfaces: ["周伯彦", "我爸"],
+        },
+      ]);
+      assert.equal(ents.length, 1);
+      assert.ok(ents[0].aliases.includes("周总"));
+      assert.ok(ents[0].aliases.includes("周屿的父亲"));
+      assert.ok(!ents[0].aliases.includes("我爸"));
+    });
+
+    test("mergeResolvedEntities accumulates batches by name", () => {
+      const batch1 = normalizeResolvedEntities([
+        { name: "周屿", aliases: ["屿哥"], role: "protagonist" },
+        { name: "周伯彦", aliases: ["周总"] },
+      ]);
+      const batch2 = normalizeResolvedEntities([
+        { name: "周屿", aliases: ["周屿哥哥"] },
+        { name: "黑仔", aliases: [] },
+      ]);
+      const merged = mergeResolvedEntities(batch1, batch2);
+      assert.equal(merged.length, 3);
+      const yu = merged.find((e) => e.name === "周屿")!;
+      assert.ok(yu.aliases.includes("屿哥"));
+      assert.ok(yu.aliases.includes("周屿哥哥"));
+      assert.ok(merged.some((e) => e.name === "黑仔"));
+      assert.ok(merged.some((e) => e.name === "周伯彦"));
+    });
+  });
+
+  await suiteAsync("character-roster-llm-gate", async () => {
+    await testAsync(
+      "LLM roster gate uses model keep list; mentions are not hard drop",
+      async () => {
+        const entities = [
+          {
+            name: "周屿",
+            aliases: [],
+            role: "protagonist",
+            surfaces: ["周屿"],
+          },
+          {
+            name: "周屿的母亲",
+            aliases: [],
+            role: "supporting",
+            briefDescription: "已故",
+            surfaces: ["周屿的母亲"],
+          },
+          {
+            name: "路人甲",
+            aliases: [],
+            role: "extra",
+            surfaces: ["路人甲"],
+          },
+        ];
+        const counted = [
+          {
+            name: "周屿",
+            mentions: 50,
+            unitHits: 20,
+            aliases: [] as string[],
+            firstUnit: 0,
+            lastUnit: 19,
+          },
+          {
+            name: "周屿的母亲",
+            mentions: 1,
+            unitHits: 1,
+            aliases: [] as string[],
+            firstUnit: 0,
+            lastUnit: 0,
+          },
+          {
+            name: "路人甲",
+            mentions: 1,
+            unitHits: 1,
+            aliases: [] as string[],
+            firstUnit: 0,
+            lastUnit: 0,
+          },
+        ];
+        const mockLlm = {
+          async chatWithTool() {
+            return {
+              keep: [
+                { name: "周屿", reason: "主角" },
+                { name: "周屿的母亲", reason: "主角母亲虽少出场" },
+              ],
+            };
+          },
+          async chat() {
+            return '{"keep":[]}';
+          },
+        } as unknown as LLMProvider;
+
+        const r = await gateRosterWithLlm(mockLlm, entities as any, counted, {
+          textLength: 140_000,
+          unitCount: 26,
+        });
+        const names = r.kept.map((k) => k.name);
+        assert.ok(names.includes("周屿"), names.join(","));
+        assert.ok(names.includes("周屿的母亲"), names.join(","));
+        assert.ok(!names.includes("路人甲"), names.join(","));
+        assert.ok(!r.fallbackAll);
+        assert.ok((r.reasons["周屿的母亲"] || "").includes("母亲"));
+      },
+    );
   });
 }

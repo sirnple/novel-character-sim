@@ -13,6 +13,7 @@ import {
   formatSurfaceCandidatesForPrompt,
 } from "@/core/extractor/character-surface-catalog";
 import {
+  findFirstSecondPersonAliasIssues,
   normalizeResolvedEntities,
   SUBMIT_ENTITIES_OK,
   type ResolvedEntity,
@@ -83,8 +84,8 @@ export const characterExtractTools: ToolDefinition[] = [
   {
     name: "list_surface_candidates",
     description:
-      "列出分段扫名得到的候选称呼表面串（尚未指代消解）。可按 limit 截断。" +
-      "例：孙悟空、齐天大圣、悟空 会分列。",
+      "列出 scan_character_mentions 得到的候选角色指称 surface（尚未指代消解）。可分页。" +
+      "例：孙悟空、齐天大圣、周屿的母亲。无 catalog 时先调 scan_character_mentions。",
     parameters: {
       type: "object",
       properties: {
@@ -107,7 +108,7 @@ export const characterExtractTools: ToolDefinition[] = [
       const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
       if (!ws) {
         return {
-          content: "无扫名工作区。请确认角色抽取 job 已完成分段扫描。",
+          content: "无角色指称 catalog。请先调用 scan_character_mentions。",
           messages: [],
         };
       }
@@ -199,8 +200,9 @@ export const characterExtractTools: ToolDefinition[] = [
   {
     name: "submit_character_entities",
     description:
-      "提交指代消解结果。每个实体：name=真实姓名，aliases=封号/外号/简称，surfaces=归入此人的所有候选表面串。" +
-      "同一人只一条。完成后必须调用本工具，程序只认工具落盘。",
+      "提交指代消解结果（可分批）。每批按 name 合并进工作区，不覆盖其它已交角色。" +
+      "name=第三人称稳定指称；aliases=仅第三人称；禁止我爸/你妈等。" +
+      "成功含「角色实体已存」并回报本批/累计人数。",
     parameters: {
       type: "object",
       properties: {
@@ -212,8 +214,9 @@ export const characterExtractTools: ToolDefinition[] = [
         entities_json: {
           type: "string",
           description:
-            "实体列表的 JSON 字符串。优先使用本字段。" +
-            '格式：[{"name":"孙悟空","aliases":["齐天大圣","悟空"],"role":"protagonist","briefDescription":"...","surfaces":["孙悟空","齐天大圣","悟空"]}]',
+            "实体 JSON。aliases 必须第三人称。" +
+            '例：[{"name":"周伯彦","aliases":["周总","周屿的父亲"],"role":"supporting","briefDescription":"...","surfaces":["周伯彦","周总"]}]' +
+            "（不可 aliases 含 我爸/你爸）",
         },
       },
       required: [],
@@ -250,28 +253,49 @@ export const characterExtractTools: ToolDefinition[] = [
         }
       }
 
-      const entities = normalizeResolvedEntities(raw);
-      if (!entities.length) {
+      // name/aliases must be third-person only — reject so the model rewrites and resubmits
+      const deicticIssues = findFirstSecondPersonAliasIssues(raw);
+      if (deicticIssues.length) {
         return {
-          content: "实体列表为空。请至少提交 1 个有效实体（name 必填）。",
+          content:
+            `未写入：name/aliases 含第一或二人称指示语，请改成第三人称稳定称呼后重交 submit_character_entities。\n` +
+            `问题：${deicticIssues.slice(0, 20).join("；")}` +
+            (deicticIssues.length > 20 ? `…共${deicticIssues.length}处` : "") +
+            `\n正确例：周伯彦 aliases=["周总","周屿的父亲"]；错误例：aliases=["我爸","你爸"]。`,
           messages: [],
         };
       }
 
+      const entities = normalizeResolvedEntities(raw);
+      if (!entities.length) {
+        return {
+          content: "实体列表为空。请至少提交 1 个有效实体（name 必填，且非第一二人称）。",
+          messages: [],
+        };
+      }
+
+      // Merge batch into workspace (multi-submit safe)
       const result = saveResolvedEntities(userId, novelId, branchId, entities);
       if (!result.ok) {
         return { content: result.message, messages: [] };
       }
-      // Stage in analysis workspace only — finish_novel_analysis commits to DB
+      // Stage full merged roster into analysis draft (same merge semantics)
       try {
         let aws = getNovelAnalysisWorkspace(userId, novelId, branchId);
         if (!aws) {
-          const text = getCharacterExtractWorkspace(userId, novelId, branchId)?.fullText || "";
-          aws = beginNovelAnalysisWorkspace(userId, novelId, branchId, { fullText: text });
+          const text =
+            getCharacterExtractWorkspace(userId, novelId, branchId)?.fullText ||
+            "";
+          aws = beginNovelAnalysisWorkspace(userId, novelId, branchId, {
+            fullText: text,
+          });
         }
-        const staged = entitiesToProfiles(entities);
+        // Rebuild draft from **full** merged entities so draft ≡ entities
+        const staged = entitiesToProfiles(result.entities);
         const prev = aws.charactersDraft || [];
-        const byName = new Map(prev.map((c) => [c.name.replace(/\s+/g, ""), c] as const));
+        const byName = new Map(
+          prev.map((c) => [c.name.replace(/\s+/g, ""), c] as const),
+        );
         for (const p of staged) {
           const key = p.name.replace(/\s+/g, "");
           if (!byName.has(key)) byName.set(key, p);
@@ -279,7 +303,17 @@ export const characterExtractTools: ToolDefinition[] = [
             const old = byName.get(key)!;
             byName.set(key, {
               ...old,
-              aliases: Array.from(new Set([...(old.aliases || []), ...(p.aliases || [])])),
+              aliases: Array.from(
+                new Set([...(old.aliases || []), ...(p.aliases || [])]),
+              ),
+              // keep richer brief if any
+              appearance: {
+                summary:
+                  (p.appearance?.summary || "").length >
+                  (old.appearance?.summary || "").length
+                    ? p.appearance?.summary || ""
+                    : old.appearance?.summary || "",
+              },
             });
           }
         }
@@ -294,8 +328,8 @@ export const characterExtractTools: ToolDefinition[] = [
       }
       return {
         content:
-          `${SUBMIT_ENTITIES_OK}：${result.message}` +
-          `（工作区 ${entities.length} 人，待 finish_novel_analysis 落库）`,
+          `${SUBMIT_ENTITIES_OK}：本批 ${result.batchCount} 人，累计 ${result.totalCount} 人` +
+          `（可继续分批 submit；待 finish_novel_analysis 落库）`,
         messages: [],
       };
     },

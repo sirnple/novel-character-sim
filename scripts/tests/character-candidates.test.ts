@@ -77,5 +77,41 @@ export function runCharacterCandidatesTests(): void {
       assert.ok(!top5.includes("可以"), `function word in top: ${top5.join(",")}`);
       assert.ok(!top5.includes("都不"), `function word in top: ${top5.join(",")}`);
     });
+
+    test("nicknames without surname: speech and 阿X/X仔/*大叔", () => {
+      const text = [
+        "阿龙说道：「走。」",
+        "黑仔喊道：「等等。」",
+        "短发大叔道：「上车。」",
+        "阿龙说：「好。」",
+        "黑仔说：「行。」",
+        "短发大叔说：「快。」",
+        "老吴问道：「谁？」",
+        "阿龙道：「我。」",
+        "黑仔道：「他。」",
+        "短发大叔道：「走。」",
+        // pure narrative nicknames
+        "阿龙来了。阿龙走了。阿龙又来了。阿龙坐下。阿龙点头。",
+        "黑仔笑了。黑仔走了。黑仔又来。黑仔点头。黑仔离开。",
+        // mid-sentence with Han lead-in
+        "我小名叫黑仔，他是黑仔。",
+        "教务处副主任老吴。门外老吴的脚步声。",
+        "一个长脸大叔端着托盘。旁边长脸大叔点头。那个长脸大叔也跟着。",
+      ].join("\n");
+      const cands = scanCharacterCandidates(text, { minCount: 1, maxCandidates: 40 });
+      const names = cands.map((c) => c.name);
+      assert.ok(names.includes("阿龙"), `missing 阿龙, got ${names.join(",")}`);
+      assert.ok(names.includes("黑仔"), `missing 黑仔, got ${names.join(",")}`);
+      assert.ok(
+        names.includes("短发大叔") || names.some((n) => n.includes("大叔")),
+        `missing 短发大叔, got ${names.join(",")}`,
+      );
+      assert.ok(names.includes("老吴"), `missing 老吴, got ${names.join(",")}`);
+      // *大叔 nicknames: at least one descriptive 大叔 form
+      assert.ok(
+        names.includes("长脸大叔") || names.includes("短发大叔"),
+        `missing *大叔, got ${names.join(",")}`,
+      );
+    });
   });
 }

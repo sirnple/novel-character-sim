@@ -9,7 +9,7 @@
  * | Program actions | accept_continuation, run_reviews | finish_novel_analysis |
  *
  * Domain work (including form) is NEVER a master tool — only via agent(agent_type).
- * run_form_analysis / ensure_name_scan / submit_* belong to sub-agents only.
+ * run_form_analysis / scan_character_mentions / submit_* belong to sub-agents only.
  */
 export const ANALYSIS_MASTER_TOOL_NAMES = [
   "agent",

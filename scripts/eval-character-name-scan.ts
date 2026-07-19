@@ -1,10 +1,12 @@
 /**
- * Self-eval: gold mustFind recall against saved character rosters in novels.db.
+ * Self-eval: gold mustFind recall against saved character rosters.
  *
- * Does NOT re-run LLM scan — run analysis (character job) first, then:
+ * Default DB is **isolated** eval store: data/eval/novels.db
+ * (override with --db= / NCS_DB_PATH). Does not use data/novels.db unless asked.
+ *
+ * Does NOT re-run LLM scan — run analysis (character job) into eval DB first, then:
  *   npm run eval:characters
- *   npx tsx scripts/eval-character-name-scan.ts --only=public_xiyouji
- *   npx tsx scripts/eval-character-name-scan.ts --include-public --userId=xxx
+ *   npx tsx scripts/eval-character-name-scan.ts --only=public_xiyouji --userId=eval
  *
  * Every report records **git code version** (commit, branch, dirty) for regression tracking.
  *
@@ -17,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import Database from "better-sqlite3";
+import { resolveEvalDbPath } from "./lib/use-eval-db";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,7 +99,8 @@ const ROOT = process.cwd();
 const GOLD_DIR = path.join(ROOT, "scripts", "eval", "character-gold");
 const RESULTS_DIR = path.join(ROOT, "scripts", "eval", "results");
 const HISTORY_PATH = path.join(RESULTS_DIR, "history.jsonl");
-const DEFAULT_DB = path.join(ROOT, "data", "novels.db");
+/** Prefer env / data/eval/novels.db — not the app main DB */
+const DEFAULT_DB = resolveEvalDbPath(ROOT);
 
 // ---------------------------------------------------------------------------
 // Scoring
@@ -399,9 +403,13 @@ function parseArgs(argv: string[]): {
   let includePublic = false;
   for (const a of argv) {
     if (a.startsWith("--userId=")) userId = a.slice("--userId=".length) || null;
-    if (a.startsWith("--db=")) dbPath = a.slice("--db=".length) || DEFAULT_DB;
+    if (a.startsWith("--db=")) {
+      const p = a.slice("--db=".length) || DEFAULT_DB;
+      dbPath = path.isAbsolute(p) ? p : path.join(ROOT, p);
+    }
     if (a.startsWith("--only=")) only = a.slice("--only=".length) || null;
     if (a === "--include-public") includePublic = true;
+    if (a === "--main-db") dbPath = path.join(ROOT, "data", "novels.db");
   }
   return { userId, dbPath, only, includePublic };
 }
@@ -414,6 +422,7 @@ function main() {
       `${codeVersion.dirty ? " dirty" : " clean"}` +
       (codeVersion.describe ? ` · ${codeVersion.describe}` : ""),
   );
+  console.log(`DB: ${dbPath}`);
 
   let golds = loadGoldFiles(includePublic);
   if (only) {

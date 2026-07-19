@@ -1,9 +1,9 @@
 {
-  "id": "novel_bnf7gh",
+  "id": "novel_ew7ku6",
   "title": "欲孽灼心",
   "tier": "short",
   "source": "user-owned",
-  "sourceNote": "用户提供的 mustFind / 别名表。",
+  "sourceNote": "用户提供的 mustFind / 别名表。id 随本地导入小说变化，以当前 DB novels.id 为准。",
   "mustFind": [
     "周屿",
     "秦予嫣",

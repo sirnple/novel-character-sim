@@ -44,10 +44,24 @@ export async function runAnalysisCommitTests(): Promise<void> {
         );
 
         // Roster entities → workspace charactersDraft
-        await getTool("ensure_name_scan")!.execute(
+        // scan_character_mentions needs LLM; stub unit extract so catalog is non-empty
+        const unitScanLlm = {
+          async chatWithTool() {
+            return {
+              characters: [
+                { name: "孙悟空", aliases: ["齐天大圣"] },
+                { name: "唐僧", aliases: [] },
+              ],
+            };
+          },
+          async chat() {
+            return '{"characters":[]}';
+          },
+        } as unknown as LLMProvider;
+        await getTool("scan_character_mentions")!.execute(
           { forceRefresh: true },
           ctx,
-          dummyLlm,
+          unitScanLlm,
         );
         const ent = await getTool("submit_character_entities")!.execute(
           {

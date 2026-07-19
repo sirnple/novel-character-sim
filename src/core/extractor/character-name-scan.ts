@@ -1,12 +1,12 @@
 /**
- * Flash-friendly per-unit character name scan → frequency filter → roster.
- * Does NOT invent personality/relationships; names (+ light aliases) only.
+ * Flash-friendly per-unit **character mention** scan → frequency filter → roster.
+ * Step 1 finds character *referents* (names, epithets, kinship labels…), not only proper names.
+ * Does NOT invent personality/relationships.
  */
 
 import type { LLMProvider } from "@/types";
 import { extractJSON } from "@/lib/utils";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
-import { isServerDebugMode } from "@/lib/debug-mode";
 import { buildNameScanUnits, type TextUnit } from "./character-name-units";
 import {
   aggregateUnitHits,
@@ -18,21 +18,30 @@ import {
 } from "./character-name-aggregate";
 
 const UNIT_NAME_SCHEMA = {
-  name: "unit_character_names",
-  description: "Names of characters that appear in this passage",
+  name: "unit_character_mentions",
+  description:
+    "All character-referring mentions in this passage (proper names, nicknames, " +
+    "kinship/role labels, descriptive epithets). Not limited to people with formal names.",
   parameters: {
     type: "object",
     properties: {
       characters: {
         type: "array",
+        description:
+          "Each entry is one surface form for a specific person in this unit. " +
+          "If they have no proper name, use the referent string (e.g. 周屿的母亲, 短发大叔).",
         items: {
           type: "object",
           properties: {
-            name: { type: "string", description: "Character name as written" },
+            name: {
+              type: "string",
+              description:
+                "Surface as written: proper name OR stable referent (外号/亲属/描述称呼). Do not invent names.",
+            },
             aliases: {
               type: "array",
               items: { type: "string" },
-              description: "Other forms used in this passage only",
+              description: "Other surfaces for the same person in this passage only",
             },
           },
           required: ["name"],
@@ -100,7 +109,8 @@ async function extractNamesInUnit(
         aliases: (c.aliases || []).map((a) => String(a).trim()).filter(Boolean),
         count: 1,
       }))
-      .filter((c) => c.name.length >= 1 && c.name.length <= 12);
+      // Allow longer kinship/descriptive referents e.g. 「周屿和周航的母亲」
+      .filter((c) => c.name.length >= 1 && c.name.length <= 24);
   } catch (e) {
     // Fallback: plain-text JSON if tool path fails
     console.warn(
@@ -128,11 +138,52 @@ async function extractNamesInUnit(
           aliases: c.aliases || [],
           count: 1,
         }))
-        .filter((c) => c.name.length >= 1);
+        .filter((c) => c.name.length >= 1 && c.name.length <= 24);
     } catch {
       return [];
     }
   }
+}
+
+/**
+ * LLM-only per-unit name/surface extraction (product path).
+ * Does NOT use programmatic surname heuristics.
+ */
+export async function scanUnitHitsWithLlm(
+  llm: LLMProvider,
+  fullText: string,
+  options: {
+    units?: TextUnit[];
+    zh?: boolean;
+    concurrency?: number;
+    onProgress?: (done: number, total: number, label: string) => void;
+  } = {},
+): Promise<{ units: TextUnit[]; unitHits: UnitNameHit[][] }> {
+  const zh = options.zh !== false;
+  // Default 4 everywhere (dev + prod). Override: CHARACTER_MENTION_CONCURRENCY
+  const envC = Number(process.env.CHARACTER_MENTION_CONCURRENCY || "");
+  const concurrency =
+    options.concurrency ??
+    (Number.isFinite(envC) && envC >= 1 ? Math.floor(envC) : 4);
+  const units =
+    options.units?.length ? options.units : buildNameScanUnits(fullText);
+
+  console.log(
+    `[MentionScan] units=${units.length} textLen=${fullText.length} concurrency=${concurrency}`,
+  );
+
+  const unitHits = await mapPool(units, concurrency, async (unit, i) => {
+    const hits = await extractNamesInUnit(llm, unit, zh);
+    options.onProgress?.(i + 1, units.length, unit.label);
+    if ((i + 1) % 10 === 0 || i === 0 || i === units.length - 1) {
+      console.log(
+        `[MentionScan] unit ${i + 1}/${units.length} (${unit.label}): ${hits.map((h) => h.name).join("、") || "—"}`,
+      );
+    }
+    return hits;
+  });
+
+  return { units, unitHits };
 }
 
 /**
@@ -148,27 +199,7 @@ export async function scanNamesByUnits(
   } = {},
 ): Promise<NameScanResult> {
   const t0 = Date.now();
-  const zh = options.zh !== false;
-  // Debug/dev: unlimited (capped only by unit count). Prod default 4.
-  const concurrency =
-    options.concurrency ??
-    (isServerDebugMode() ? Number.POSITIVE_INFINITY : 4);
-
-  const units = buildNameScanUnits(fullText);
-  console.log(
-    `[NameScan] ${units.length} units, textLen=${fullText.length}, concurrency=${concurrency}`,
-  );
-
-  const unitHits = await mapPool(units, concurrency, async (unit, i) => {
-    const hits = await extractNamesInUnit(llm, unit, zh);
-    options.onProgress?.(i + 1, units.length, unit.label);
-    if ((i + 1) % 10 === 0 || i === 0 || i === units.length - 1) {
-      console.log(
-        `[NameScan] unit ${i + 1}/${units.length} (${unit.label}): ${hits.map((h) => h.name).join("、") || "—"}`,
-      );
-    }
-    return hits;
-  });
+  const { units, unitHits } = await scanUnitHitsWithLlm(llm, fullText, options);
 
   const aggregates = aggregateUnitHits(unitHits);
   const filter = filterByMentionFrequency(aggregates, {

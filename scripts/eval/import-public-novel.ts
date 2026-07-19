@@ -1,16 +1,20 @@
 /**
- * Import a public-novel txt into novels.db under a fixed id (for gold eval).
+ * Import a public-novel txt into the **eval** DB under a fixed id.
  *
  *   npx tsx scripts/eval/import-public-novel.ts xiyouji
  *   npx tsx scripts/eval/import-public-novel.ts hongloumeng --userId=eval
+ *
+ * Writes data/eval/novels.db (not data/novels.db).
  */
 import fs from "node:fs";
 import path from "node:path";
 import { loadEnvLocal } from "../lib/load-env-local";
+import { useEvalDb } from "../lib/use-eval-db";
 
 loadEnvLocal();
+useEvalDb();
 
-import { saveNovel, ensureMainBranch, getBranchProse } from "../../src/lib/db";
+import { saveNovel, ensureMainBranch, getBranchProse, resolveDbPath } from "../../src/lib/db";
 
 const SLUG_MAP: Record<string, { file: string; id: string; title: string }> = {
   xiyouji: {
@@ -60,7 +64,7 @@ function main() {
   ensureMainBranch(userId, meta.id);
   const prose = getBranchProse(userId, meta.id, "main");
   console.log(
-    `Imported ${meta.title} id=${meta.id} userId=${userId} chars=${prose.text.length}`,
+    `Imported ${meta.title} id=${meta.id} userId=${userId} chars=${prose.text.length} db=${resolveDbPath()}`,
   );
 }
 

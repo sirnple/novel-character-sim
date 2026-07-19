@@ -59,11 +59,11 @@ import {
   getCharacterExtractWorkspace,
 } from "@/core/extractor/character-extract-workspace";
 import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
-import { scanCharacterCandidates } from "@/core/extractor/character-candidates";
+import { scanUnitHitsWithLlm } from "@/core/extractor/character-name-scan";
 import { relationshipTypePromptList } from "@/core/extractor/relationship-types";
 import { createLLMProvider } from "@/core/llm/factory";
-import type { StoryInfo, WritingStyle, ChapterTimeline, CharacterProfile, IdeaLibraryEntry } from "@/types";
-import type { UnitNameHit } from "@/core/extractor/character-name-aggregate";
+import { isChinese } from "@/lib/utils";
+import type { StoryInfo, WritingStyle, ChapterTimeline, CharacterProfile, IdeaLibraryEntry, LLMProvider } from "@/types";
 
 function ids(ctx: { userId: string; novelId: string; branchId: string }) {
   return {
@@ -103,14 +103,18 @@ function ensureWs(userId: string, novelId: string, branchId: string) {
   return ws;
 }
 
-/** Program name candidates → character extract workspace (for roster agent). */
-function seedCharacterCatalogFromText(
+/**
+ * LLM unit-scan → surface catalog (same path as character-extract-job).
+ * Never uses programmatic surname heuristics for product roster.
+ */
+async function seedCharacterCatalogViaLlm(
   userId: string,
   novelId: string,
   branchId: string,
   text: string,
   units: ReturnType<typeof buildNameScanUnits>,
-): number {
+  llm: LLMProvider,
+): Promise<{ surfaceCount: number; unitCount: number }> {
   let unitsLocal = units.length ? units : buildNameScanUnits(text);
   if (!unitsLocal.length) {
     unitsLocal = [
@@ -123,44 +127,17 @@ function seedCharacterCatalogFromText(
       },
     ];
   }
-  const cands = scanCharacterCandidates(text, {
-    maxCandidates: 80,
-    minCount: 1,
+  const { units: scannedUnits, unitHits } = await scanUnitHitsWithLlm(llm, text, {
+    units: unitsLocal,
+    zh: isChinese(text),
   });
-  const names = cands.map((c) => c.name);
-  // Regex fallback if program scan is empty (short/odd texts)
-  if (!names.length) {
-    const re = /[\u4e00-\u9fff]{2,4}/g;
-    const found = new Set<string>();
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text)) && found.size < 30) {
-      found.add(m[0]);
-    }
-    names.push(...Array.from(found));
-  }
-  const unitHits: UnitNameHit[][] = unitsLocal.map(() => []);
-  for (const name of names) {
-    let placed = false;
-    for (let i = 0; i < unitsLocal.length; i++) {
-      if (unitsLocal[i].text?.includes(name)) {
-        unitHits[i].push({ name, count: 2 });
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) unitHits[0].push({ name, count: 2 });
-  }
-  // Ensure at least one hit row
-  if (!unitHits.some((h) => h.length)) {
-    unitHits[0] = [{ name: names[0] || "未知", count: 2 }];
-  }
-  const catalog = buildSurfaceCatalog(unitHits, unitsLocal, text);
+  const catalog = buildSurfaceCatalog(unitHits, scannedUnits, text);
   beginCharacterExtractWorkspace(userId, novelId, branchId, {
     fullText: text,
     catalog,
-    unitCount: unitsLocal.length,
+    unitCount: scannedUnits.length,
   });
-  return catalog.stats.length;
+  return { surfaceCount: catalog.stats.length, unitCount: scannedUnits.length };
 }
 
 export const ANALYSIS_OK = {
@@ -172,8 +149,9 @@ export const ANALYSIS_OK = {
   style: "文风已存",
   ideas: "点子已存",
   finish: "全书分析已完成",
-  scan: "扫名已完成",
-  gate: "频次门槛已应用",
+  /** LLM unit mention catalog ready (tool: scan_character_mentions) */
+  scan: "角色指称已扫描",
+  gate: "名单筛选已完成",
 } as const;
 
 /** Shared read + form + submit tools for domain agents */
@@ -651,24 +629,28 @@ export const analysisDomainTools: ToolDefinition[] = [
     },
   },
   {
-    name: "ensure_name_scan",
+    name: "scan_character_mentions",
     description:
-      "程序扫名：建 surface 候选 catalog 工作区（角色列表子 Agent 内部使用）。" +
-      "返回摘要含候选数量与前若干称呼；完整列表请再用 list_surface_candidates。",
+      "【角色列表子 Agent 调用】LLM 分段扫描角色指称：对每个正文 unit 抽取人物 surface" +
+      "（姓名/外号/亲属与描述指代，不限正式姓名），写入 catalog。" +
+      "成功含「角色指称已扫描」。之后用 list_surface_candidates / submit_character_entities。" +
+      "无 catalog 时必须先调本工具；catalog 已有且未 forceRefresh 则复用。",
     parameters: {
       type: "object",
       properties: {
         forceRefresh: {
           type: "boolean",
-          description: "强制重建候选",
+          description: "true=强制重扫各 unit；false/省略=有 catalog 则复用",
         },
       },
       required: [],
     },
-    execute: async (args, ctx) => {
+    execute: async (args, ctx, llm) => {
       const { userId, novelId, branchId } = ids(ctx);
       const text = loadText(userId, novelId, branchId);
-      if (!text.trim()) return { content: "正文为空，无法扫名", messages: [] };
+      if (!text.trim()) {
+        return { content: "正文为空，无法扫描角色指称", messages: [] };
+      }
 
       const formatScanSummary = (
         mode: "cached" | "fresh",
@@ -678,12 +660,12 @@ export const analysisDomainTools: ToolDefinition[] = [
       ) => {
         const head =
           mode === "cached"
-            ? `${ANALYSIS_OK.scan}（使用已有 catalog，未重扫）`
-            : `${ANALYSIS_OK.scan}（新建 catalog）`;
+            ? `${ANALYSIS_OK.scan}（复用已有 catalog）`
+            : `${ANALYSIS_OK.scan}（LLM 分段新建 catalog）`;
         const top =
           topSurfaces.length > 0
             ? topSurfaces.map((s, i) => `${i + 1}. ${s}`).join("\n")
-            : "（无候选称呼 — 扫名结果为空）";
+            : "（无候选指称 — 扫描结果为空）";
         return (
           `${head}\n` +
           `units=${unitCount} surfaces=${surfaceCount}\n` +
@@ -705,18 +687,39 @@ export const analysisDomainTools: ToolDefinition[] = [
           messages: [],
         };
       }
+      if (!llm) {
+        return {
+          content:
+            "扫描失败：缺少 LLM（scan_character_mentions 须分段模型抽取指称）",
+          messages: [],
+        };
+      }
       const ws = getNovelAnalysisWorkspace(userId, novelId, branchId);
       const units = ws?.units?.length ? ws.units : buildNameScanUnits(text);
       if (ws && !ws.units?.length) {
         patchNovelAnalysisWorkspace(userId, novelId, branchId, { units });
       }
-      const n = seedCharacterCatalogFromText(userId, novelId, branchId, text, units);
-      const after = getCharacterExtractWorkspace(userId, novelId, branchId);
-      const top = (after?.catalog?.stats || []).slice(0, 30).map((s) => s.surface);
-      return {
-        content: formatScanSummary("fresh", n, units.length, top),
-        messages: [],
-      };
+      try {
+        const { surfaceCount, unitCount } = await seedCharacterCatalogViaLlm(
+          userId,
+          novelId,
+          branchId,
+          text,
+          units,
+          llm,
+        );
+        const after = getCharacterExtractWorkspace(userId, novelId, branchId);
+        const top = (after?.catalog?.stats || []).slice(0, 30).map((s) => s.surface);
+        return {
+          content: formatScanSummary("fresh", surfaceCount, unitCount, top),
+          messages: [],
+        };
+      } catch (e) {
+        return {
+          content: `角色指称扫描失败: ${(e as Error).message}`,
+          messages: [],
+        };
+      }
     },
   },
   {
@@ -1268,10 +1271,10 @@ export const analysisMasterTools: ToolDefinition[] = [
     execute: analysisDomainTools.find((t) => t.name === "run_form_analysis")!.execute,
   },
   {
-    name: "ensure_name_scan",
-    description: analysisDomainTools.find((t) => t.name === "ensure_name_scan")!.description,
-    parameters: analysisDomainTools.find((t) => t.name === "ensure_name_scan")!.parameters,
-    execute: analysisDomainTools.find((t) => t.name === "ensure_name_scan")!.execute,
+    name: "scan_character_mentions",
+    description: analysisDomainTools.find((t) => t.name === "scan_character_mentions")!.description,
+    parameters: analysisDomainTools.find((t) => t.name === "scan_character_mentions")!.parameters,
+    execute: analysisDomainTools.find((t) => t.name === "scan_character_mentions")!.execute,
   },
   // Domain work is dispatched via agent(agent_type=story_world|character_*|...) — same as write master.
   // Do NOT register run_*_agent wrappers; that made sub-agents look like master tools.

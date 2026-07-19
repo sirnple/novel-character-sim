@@ -10,9 +10,9 @@ import { parseNovel } from "@/core/parser/novel-parser";
 import { CharacterExtractor } from "@/core/extractor/character-extractor";
 import { buildNameScanUnits, type TextUnit } from "@/core/extractor/character-name-units";
 import type { UnitNameHit } from "@/core/extractor/character-name-aggregate";
-import { filterByMentionFrequency } from "@/core/extractor/character-name-aggregate";
-import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
 import { countResolvedEntities } from "@/core/extractor/character-entity-frequency";
+import { gateRosterWithLlm } from "@/core/extractor/character-roster-gate";
+import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
 import {
   beginCharacterExtractWorkspace,
   clearCharacterExtractWorkspace,
@@ -22,10 +22,11 @@ import {
   consolidateRawCharacters,
   sanitizeAliasesAgainstRoster,
 } from "@/core/extractor/character-name-consolidate";
+
 import { extractJSON, isChinese, novelFingerprint } from "@/lib/utils";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
 import { runWithTokenContext } from "@/lib/token-usage-context";
-import { isServerDebugMode } from "@/lib/debug-mode";
+
 import { initRegistry } from "@/core/agents/init";
 import { getAgent } from "@/core/agents/agent-registry";
 import {
@@ -53,6 +54,8 @@ export type CharJobPhase =
   | "scanning"
   | "resolving"
   | "counting"
+  /** LLM decides keep/drop from character info cards */
+  | "gating"
   /** @deprecated kept for old job rows in DB */
   | "clustering"
   | "merging"
@@ -109,6 +112,7 @@ const RUNNING_PHASES = new Set<CharJobPhase>([
   "scanning",
   "resolving",
   "counting",
+  "gating",
   "clustering",
   "merging",
   "detail",
@@ -253,9 +257,11 @@ export function cancelCharacterExtractJob(jobId: string): boolean {
   return true;
 }
 
+/** Mentions = names + epithets + kinship/role referents (not proper-name-only). */
 const UNIT_SCHEMA = {
-  name: "unit_character_names",
-  description: "Names in this passage",
+  name: "unit_character_mentions",
+  description:
+    "Character-referring mentions in this passage (proper names, nicknames, kinship/role labels, descriptive epithets).",
   parameters: {
     type: "object",
     properties: {
@@ -264,7 +270,11 @@ const UNIT_SCHEMA = {
         items: {
           type: "object",
           properties: {
-            name: { type: "string" },
+            name: {
+              type: "string",
+              description:
+                "Surface as written: proper name OR stable referent. Do not invent names.",
+            },
             aliases: { type: "array", items: { type: "string" } },
           },
           required: ["name"],
@@ -275,7 +285,8 @@ const UNIT_SCHEMA = {
   },
 };
 
-const PROMPT_VERSION = "char-names-unit-v2-surface";
+// Bump when unit prompt/schema changes so name-unit cache invalidates
+const PROMPT_VERSION = "char-mentions-unit-v3";
 
 async function mapPool<T, R>(
   items: T[],
@@ -320,7 +331,7 @@ async function extractUnitNames(
         aliases: (c.aliases || []).map(String).filter(Boolean),
         count: 1,
       }))
-      .filter((c) => c.name.length >= 1 && c.name.length <= 12);
+      .filter((c) => c.name.length >= 1 && c.name.length <= 24);
   } catch {
     try {
       const raw = await llm.chat(
@@ -343,7 +354,7 @@ async function extractUnitNames(
           aliases: c.aliases || [],
           count: 1,
         }))
-        .filter((c) => c.name.length >= 1);
+        .filter((c) => c.name.length >= 1 && c.name.length <= 24);
     } catch {
       return [];
     }
@@ -435,11 +446,12 @@ async function runCharacterJob(
   const fp = job.contentFp || novelFingerprint(fullText);
   const unitHits: UnitNameHit[][] = new Array(units.length);
 
-  // Production: cap fan-out. Debug/dev: no concurrency limit (full unit parallelism).
-  const scanConcurrency = isServerDebugMode() ? units.length : 4;
+  // Mention scan: default concurrency 4 (override CHARACTER_MENTION_CONCURRENCY)
+  const envC = Number(process.env.CHARACTER_MENTION_CONCURRENCY || "");
+  const scanConcurrency =
+    Number.isFinite(envC) && envC >= 1 ? Math.floor(envC) : 4;
   console.log(
-    `[char-job] ${jobId} scan units=${units.length} concurrency=${scanConcurrency}` +
-      (isServerDebugMode() ? " (debug unlimited)" : ""),
+    `[char-job] ${jobId} mention-scan units=${units.length} concurrency=${scanConcurrency}`,
   );
 
   await mapPool(
@@ -592,10 +604,16 @@ async function runCharacterJob(
   touch(job);
 
   const counted = countResolvedEntities(entities, catalog);
-  const gated = filterByMentionFrequency(counted, {
+
+  job.phase = "gating";
+  job.status = "gating";
+  job.message = `模型筛选名单（${entities.length} 候选人）…`;
+  touch(job);
+
+  // Model decides keep/drop from info cards; mentions/role/brief are hints only
+  const gated = await gateRosterWithLlm(llm, entities, counted, {
     textLength: fullText.length,
     unitCount: units.length,
-    softMaxNames: 120,
   });
 
   // Prefer entity with role/brief from resolve; match by name or surface
@@ -612,9 +630,16 @@ async function runCharacterJob(
   };
   let rawList = gated.kept.map((agg) => {
     const ent = findEntity(agg.name);
+    // Entity from list agent already third-person aliases only
+    const aliases =
+      ent?.aliases?.length
+        ? ent.aliases
+        : agg.aliases.length
+          ? agg.aliases
+          : [];
     return {
       name: agg.name,
-      aliases: agg.aliases.length ? agg.aliases : ent?.aliases || [],
+      aliases,
       role: ent?.role || "supporting",
       briefDescription: ent?.briefDescription || "",
     };
@@ -623,12 +648,17 @@ async function runCharacterJob(
   rawList = sanitizeAliasesAgainstRoster(consolidateRawCharacters(rawList));
 
   if (!rawList.length) {
-    throw new Error("频次过滤后角色名单为空");
+    throw new Error("名单 LLM gate 后为空");
   }
 
+  const reasonSample = Object.entries(gated.reasons)
+    .slice(0, 8)
+    .map(([n, r]) => `${n}:${r}`)
+    .join("；");
   console.log(
     `[char-job] ${jobId} entities=${entities.length} gated=${rawList.length}` +
-      (gated.thresholdRaised ? " (threshold raised)" : ""),
+      (gated.fallbackAll ? " (fallback keep all)" : "") +
+      (reasonSample ? ` sample=[${reasonSample}]` : ""),
   );
 
   job.phase = "detail";
@@ -702,7 +732,7 @@ async function runCharacterJob(
   job.message =
     `完成 ${profiles.length} 角色` +
     (job.failedUnitIds.length ? ` · ${job.failedUnitIds.length} 段扫名失败已跳过` : "") +
-    (gated.thresholdRaised ? " · 频次门槛已抬升" : "");
+    (gated.fallbackAll ? " · gate回退全保留" : " · LLM名单筛选");
   touch(job);
   console.log(`[char-job] ${jobId} done chars=${profiles.length}`);
 }

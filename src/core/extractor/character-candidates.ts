@@ -385,6 +385,26 @@ function hasSurname(name: string): boolean {
   return false;
 }
 
+/**
+ * Nicknames / epithets that often lack a real surname (web-novel cast).
+ * Used so speech/address/freq can keep 阿龙、黑仔、短发大叔、老吴 without 百家姓.
+ */
+function isLikelyNickname(name: string): boolean {
+  if (!name || name.length < 2 || name.length > 4) return false;
+  if (BLACKLIST.has(name)) return false;
+  // 阿X / 阿XX
+  if (name.startsWith("阿") && name.length >= 2) return true;
+  // X仔 / XX仔
+  if (name.endsWith("仔") && name.length >= 2) return true;
+  // 老X / 老XX (老吴、老阿伯 — 老 is not always a surname)
+  if (name.startsWith("老") && name.length >= 2) return true;
+  // descriptive roles used as names
+  if (/(大叔|老头|阿伯|阿姨|大哥|大姐|小哥|小姐姐)$/.test(name)) return true;
+  // X哥 / X姐 when 2–3 chars (屿哥 often alias; 航仔 covered above)
+  if (name.length <= 3 && /(哥|姐|嫂|叔|伯)$/.test(name)) return true;
+  return false;
+}
+
 function lineAt(text: string, offset: number, radius = 40): string {
   const start = Math.max(0, offset - radius);
   const end = Math.min(text.length, offset + radius);
@@ -442,8 +462,11 @@ export function scanCharacterCandidates(
     source: HitSource,
     evidence: string,
     boundary: boolean,
+    /** Freq n-grams need surname; speech/address may be nicknames (阿龙/黑仔/短发大叔). */
+    requireSurname = true,
   ) => {
-    if (!isPlausibleName(name) || !hasSurname(name)) return;
+    if (!isPlausibleName(name)) return;
+    if (requireSurname && !hasSurname(name)) return;
     const a = ensure(name);
     a.count++;
     if (source === "speech") a.speechHits++;
@@ -480,16 +503,18 @@ export function scanCharacterCandidates(
     }
   }
 
-  // --- 2) Speech subjects (boost only; refine carefully) ---
+  // --- 2) Speech subjects (surnamed preferred; nicknames without surname OK) ---
+  // Non-greedy {2,4}? so "老吴问道" → 老吴 + 问道 (not 老吴问 + 道)
   const speechRe = new RegExp(
-    `([\\u4e00-\\u9fff]{2,4})(?:[」』"']?)(?:\\s*)(?:${SPEECH_VERBS})`,
+    `([\\u4e00-\\u9fff]{2,4}?)(?:[」』"']?)(?:\\s*)(?:${SPEECH_VERBS})`,
     "g",
   );
   let m: RegExpExecArray | null;
   while ((m = speechRe.exec(text)) !== null) {
     const raw = m[1];
-    // Prefer longest surnamed prefix 2–3 (4 for compound)
+    // Prefer longest surnamed prefix 2–4
     let name: string | null = null;
+    let needSurname = true;
     for (const len of [4, 3, 2] as const) {
       if (raw.length < len) continue;
       const sub = raw.slice(0, len);
@@ -498,17 +523,47 @@ export function scanCharacterCandidates(
         break;
       }
     }
+    // Nickname speakers: 阿龙说 / 黑仔喊 / 短发大叔道 (no standard surname)
+    if (!name && isPlausibleName(raw) && isLikelyNickname(raw)) {
+      name = raw;
+      needSurname = false;
+    }
     if (!name) continue;
-    // Speech hit: count as speech boost (also increments count)
-    touch(name, m.index, "speech", lineAt(text, m.index), true);
+    touch(name, m.index, "speech", lineAt(text, m.index), true, needSurname);
   }
 
-  // --- 3) Address patterns ---
+  // --- 3) Address patterns (incl. nicknames) ---
   ADDRESS_RE.lastIndex = 0;
   while ((m = ADDRESS_RE.exec(text)) !== null) {
     const name = m[1];
-    if (!isPlausibleName(name) || !hasSurname(name)) continue;
-    touch(name, m.index, "address", lineAt(text, m.index), true);
+    if (!isPlausibleName(name)) continue;
+    const needSurname = hasSurname(name) ? true : isLikelyNickname(name);
+    if (!hasSurname(name) && !isLikelyNickname(name)) continue;
+    touch(name, m.index, "address", lineAt(text, m.index), true, !hasSurname(name) ? false : true);
+  }
+
+  // --- 3b) Standalone nickname tokens (阿X / X仔 / 老X / *大叔) ---
+  // Scan all nick cores; accept if left edge is non-Han or a soft lead-in (叫/个/任…).
+  {
+    const nickCore =
+      "(?:阿[\\u4e00-\\u9fff]{1,2})|(?:[\\u4e00-\\u9fff]{1,2}仔)|(?:老[\\u4e00-\\u9fff]{1,2})|" +
+      "(?:[\\u4e00-\\u9fff]{2,3}大叔)|(?:[\\u4e00-\\u9fff]{2,3}老头)|(?:[\\u4e00-\\u9fff]{2,3}阿伯)|" +
+      "(?:[\\u4e00-\\u9fff]{1,2}哥)|(?:[\\u4e00-\\u9fff]{1,2}姐)";
+    const nickLead = new Set(
+      (
+        "叫名是的个位副任处里中把被向对跟与和给在从到了着过才就又都也还把让" +
+        "那这各每有无像见找请替为"
+      ).split(""),
+    );
+    const nickRe = new RegExp(`(${nickCore})`, "g");
+    while ((m = nickRe.exec(text)) !== null) {
+      const name = m[1];
+      if (!isPlausibleName(name) || !isLikelyNickname(name)) continue;
+      const i = m.index;
+      const before = i > 0 ? text[i - 1] : " ";
+      if (isHan(before) && !nickLead.has(before)) continue;
+      touch(name, i, "freq", lineAt(text, i), true, false);
+    }
   }
 
   // --- Score + filter ---
@@ -530,8 +585,11 @@ export function scanCharacterCandidates(
     if (!hasSpeech && span < 2 && a.count < minCount + 3) continue;
 
     // --- 2-char pure-freq is almost always vocabulary noise ---
+    // Exception: nicknames 阿X / X仔 / 老X that are program-tagged
     if (name.length === 2 && !hasSpeech && !hasAddress) {
-      continue;
+      if (!(isLikelyNickname(name) && a.count >= Math.max(minCount, 3))) {
+        continue;
+      }
     }
 
     // Flimsy "surnames" (却/有/都/那…): require speech/address or very strong name shape
@@ -540,10 +598,15 @@ export function scanCharacterCandidates(
     }
 
     // 3–4 char pure-freq (narrative novels): need real support
+    // Nicknames (*大叔 / 老阿伯) use a softer bar — they rarely head "X说"
     if (name.length >= 3 && !hasSpeech && !hasAddress) {
-      if (a.count < Math.max(minCount, text.length > 500_000 ? 8 : 4)) continue;
-      if (span < 3 && a.count < 20) continue;
-      if (boundaryRatio < 0.12 && a.boundaryHits < 5) continue;
+      if (isLikelyNickname(name)) {
+        if (a.count < minCount) continue;
+      } else {
+        if (a.count < Math.max(minCount, text.length > 500_000 ? 8 : 4)) continue;
+        if (span < 3 && a.count < 20) continue;
+        if (boundaryRatio < 0.12 && a.boundaryHits < 5) continue;
+      }
     }
 
     // Score: frequency + span matter; 3-char names get strong boost (CN full names)

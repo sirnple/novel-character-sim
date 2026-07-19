@@ -1,5 +1,6 @@
 /**
  * Import public classic (if needed) → start character unit-scan job → wait → gold eval.
+ * All writes go to data/eval/novels.db (isolated from app main DB).
  *
  * Records git codeVersion inside eval report (via eval-character-name-scan).
  *
@@ -7,14 +8,16 @@
  */
 import { execSync } from "node:child_process";
 import { loadEnvLocal } from "../lib/load-env-local";
+import { useEvalDb } from "../lib/use-eval-db";
 
 loadEnvLocal();
+useEvalDb();
 
 import {
   startCharacterExtractJob,
   getCharacterExtractJob,
 } from "../../src/core/extractor/character-extract-job";
-import { getCharacters, getNovel } from "../../src/lib/db";
+import { getCharacters, getNovel, resolveDbPath } from "../../src/lib/db";
 
 const ROOT = process.cwd();
 const USER = "eval";
@@ -58,11 +61,14 @@ async function main() {
     return;
   }
 
-  // 1) Import text
+  console.log(`[eval] DB=${resolveDbPath()}`);
+
+  // 1) Import text into isolated eval DB
   console.log(`[1/3] Import ${book.title}...`);
   execSync(`npx tsx scripts/eval/import-public-novel.ts ${slug} --userId=${USER}`, {
     cwd: ROOT,
     stdio: "inherit",
+    env: { ...process.env, NCS_DB_PATH: process.env.NCS_DB_PATH },
   });
 
   const novel = getNovel(USER, book.novelId);
@@ -115,7 +121,11 @@ async function main() {
   console.log(`[3/3] Gold eval --only=${book.goldOnly} --include-public...`);
   execSync(
     `npx tsx scripts/eval-character-name-scan.ts --include-public --only=${book.goldOnly} --userId=${USER}`,
-    { cwd: ROOT, stdio: "inherit" },
+    {
+      cwd: ROOT,
+      stdio: "inherit",
+      env: { ...process.env, NCS_DB_PATH: process.env.NCS_DB_PATH },
+    },
   );
 }
 
