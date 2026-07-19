@@ -5,7 +5,11 @@
  * force-directed graph + type filter + fullscreen + manual edit → SQLite via /api/characters
  */
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import type { CharacterProfile, Relationship } from "@/types";
+import type {
+  CharacterProfile,
+  Relationship,
+  RelationshipSymmetry,
+} from "@/types";
 import {
   RELATIONSHIP_TYPE_DEFS,
   relationshipTypeMeta,
@@ -64,9 +68,19 @@ interface SimEdge {
   label: string;
   color: string;
   dash?: string;
-  /** uni / bi / asymmetric — controls arrow heads */
-  symmetry: "unidirectional" | "bidirectional" | "asymmetric";
+  /**
+   * Final symmetry used for rendering (after dyad resolve).
+   * RelationshipSymmetry: unidirectional | bidirectional | asymmetric
+   */
+  symmetry: RelationshipSymmetry;
+  /**
+   * Symmetry as declared on the stored relationship row (null if legacy / missing).
+   * Used only while collapsing dyads.
+   */
+  declaredSymmetry?: RelationshipSymmetry | null;
   reverseType?: string;
+  /** reverse-direction display label when asymmetric */
+  reverseLabel?: string;
   valence?: string;
   visibility?: string;
   description: string;
@@ -77,23 +91,263 @@ interface SimEdge {
   /** owner character id that holds the Relationship row we edit */
   ownerId: string;
   relIndex: number;
+  /** true when A→B and B→A were merged into one visual dyad */
+  paired?: boolean;
 }
 
 function charKey(c: CharacterProfile) {
   return c.id || c.name;
 }
 
+function nameKey(s: string) {
+  return String(s || "").replace(/\s+/g, "").trim();
+}
+
 function resolveTarget(
   rel: Relationship,
   byId: Map<string, CharacterProfile>,
   byName: Map<string, CharacterProfile>,
+  byNameKey: Map<string, CharacterProfile>,
 ): CharacterProfile | undefined {
-  return (
-    byId.get(rel.characterId) ||
-    byName.get(rel.characterName) ||
-    byName.get(rel.characterId) ||
-    byId.get(rel.characterName)
-  );
+  if (rel.characterId && byId.has(rel.characterId)) return byId.get(rel.characterId);
+  if (rel.characterName && byName.has(rel.characterName))
+    return byName.get(rel.characterName);
+  const nk = nameKey(rel.characterName || rel.characterId || "");
+  if (nk && byNameKey.has(nk)) return byNameKey.get(nk);
+  if (rel.characterId && byName.has(rel.characterId))
+    return byName.get(rel.characterId);
+  if (rel.characterName && byId.has(rel.characterName))
+    return byId.get(rel.characterName);
+  return undefined;
+}
+
+function typeId(raw: string) {
+  return normalizeType(raw);
+}
+
+/** Parse stored symmetry; returns null if missing / unknown (legacy rows). */
+function parseSymmetry(raw: unknown): RelationshipSymmetry | null {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (
+    s === "unidirectional" ||
+    s === "单向" ||
+    s === "one-way" ||
+    s === "oneway"
+  ) {
+    return "unidirectional";
+  }
+  if (s === "asymmetric" || s === "不对称" || s === "非对称") {
+    return "asymmetric";
+  }
+  if (
+    s === "bidirectional" ||
+    s === "双向" ||
+    s === "mutual" ||
+    s === "对称"
+  ) {
+    return "bidirectional";
+  }
+  return null;
+}
+
+/**
+ * Resolve dyad symmetry for **rendering** (not social type like 家人/敌人).
+ *
+ * Model (see RelationshipSymmetry):
+ * - unidirectional: only from→to is evidenced
+ * - bidirectional: mutual same-kind bond
+ * - asymmetric: both directions matter with different types (type + reverseType)
+ *
+ * Legacy rows often omit `symmetry` and mirror both sides — infer from topology.
+ */
+function resolveDyadSymmetry(
+  forward: SimEdge,
+  reverse: SimEdge | undefined,
+): RelationshipSymmetry {
+  const sF =
+    forward.declaredSymmetry !== undefined
+      ? forward.declaredSymmetry
+      : parseSymmetry(forward.symmetry);
+  const sR = reverse
+    ? reverse.declaredSymmetry !== undefined
+      ? reverse.declaredSymmetry
+      : parseSymmetry(reverse.symmetry)
+    : null;
+
+  // Explicit asymmetric wins (either side)
+  if (sF === "asymmetric" || sR === "asymmetric") return "asymmetric";
+  if (
+    forward.reverseType &&
+    typeId(forward.reverseType) !== typeId(forward.type)
+  ) {
+    return "asymmetric";
+  }
+
+  if (!reverse) {
+    // Single stored directed row
+    if (sF === "bidirectional") return "bidirectional";
+    if (sF === "unidirectional") return "unidirectional";
+    // No symmetry field + no reverse row → one-way (do NOT default bi)
+    return "unidirectional";
+  }
+
+  // Both directions present in data
+  const sameType = typeId(forward.type) === typeId(reverse.type);
+  if (!sameType) return "asymmetric";
+
+  // Same structural type both ways → mutual bond
+  if (sF === "unidirectional" && sR === "unidirectional") {
+    return "bidirectional";
+  }
+  if (sF === "bidirectional" || sR === "bidirectional" || sF == null) {
+    return "bidirectional";
+  }
+  return sF;
+}
+
+/**
+ * Collapse A→B (+ optional B→A) into one visual dyad edge.
+ * Geometry / arrows are driven by **symmetry**, not by 亲人/敌人 labels.
+ */
+function collapseDirectedDyads(directed: SimEdge[]): SimEdge[] {
+  const byDir = new Map(directed.map((e) => [`${e.source}\0>\0${e.target}`, e]));
+  const used = new Set<string>();
+  const out: SimEdge[] = [];
+
+  for (const e of directed) {
+    const dir = `${e.source}\0>\0${e.target}`;
+    if (used.has(dir)) continue;
+    const revKey = `${e.target}\0>\0${e.source}`;
+    const rev = byDir.get(revKey);
+
+    if (!rev) {
+      used.add(dir);
+      const symmetry = resolveDyadSymmetry(e, undefined);
+      const meta = relMeta(e.type);
+      const revMeta = e.reverseType ? relMeta(e.reverseType) : null;
+      out.push({
+        ...e,
+        label: meta.label,
+        color: meta.color,
+        dash: meta.dash,
+        symmetry,
+        reverseType:
+          symmetry === "asymmetric"
+            ? e.reverseType
+            : symmetry === "bidirectional"
+              ? e.type
+              : undefined,
+        reverseLabel:
+          symmetry === "asymmetric" && revMeta ? revMeta.label : undefined,
+        paired: false,
+      });
+      continue;
+    }
+
+    used.add(dir);
+    used.add(revKey);
+
+    const symmetry = resolveDyadSymmetry(e, rev);
+    const metaA = relMeta(e.type);
+    const metaB = relMeta(rev.type);
+
+    if (symmetry === "bidirectional") {
+      out.push({
+        ...e,
+        type: e.type,
+        label: metaA.label,
+        color: metaA.color,
+        dash: metaA.dash,
+        symmetry: "bidirectional",
+        reverseType: e.type,
+        reverseLabel: undefined,
+        paired: true,
+        description: e.description || rev.description,
+        history: e.history || rev.history,
+        dynamics: e.dynamics || rev.dynamics,
+      });
+    } else if (symmetry === "asymmetric") {
+      out.push({
+        ...e,
+        label: metaA.label,
+        reverseType: rev.type,
+        reverseLabel: metaB.label,
+        color: metaA.color,
+        dash: metaA.dash || metaB.dash,
+        symmetry: "asymmetric",
+        paired: true,
+        description: e.description || rev.description,
+        history: e.history || rev.history,
+        dynamics: e.dynamics || rev.dynamics,
+      });
+    } else {
+      // unidirectional but reverse row also exists (data noise): keep forward only as uni
+      out.push({
+        ...e,
+        label: metaA.label,
+        color: metaA.color,
+        dash: metaA.dash,
+        symmetry: "unidirectional",
+        reverseType: undefined,
+        reverseLabel: undefined,
+        paired: true,
+        description: e.description || "",
+        history: e.history || "",
+        dynamics: e.dynamics || "",
+      });
+    }
+  }
+
+  return out;
+}
+
+/** Visual style for each RelationshipSymmetry (arrows / curve / label). */
+function symmetryVisual(sym: RelationshipSymmetry): {
+  bow: number;
+  markerStart: boolean;
+  markerEnd: boolean;
+  /** extra stroke dash for symmetry (on top of structural type dash) */
+  symmetryDash?: string;
+  strokeWidthMul: number;
+  labelKind: "uni" | "bi" | "asym";
+} {
+  switch (sym) {
+    case "unidirectional":
+      return {
+        bow: 18,
+        markerStart: false,
+        markerEnd: true,
+        strokeWidthMul: 1,
+        labelKind: "uni",
+      };
+    case "asymmetric":
+      return {
+        bow: 20,
+        markerStart: true,
+        markerEnd: true,
+        symmetryDash: "5 3",
+        strokeWidthMul: 1.05,
+        labelKind: "asym",
+      };
+    case "bidirectional":
+    default:
+      return {
+        bow: 6,
+        markerStart: false,
+        markerEnd: false,
+        strokeWidthMul: 1.2,
+        labelKind: "bi",
+      };
+  }
+}
+
+function symmetryLabelZh(sym: RelationshipSymmetry): string {
+  if (sym === "unidirectional") return "单向";
+  if (sym === "asymmetric") return "不对称";
+  return "双向";
 }
 
 function buildGraph(characters: CharacterProfile[]): {
@@ -102,28 +356,27 @@ function buildGraph(characters: CharacterProfile[]): {
 } {
   const byId = new Map(characters.map((c) => [c.id, c]));
   const byName = new Map(characters.map((c) => [c.name, c]));
-  const degree = new Map<string, number>();
-  characters.forEach((c) => degree.set(charKey(c), 0));
+  const byNameKey = new Map(characters.map((c) => [nameKey(c.name), c]));
+  for (const c of characters) {
+    for (const al of c.aliases || []) {
+      const k = nameKey(al);
+      if (k && !byNameKey.has(k)) byNameKey.set(k, c);
+    }
+  }
 
-  // Directed edges: one entry per owner→other (do not collapse undirected)
+  // Collect raw directed rows first
   const edgeMap = new Map<string, SimEdge>();
   for (const c of characters) {
     const rels = c.relationships || [];
     rels.forEach((rel, relIndex) => {
-      const other = resolveTarget(rel, byId, byName);
+      const other = resolveTarget(rel, byId, byName, byNameKey);
       if (!other || charKey(other) === charKey(c)) return;
       const a = charKey(c);
       const b = charKey(other);
       const dir = `${a}\0>\0${b}`;
       if (edgeMap.has(dir)) return;
       const meta = relMeta(rel.type);
-      const symmetry =
-        rel.symmetry === "bidirectional" ||
-        rel.symmetry === "asymmetric" ||
-        rel.symmetry === "unidirectional"
-          ? rel.symmetry
-          : // legacy mirrored data without symmetry → treat as bidirectional
-            "bidirectional";
+      const declared = parseSymmetry(rel.symmetry);
       edgeMap.set(dir, {
         source: a,
         target: b,
@@ -131,7 +384,9 @@ function buildGraph(characters: CharacterProfile[]): {
         label: meta.label,
         color: meta.color,
         dash: meta.dash,
-        symmetry,
+        // provisional; collapseDirectedDyads sets final symmetry for paint
+        symmetry: declared || "unidirectional",
+        declaredSymmetry: declared,
         reverseType: rel.reverseType,
         valence: rel.valence,
         visibility: rel.visibility,
@@ -143,36 +398,56 @@ function buildGraph(characters: CharacterProfile[]): {
         ownerId: a,
         relIndex,
       });
-      degree.set(a, (degree.get(a) || 0) + 1);
-      degree.set(b, (degree.get(b) || 0) + 1);
     });
   }
 
+  const edges = collapseDirectedDyads(Array.from(edgeMap.values()));
+
+  // Degree = unique neighbors (undirected), so size reflects connectivity not mirrored rows
+  const degree = new Map<string, number>();
+  characters.forEach((c) => degree.set(charKey(c), 0));
+  const seenPair = new Set<string>();
+  for (const e of edges) {
+    const pk =
+      e.source < e.target
+        ? `${e.source}\0${e.target}`
+        : `${e.target}\0${e.source}`;
+    if (seenPair.has(pk)) continue;
+    seenPair.add(pk);
+    degree.set(e.source, (degree.get(e.source) || 0) + 1);
+    degree.set(e.target, (degree.get(e.target) || 0) + 1);
+  }
+
   const n = characters.length;
+  // Deterministic ring seed (no Math.random — stable layouts)
+  const ringR = Math.max(80, Math.min(220, 28 * Math.sqrt(Math.max(n, 1))));
   const nodes: SimNode[] = characters.map((c, i) => {
     const angle = (2 * Math.PI * i) / Math.max(n, 1) - Math.PI / 2;
-    const r = 40 + Math.min(n, 12) * 14;
     return {
       id: charKey(c),
       name: c.name,
       char: c,
-      x: Math.cos(angle) * r + (Math.random() - 0.5) * 20,
-      y: Math.sin(angle) * r + (Math.random() - 0.5) * 20,
+      x: Math.cos(angle) * ringR,
+      y: Math.sin(angle) * ringR,
       vx: 0,
       vy: 0,
       degree: degree.get(charKey(c)) || 0,
     };
   });
 
-  return { nodes, edges: Array.from(edgeMap.values()) };
+  return { nodes, edges };
 }
 
+/**
+ * Force layout tuned to canvas pixel space so we do not need a crushing fit-scale.
+ * Linked pairs stay closer than non-linked; min gap keeps edges out from under nodes.
+ */
 function runForce(
   nodes: SimNode[],
   edges: SimEdge[],
   width: number,
   height: number,
-  ticks = 180,
+  ticks = 280,
 ) {
   const cx = width / 2;
   const cy = height / 2;
@@ -185,15 +460,22 @@ function runForce(
     return;
   }
 
-  const idealLen = Math.max(
-    90,
-    Math.min(160, Math.min(width, height) / (1.2 + Math.sqrt(n))),
-  );
-  const charge = 2800 + n * 120;
+  // Target spacing from area (Fruchterman–Reingold style)
+  const area = Math.max(width * height, 1);
+  const k = Math.sqrt(area / n);
+  const idealLen = Math.max(72, Math.min(k * 1.15, Math.min(width, height) * 0.28));
+  const charge = k * k * 1.35;
+  const maxDeg = Math.max(1, ...nodes.map((nd) => nd.degree));
+
+  // Place ring into canvas center with room to expand
+  for (const node of nodes) {
+    node.x += cx;
+    node.y += cy;
+  }
 
   for (let t = 0; t < ticks; t++) {
-    const alpha = 1 - t / ticks;
-    const cool = 0.08 * alpha + 0.01;
+    const alpha = Math.pow(1 - t / ticks, 0.85);
+    const cool = 0.1 * alpha + 0.008;
 
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
@@ -203,9 +485,18 @@ function runForce(
         let dy = b.y - a.y;
         let dist2 = dx * dx + dy * dy || 1;
         const dist = Math.sqrt(dist2);
+        // Soft min-distance ≈ sum of radii so nodes don't sit on top of each other
+        const ra = 14 + (a.degree / maxDeg) * 8;
+        const rb = 14 + (b.degree / maxDeg) * 8;
+        const minD = ra + rb + 28;
         const force = (charge * alpha) / dist2;
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
+        let fx = (dx / dist) * force;
+        let fy = (dy / dist) * force;
+        if (dist < minD) {
+          const push = ((minD - dist) / dist) * 0.45 * alpha;
+          fx += dx * push;
+          fy += dy * push;
+        }
         a.vx -= fx;
         a.vy -= fy;
         b.vx += fx;
@@ -220,8 +511,9 @@ function runForce(
       let dx = b.x - a.x;
       let dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      // Stronger springs → clusters by actual bonds, not a random cloud
       const diff = dist - idealLen;
-      const force = diff * 0.06 * alpha;
+      const force = diff * 0.14 * alpha;
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
       a.vx += fx;
@@ -231,15 +523,17 @@ function runForce(
     }
 
     for (const node of nodes) {
-      node.vx += (cx - node.x) * 0.012 * alpha;
-      node.vy += (cy - node.y) * 0.012 * alpha;
-      node.vx *= 0.85;
-      node.vy *= 0.85;
-      node.x += node.vx * cool * 12;
-      node.y += node.vy * cool * 12;
+      // Weak centering — enough to keep graph on canvas, not a tight ball
+      node.vx += (cx - node.x) * 0.005 * alpha;
+      node.vy += (cy - node.y) * 0.005 * alpha;
+      node.vx *= 0.82;
+      node.vy *= 0.82;
+      node.x += node.vx * cool * 14;
+      node.y += node.vy * cool * 14;
     }
   }
 
+  // Center + mild fit: never crush below a floor that would hide edges under nodes
   let minX = Infinity,
     maxX = -Infinity,
     minY = Infinity,
@@ -250,10 +544,15 @@ function runForce(
     minY = Math.min(minY, node.y);
     maxY = Math.max(maxY, node.y);
   }
-  const pad = 56;
+  const pad = 48;
   const bw = Math.max(maxX - minX, 1);
   const bh = Math.max(maxY - minY, 1);
-  const scale = Math.min((width - pad * 2) / bw, (height - pad * 2) / bh, 1.4);
+  // Prefer fitting inside view, but floor scale so min span stays readable
+  const fit = Math.min((width - pad * 2) / bw, (height - pad * 2) / bh);
+  const minSpan = Math.max(idealLen * Math.sqrt(n) * 0.55, 220);
+  const floor = Math.min(1, minSpan / Math.max(bw, bh));
+  // If graph is huge, allow scale < 1 (user can zoom); if tiny, expand a bit
+  const scale = Math.min(Math.max(fit, floor), 1.25);
   const mx = (minX + maxX) / 2;
   const my = (minY + maxY) / 2;
   for (const node of nodes) {
@@ -262,9 +561,26 @@ function runForce(
   }
 }
 
-function nodeRadius(degree: number, maxDegree: number) {
+function nodeRadius(degree: number, maxDegree: number, nodeCount: number) {
   const t = maxDegree > 0 ? degree / maxDegree : 0;
-  return 18 + t * 10;
+  // Shrink nodes when cast is large so edges stay visible
+  const base = nodeCount > 40 ? 11 : nodeCount > 22 ? 13 : 16;
+  const span = nodeCount > 40 ? 6 : 9;
+  return base + t * span;
+}
+
+/** Point on segment from center toward other, on circle of radius r */
+function edgeEndpoint(
+  x: number,
+  y: number,
+  ox: number,
+  oy: number,
+  r: number,
+): { x: number; y: number } {
+  const dx = ox - x;
+  const dy = oy - y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  return { x: x + (dx / len) * r, y: y + (dy / len) * r };
 }
 
 function initialHue(name: string) {
@@ -393,11 +709,21 @@ export default function RelationshipGraph({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
-  const dragRef = useRef<{ mode: "pan" | null; lastX: number; lastY: number }>({
-    mode: null,
-    lastX: 0,
-    lastY: 0,
-  });
+  const [layoutTick, setLayoutTick] = useState(0);
+  const zoomRef = useRef(zoom);
+  const panRef = useRef(pan);
+  const sizeRef = useRef(size);
+  zoomRef.current = zoom;
+  panRef.current = pan;
+  sizeRef.current = size;
+
+  const dragRef = useRef<{
+    mode: "pan" | "node" | null;
+    nodeId?: string;
+    lastX: number;
+    lastY: number;
+    moved: boolean;
+  }>({ mode: null, lastX: 0, lastY: 0, moved: false });
 
   // Sync from parent when not dirty
   useEffect(() => {
@@ -411,10 +737,14 @@ export default function RelationshipGraph({
   );
 
   const edgeMatchesFilter = useCallback(
-    (e: SimEdge) =>
-      !typeFilter ||
-      e.label === typeFilter ||
-      normalizeType(e.type) === typeFilter,
+    (e: SimEdge) => {
+      if (!typeFilter) return true;
+      if (e.label === typeFilter || e.reverseLabel === typeFilter) return true;
+      if (normalizeType(e.type) === typeFilter) return true;
+      if (e.reverseType && normalizeType(e.reverseType) === typeFilter)
+        return true;
+      return false;
+    },
     [typeFilter],
   );
 
@@ -425,11 +755,16 @@ export default function RelationshipGraph({
 
   const filterTypes = useMemo(() => {
     const seen = new Map<string, { color: string; label: string; count: number }>();
-    for (const e of allEdges) {
-      const label = e.label || normalizeType(e.type);
+    const bump = (label: string, color: string) => {
       const prev = seen.get(label);
       if (prev) prev.count++;
-      else seen.set(label, { color: e.color, label, count: 1 });
+      else seen.set(label, { color, label, count: 1 });
+    };
+    for (const e of allEdges) {
+      bump(e.label || normalizeType(e.type), e.color);
+      if (e.symmetry === "asymmetric" && e.reverseLabel) {
+        bump(e.reverseLabel, relMeta(e.reverseType || e.type).color);
+      }
     }
     return Array.from(seen.values()).sort((a, b) => b.count - a.count);
   }, [allEdges]);
@@ -439,10 +774,12 @@ export default function RelationshipGraph({
     () =>
       localChars.map((c) => charKey(c)).join("|") +
       ":" +
-      allEdges.map((e) => e.source + e.target + e.type).join(",") +
+      allEdges.map((e) => e.source + e.target + e.type + (e.reverseType || "")).join(",") +
       ":" +
-      (fullscreen ? "fs" : "in"),
-    [localChars, allEdges, fullscreen],
+      (fullscreen ? "fs" : "in") +
+      ":" +
+      layoutTick,
+    [localChars, allEdges, fullscreen, layoutTick],
   );
 
   const [nodes, setNodes] = useState<SimNode[]>([]);
@@ -498,6 +835,13 @@ export default function RelationshipGraph({
     [nodes],
   );
 
+  // Zoom LOD: overview vs detail — visuals change as you zoom
+  const showEdgeLabels = zoom >= 0.75;
+  const showFullNames = zoom >= 0.55;
+  const showNodeInitials = zoom >= 0.4;
+  // Keep strokes ~constant on screen so lines stay readable when zoomed out
+  const strokeScale = 1 / Math.max(zoom, 0.35);
+
   const nodesInFilter = useMemo(() => {
     if (!typeFilter) return null;
     const s = new Set<string>();
@@ -511,7 +855,6 @@ export default function RelationshipGraph({
   const selected = nodes.find((n) => n.id === selectedId) || null;
   const selectedEdges = useMemo(() => {
     if (!selected) return [];
-    // Prefer matching type first, then others (for side panel)
     const linked = allEdges.filter(
       (e) => e.source === selected.id || e.target === selected.id,
     );
@@ -539,21 +882,75 @@ export default function RelationshipGraph({
     };
   }, [fullscreen, draft]);
 
+  const applyZoomAt = useCallback((factor: number, screenX: number, screenY: number) => {
+    const z = zoomRef.current;
+    const p = panRef.current;
+    const { w, h } = sizeRef.current;
+    const nz = Math.max(0.25, Math.min(4, z * factor));
+    if (nz === z) return;
+    const cx = w / 2;
+    const cy = h / 2;
+    // world under cursor before zoom
+    const wx = (screenX - p.x - cx) / z + cx;
+    const wy = (screenY - p.y - cy) / z + cy;
+    // pan so same world point stays under cursor
+    const nx = screenX - cx - (wx - cx) * nz;
+    const ny = screenY - cy - (wy - cy) * nz;
+    setZoom(nz);
+    setPan({ x: nx, y: ny });
+  }, []);
+
   const onPointerDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest("[data-node],[data-ui]")) return;
-    dragRef.current = { mode: "pan", lastX: e.clientX, lastY: e.clientY };
+    if ((e.target as HTMLElement).closest("[data-ui]")) return;
+    const nodeEl = (e.target as HTMLElement).closest("[data-node]");
+    if (nodeEl) {
+      const id = nodeEl.getAttribute("data-node-id");
+      if (id) {
+        dragRef.current = {
+          mode: "node",
+          nodeId: id,
+          lastX: e.clientX,
+          lastY: e.clientY,
+          moved: false,
+        };
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+    dragRef.current = {
+      mode: "pan",
+      lastX: e.clientX,
+      lastY: e.clientY,
+      moved: false,
+    };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
-    if (dragRef.current.mode !== "pan") return;
-    const dx = e.clientX - dragRef.current.lastX;
-    const dy = e.clientY - dragRef.current.lastY;
-    dragRef.current.lastX = e.clientX;
-    dragRef.current.lastY = e.clientY;
-    setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+    const d = dragRef.current;
+    if (!d.mode) return;
+    const dx = e.clientX - d.lastX;
+    const dy = e.clientY - d.lastY;
+    if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true;
+    d.lastX = e.clientX;
+    d.lastY = e.clientY;
+    if (d.mode === "pan") {
+      setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+      return;
+    }
+    if (d.mode === "node" && d.nodeId) {
+      const z = zoomRef.current;
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id === d.nodeId
+            ? { ...n, x: n.x + dx / z, y: n.y + dy / z, vx: 0, vy: 0 }
+            : n,
+        ),
+      );
+    }
   };
   const onPointerUp = () => {
     dragRef.current.mode = null;
+    dragRef.current.nodeId = undefined;
   };
 
   useEffect(() => {
@@ -561,17 +958,22 @@ export default function RelationshipGraph({
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      setZoom((z) => Math.max(0.35, Math.min(2.5, z * delta)));
+      const rect = el.getBoundingClientRect();
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      applyZoomAt(factor, e.clientX - rect.left, e.clientY - rect.top);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [fullscreen]);
+  }, [fullscreen, applyZoomAt]);
 
   const resetView = () => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setSelectedId(null);
+  };
+
+  const relayout = () => {
+    setLayoutTick((t) => t + 1);
   };
 
   const openEditEdge = (e: SimEdge) => {
@@ -583,7 +985,7 @@ export default function RelationshipGraph({
       description: e.description,
       history: e.history,
       dynamics: e.dynamics,
-      edgeKey: `${e.source}-${e.target}`,
+      edgeKey: `${e.source}→${e.target}`,
     });
   };
 
@@ -661,6 +1063,14 @@ export default function RelationshipGraph({
     setSaveMsg("");
   };
 
+  const symmetryCounts = useMemo(() => {
+    const c = { unidirectional: 0, bidirectional: 0, asymmetric: 0 };
+    for (const e of allEdges) {
+      c[e.symmetry] = (c[e.symmetry] || 0) + 1;
+    }
+    return c;
+  }, [allEdges]);
+
   if (charactersProp.length === 0 && localChars.length === 0) return null;
 
   const edgeKey = (e: SimEdge) => `${e.source}→${e.target}`;
@@ -674,11 +1084,12 @@ export default function RelationshipGraph({
         角色关系网
         <span className="text-xs text-fog font-normal">
           {localChars.length} 人
-          {allEdges.length > 0 ? ` · ${allEdges.length} 条` : ""}
+          {allEdges.length > 0 ? ` · ${allEdges.length} 对关系` : ""}
           {typeFilter
-            ? ` · 高亮「${typeFilter}」${matchedEdges.length} 条`
+            ? ` · 高亮「${typeFilter}」${matchedEdges.length}`
             : ""}
           {dirty ? " · 未保存" : ""}
+          <span className="ml-1 opacity-70">· {Math.round(zoom * 100)}%</span>
         </span>
       </div>
       <div className="flex items-center gap-1 flex-wrap">
@@ -740,7 +1151,19 @@ export default function RelationshipGraph({
             type="button"
             data-ui
             className="p-2 hover:bg-panel-elevated rounded-lg text-muted-foreground hover:text-foreground"
-            onClick={() => setZoom((z) => Math.min(2.5, z * 1.15))}
+            title="重新排布"
+            onClick={relayout}
+            aria-label="重新排布"
+          >
+            <Users className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            data-ui
+            className="p-2 hover:bg-panel-elevated rounded-lg text-muted-foreground hover:text-foreground"
+            onClick={() =>
+              applyZoomAt(1.15, size.w / 2, size.h / 2)
+            }
             aria-label="放大"
           >
             <ZoomIn className="w-4 h-4" />
@@ -749,7 +1172,9 @@ export default function RelationshipGraph({
             type="button"
             data-ui
             className="p-2 hover:bg-panel-elevated rounded-lg text-muted-foreground hover:text-foreground"
-            onClick={() => setZoom((z) => Math.max(0.35, z * 0.87))}
+            onClick={() =>
+              applyZoomAt(0.87, size.w / 2, size.h / 2)
+            }
             aria-label="缩小"
           >
             <ZoomOut className="w-4 h-4" />
@@ -759,7 +1184,7 @@ export default function RelationshipGraph({
             data-ui
             className="p-2 hover:bg-panel-elevated rounded-lg text-muted-foreground hover:text-foreground"
             onClick={resetView}
-            aria-label="重置"
+            aria-label="重置视图"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
@@ -782,42 +1207,110 @@ export default function RelationshipGraph({
   );
 
   const filterBar = (
-    <div className="flex flex-wrap gap-1.5" data-ui>
-      <button
-        type="button"
-        onClick={() => setTypeFilter(null)}
-        className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
-          !typeFilter
-            ? "bg-primary/15 border-primary/40 text-primary"
-            : "bg-secondary/50 border-border/40 text-muted-foreground hover:text-foreground"
-        }`}
-      >
-        全部 {allEdges.length}
-      </button>
-      {filterTypes.map((t) => (
+    <div className="space-y-2" data-ui>
+      {/* Symmetry legend — how edges are drawn (not 亲人/敌人) */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="text-fog shrink-0">方向：</span>
+        <span className="inline-flex items-center gap-1.5" title="只成立 A→B">
+          <svg width="28" height="10" className="opacity-90" aria-hidden>
+            <defs>
+              <marker
+                id="leg-arrow"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="5"
+                markerHeight="5"
+                orient="auto"
+              >
+                <path d="M0 0 L10 5 L0 10z" fill="currentColor" />
+              </marker>
+            </defs>
+            <line
+              x1="2"
+              y1="5"
+              x2="24"
+              y2="5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              markerEnd="url(#leg-arrow)"
+            />
+          </svg>
+          单向
+          <span className="opacity-50">{symmetryCounts.unidirectional}</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5" title="双方同类互向">
+          <svg width="28" height="10" className="opacity-90" aria-hidden>
+            <line
+              x1="2"
+              y1="5"
+              x2="24"
+              y2="5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+            <circle cx="14" cy="5" r="2" fill="currentColor" />
+          </svg>
+          双向
+          <span className="opacity-50">{symmetryCounts.bidirectional}</span>
+        </span>
+        <span
+          className="inline-flex items-center gap-1.5"
+          title="双方都重要但类型不同"
+        >
+          <svg width="28" height="10" className="opacity-90" aria-hidden>
+            <line
+              x1="2"
+              y1="5"
+              x2="24"
+              y2="5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeDasharray="3 2"
+            />
+          </svg>
+          不对称 ⇄
+          <span className="opacity-50">{symmetryCounts.asymmetric}</span>
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
         <button
-          key={t.label}
           type="button"
-          onClick={() =>
-            setTypeFilter((cur) => (cur === t.label ? null : t.label))
-          }
-          className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
-            typeFilter === t.label
+          onClick={() => setTypeFilter(null)}
+          className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+            !typeFilter
               ? "bg-primary/15 border-primary/40 text-primary"
               : "bg-secondary/50 border-border/40 text-muted-foreground hover:text-foreground"
           }`}
         >
-          <span
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ background: t.color }}
-          />
-          {t.label}
-          <span className="opacity-60">{t.count}</span>
+          全部 {allEdges.length}
         </button>
-      ))}
-      {filterTypes.length === 0 && (
-        <span className="text-[11px] text-fog py-1">暂无关系类型</span>
-      )}
+        {filterTypes.map((t) => (
+          <button
+            key={t.label}
+            type="button"
+            onClick={() =>
+              setTypeFilter((cur) => (cur === t.label ? null : t.label))
+            }
+            className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+              typeFilter === t.label
+                ? "bg-primary/15 border-primary/40 text-primary"
+                : "bg-secondary/50 border-border/40 text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <span
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ background: t.color }}
+            />
+            {t.label}
+            <span className="opacity-60">{t.count}</span>
+          </button>
+        ))}
+        {filterTypes.length === 0 && (
+          <span className="text-[11px] text-fog py-1">暂无关系类型</span>
+        )}
+      </div>
     </div>
   );
 
@@ -877,16 +1370,31 @@ export default function RelationshipGraph({
         style={{ minHeight: fullscreen ? undefined : Math.max(height, 360) }}
       >
         <defs>
+          {/* End arrow: points toward target (for unidirectional / asymmetric) */}
           <marker
-            id="rel-arrow"
+            id="rel-arrow-end"
             viewBox="0 0 10 10"
             refX="9"
             refY="5"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto-start-reverse"
+            markerWidth={Math.max(4, 6 * strokeScale)}
+            markerHeight={Math.max(4, 6 * strokeScale)}
+            orient="auto"
+            markerUnits="strokeWidth"
           >
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#c4b5a5" />
+          </marker>
+          {/* Start arrow: points back toward source (asymmetric reverse) */}
+          <marker
+            id="rel-arrow-start"
+            viewBox="0 0 10 10"
+            refX="1"
+            refY="5"
+            markerWidth={Math.max(4, 6 * strokeScale)}
+            markerHeight={Math.max(4, 6 * strokeScale)}
+            orient="auto"
+            markerUnits="strokeWidth"
+          >
+            <path d="M 10 0 L 0 5 L 10 10 z" fill="#c4b5a5" />
           </marker>
         </defs>
         <g
@@ -902,33 +1410,51 @@ export default function RelationshipGraph({
               e.source !== selectedId &&
               e.target !== selectedId;
             const dim = typeDim || selDim;
-            const midX = (a.x + b.x) / 2;
-            const midY = (a.y + b.y) / 2;
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
+            const ra = nodeRadius(a.degree, maxDegree, nodes.length);
+            const rb = nodeRadius(b.degree, maxDegree, nodes.length);
+            const p0 = edgeEndpoint(a.x, a.y, b.x, b.y, ra + 2);
+            const p1 = edgeEndpoint(b.x, b.y, a.x, a.y, rb + 2);
+            const dx = p1.x - p0.x;
+            const dy = p1.y - p0.y;
             const len = Math.sqrt(dx * dx + dy * dy) || 1;
-            const ox = (-dy / len) * 18;
-            const oy = (dx / len) * 18;
+            const vis = symmetryVisual(e.symmetry);
+            const ox = (-dy / len) * vis.bow;
+            const oy = (dx / len) * vis.bow;
+            const midX = (p0.x + p1.x) / 2;
+            const midY = (p0.y + p1.y) / 2;
             const cpx = midX + ox;
             const cpy = midY + oy;
             const k = edgeKey(e);
             const stroke = dim ? "#6b6560" : e.color;
             const labelColor = dim ? "#8a847c" : e.color;
-
-            // Arrow for directed edges; bidirectional keeps simple line or double-end
-            const needArrow =
-              e.symmetry === "unidirectional" || e.symmetry === "asymmetric";
+            const baseW =
+              (!dim && hoverEdge === k ? 2.4 : dim ? 1.1 : 1.65) *
+              vis.strokeWidthMul;
+            // Structural dash (enemy etc.) OR symmetry dash (asymmetric); structural wins if set
+            const dash =
+              e.dash ||
+              (vis.symmetryDash && e.symmetry === "asymmetric"
+                ? vis.symmetryDash
+                : undefined);
+            // Labels: social type text + symmetry glyph
             const labelText =
-              e.symmetry === "unidirectional"
+              vis.labelKind === "uni"
                 ? `${e.label}→`
-                : e.symmetry === "asymmetric"
-                  ? `${e.label}⇄`
-                  : e.label;
+                : vis.labelKind === "asym"
+                  ? `${e.label}⇄${e.reverseLabel || "?"}`
+                  : `${e.label}`;
+            const labelMax = zoom >= 1.2 ? 12 : zoom >= 0.9 ? 8 : 5;
+            const displayLabel =
+              labelText.length > labelMax
+                ? labelText.slice(0, labelMax)
+                : labelText;
+            const lw = Math.max(28, displayLabel.length * 8.5 + 14);
+            const pathD = `M ${p0.x} ${p0.y} Q ${cpx} ${cpy} ${p1.x} ${p1.y}`;
 
             return (
               <g
                 key={k}
-                opacity={dim ? 0.22 : 1}
+                opacity={dim ? 0.18 : 1}
                 onMouseEnter={() => setHoverEdge(k)}
                 onMouseLeave={() => setHoverEdge(null)}
                 onClick={(ev) => {
@@ -937,52 +1463,74 @@ export default function RelationshipGraph({
                 }}
                 className={editing ? "cursor-pointer" : "cursor-default"}
               >
+                <title>
+                  {e.fromName} {symmetryLabelZh(e.symmetry)} {e.toName}
+                  {e.symmetry === "asymmetric"
+                    ? ` · ${e.label}⇄${e.reverseLabel || ""}`
+                    : ` · ${e.label}`}
+                </title>
                 <path
-                  d={`M ${a.x} ${a.y} Q ${cpx} ${cpy} ${b.x} ${b.y}`}
+                  d={pathD}
                   fill="none"
                   stroke={stroke}
-                  strokeWidth={
-                    !dim && hoverEdge === k ? 2.5 : dim ? 1.25 : 1.75
+                  strokeWidth={baseW * strokeScale}
+                  strokeDasharray={dash}
+                  strokeOpacity={dim ? 0.5 : 0.92}
+                  strokeLinecap="round"
+                  markerStart={
+                    vis.markerStart ? "url(#rel-arrow-start)" : undefined
                   }
-                  strokeDasharray={e.dash}
-                  strokeOpacity={dim ? 0.55 : 0.9}
-                  markerEnd={needArrow ? "url(#rel-arrow)" : undefined}
+                  markerEnd={vis.markerEnd ? "url(#rel-arrow-end)" : undefined}
                 />
+                {/* Bidirectional: small mid-caps to show mutual without direction */}
+                {e.symmetry === "bidirectional" && !dim && (
+                  <circle
+                    cx={cpx}
+                    cy={cpy}
+                    r={2.2 * strokeScale}
+                    fill={stroke}
+                    opacity={0.85}
+                  />
+                )}
                 <path
-                  d={`M ${a.x} ${a.y} Q ${cpx} ${cpy} ${b.x} ${b.y}`}
+                  d={pathD}
                   fill="none"
                   stroke="transparent"
-                  strokeWidth={14}
+                  strokeWidth={14 * strokeScale}
                 />
-                <g transform={`translate(${cpx}, ${cpy})`}>
-                  <rect
-                    x={-22}
-                    y={-9}
-                    width={44}
-                    height={16}
-                    rx={8}
-                    fill="hsl(24 12% 11%)"
-                    stroke={labelColor}
-                    strokeOpacity={dim ? 0.25 : 0.45}
-                    strokeWidth={1}
-                  />
-                  <text
-                    textAnchor="middle"
-                    y={3}
-                    fill={labelColor}
-                    fontSize={9}
-                    fontWeight={600}
-                    style={{ pointerEvents: "none" }}
+                {showEdgeLabels && (
+                  <g
+                    transform={`translate(${cpx}, ${cpy}) scale(${strokeScale})`}
                   >
-                    {labelText.length > 4 ? labelText.slice(0, 4) : labelText}
-                  </text>
-                </g>
+                    <rect
+                      x={-lw / 2}
+                      y={e.symmetry === "bidirectional" ? -18 : -9}
+                      width={lw}
+                      height={16}
+                      rx={8}
+                      fill="hsl(24 12% 11%)"
+                      stroke={labelColor}
+                      strokeOpacity={dim ? 0.25 : 0.45}
+                      strokeWidth={1}
+                    />
+                    <text
+                      textAnchor="middle"
+                      y={e.symmetry === "bidirectional" ? -6 : 3}
+                      fill={labelColor}
+                      fontSize={9}
+                      fontWeight={600}
+                      style={{ pointerEvents: "none" }}
+                    >
+                      {displayLabel}
+                    </text>
+                  </g>
+                )}
               </g>
             );
           })}
 
           {nodes.map((n) => {
-            const r = nodeRadius(n.degree, maxDegree);
+            const r = nodeRadius(n.degree, maxDegree, nodes.length);
             const hue = initialHue(n.name);
             const isSel = selectedId === n.id;
             const typeDim =
@@ -997,19 +1545,29 @@ export default function RelationshipGraph({
               );
             const dim = typeDim || selDim;
             const initial = n.name.trim().charAt(0) || "?";
+            const maxName = showFullNames
+              ? zoom >= 1.3
+                ? 12
+                : 8
+              : 4;
             const label =
-              n.name.length > 6 ? n.name.slice(0, 6) + "…" : n.name;
-            const tw = Math.min(80, 14 + label.length * 11);
+              n.name.length > maxName
+                ? n.name.slice(0, maxName) + "…"
+                : n.name;
+            const tw = Math.min(100, 14 + label.length * 10);
 
             return (
               <g
                 key={n.id}
                 data-node
+                data-node-id={n.id}
                 transform={`translate(${n.x},${n.y})`}
                 opacity={dim ? 0.22 : 1}
-                className="cursor-pointer"
+                className="cursor-grab active:cursor-grabbing"
                 onClick={(ev) => {
                   ev.stopPropagation();
+                  // ignore click if we just dragged the node
+                  if (dragRef.current.moved) return;
                   setSelectedId((id) => (id === n.id ? null : n.id));
                 }}
               >
@@ -1031,44 +1589,52 @@ export default function RelationshipGraph({
                         ? "hsla(40, 10%, 60%, 0.2)"
                         : "hsla(40, 30%, 90%, 0.35)"
                   }
-                  strokeWidth={isSel ? 2.5 : 1.25}
+                  strokeWidth={(isSel ? 2.5 : 1.25) * strokeScale}
                 />
-                <text
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fill={dim ? "#9a948c" : "#faf6f1"}
-                  fontSize={r > 22 ? 15 : 13}
-                  fontWeight={700}
-                  style={{ pointerEvents: "none" }}
-                >
-                  {initial}
-                </text>
-                <g transform={`translate(0, ${r + 14})`}>
-                  <rect
-                    x={-tw / 2}
-                    y={-9}
-                    width={tw}
-                    height={18}
-                    rx={6}
-                    fill="hsla(24, 12%, 10%, 0.92)"
-                    stroke={
-                      isSel
-                        ? "hsl(var(--primary) / 0.5)"
-                        : "hsla(40, 20%, 80%, 0.12)"
-                    }
-                    strokeWidth={1}
-                  />
+                {showNodeInitials && (
                   <text
                     textAnchor="middle"
-                    y={4}
-                    fill={dim ? "hsla(40, 10%, 65%, 0.75)" : "hsla(40, 25%, 90%, 0.95)"}
-                    fontSize={11}
-                    fontWeight={600}
+                    dominantBaseline="central"
+                    fill={dim ? "#9a948c" : "#faf6f1"}
+                    fontSize={r > 16 ? 13 : 11}
+                    fontWeight={700}
                     style={{ pointerEvents: "none" }}
                   >
-                    {label}
+                    {initial}
                   </text>
-                </g>
+                )}
+                {showFullNames && (
+                  <g transform={`translate(0, ${r + 12}) scale(${strokeScale})`}>
+                    <rect
+                      x={-tw / 2}
+                      y={-9}
+                      width={tw}
+                      height={18}
+                      rx={6}
+                      fill="hsla(24, 12%, 10%, 0.92)"
+                      stroke={
+                        isSel
+                          ? "hsl(var(--primary) / 0.5)"
+                          : "hsla(40, 20%, 80%, 0.12)"
+                      }
+                      strokeWidth={1}
+                    />
+                    <text
+                      textAnchor="middle"
+                      y={4}
+                      fill={
+                        dim
+                          ? "hsla(40, 10%, 65%, 0.75)"
+                          : "hsla(40, 25%, 90%, 0.95)"
+                      }
+                      fontSize={11}
+                      fontWeight={600}
+                      style={{ pointerEvents: "none" }}
+                    >
+                      {label}
+                    </text>
+                  </g>
+                )}
               </g>
             );
           })}
@@ -1103,6 +1669,20 @@ export default function RelationshipGraph({
                   const other =
                     e.source === selected.id ? e.toName : e.fromName;
                   const muted = typeFilter ? !edgeMatchesFilter(e) : false;
+                  const fromHere = e.source === selected.id;
+                  const typeBadge =
+                    e.symmetry === "asymmetric" && e.reverseLabel
+                      ? fromHere
+                        ? `${e.label}→ / ←${e.reverseLabel}`
+                        : `${e.reverseLabel}→ / ←${e.label}`
+                      : e.label;
+                  const arrow =
+                    e.symmetry === "bidirectional"
+                      ? "↔"
+                      : fromHere
+                        ? "→"
+                        : "←";
+                  const symZh = symmetryLabelZh(e.symmetry);
                   return (
                     <div
                       key={edgeKey(e)}
@@ -1112,7 +1692,10 @@ export default function RelationshipGraph({
                           : "bg-secondary/40 border-border/40"
                       }`}
                     >
-                      <div className="flex items-center gap-1.5 mb-1">
+                      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary border border-border/40 text-fog">
+                          {symZh}
+                        </span>
                         <span
                           className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
                           style={{
@@ -1120,14 +1703,14 @@ export default function RelationshipGraph({
                             background: muted ? "#6b656022" : `${e.color}22`,
                           }}
                         >
-                          {e.label}
+                          {typeBadge}
                         </span>
                         <span
                           className={`text-xs font-medium truncate ${
                             muted ? "text-fog" : "text-foreground"
                           }`}
                         >
-                          → {other}
+                          {arrow} {other}
                         </span>
                       </div>
                       {e.description && (
