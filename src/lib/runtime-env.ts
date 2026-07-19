@@ -11,7 +11,7 @@ function readRaw(name: string): string | undefined {
   // Dynamic key — must not be rewritten to a build-time constant.
   try {
     // Prefer the real Node process (standalone server.js)
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // Dynamic require avoids webpack freezing process.env at build time.
     const nodeProc = require("node:process") as NodeJS.Process;
     const a = nodeProc?.env?.[name];
     if (a !== undefined && a !== null && String(a).length > 0) return String(a);
