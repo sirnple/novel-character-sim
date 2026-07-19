@@ -5,16 +5,16 @@
  * dynamic key access against the live process env object.
  */
 
-function liveEnv(): NodeJS.ProcessEnv {
+function liveEnv(): Partial<NodeJS.ProcessEnv> {
   // Avoid webpack static analysis replacing process.env with a frozen object.
   try {
-    const env = new Function("return (typeof process !== 'undefined' && process.env) || {}")() as NodeJS.ProcessEnv;
+    const env = new Function("return (typeof process !== 'undefined' && process.env) || {}")() as Partial<NodeJS.ProcessEnv>;
     if (env && typeof env === "object") return env;
   } catch {
     /* ignore */
   }
   try {
-    const g = globalThis as typeof globalThis & { process?: { env?: NodeJS.ProcessEnv } };
+    const g = globalThis as typeof globalThis & { process?: { env?: Partial<NodeJS.ProcessEnv> } };
     if (g.process?.env) return g.process.env;
   } catch {
     /* ignore */
