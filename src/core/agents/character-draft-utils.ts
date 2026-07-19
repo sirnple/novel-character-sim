@@ -71,6 +71,29 @@ export function profileHasRelationships(c: CharacterProfile | null | undefined):
   return Array.isArray(c?.relationships) && c!.relationships!.length > 0;
 }
 
+/**
+ * Roster set authority = `roster` names only.
+ * Overlay matching enrichment from `prev` (detail/rels) so re-list does not
+ * re-inflate membership from leftover draft names.
+ */
+export function rebuildDraftFromRoster(
+  roster: CharacterProfile[],
+  prev: CharacterProfile[] | null | undefined,
+): CharacterProfile[] {
+  const prevBy = new Map<string, CharacterProfile>();
+  for (const c of prev || []) {
+    const k = nameKey(c.name);
+    if (k) prevBy.set(k, c);
+  }
+  return roster.map((stub) => {
+    const k = nameKey(stub.name);
+    const old = k ? prevBy.get(k) : undefined;
+    if (!old) return stub;
+    // Membership from roster; keep richer detail/aliases/rels from prev
+    return mergeCharacterProfiles(stub, old);
+  });
+}
+
 /** Prefer non-empty nested fields from `richer` over `base`. */
 export function mergeCharacterProfiles(
   base: CharacterProfile,

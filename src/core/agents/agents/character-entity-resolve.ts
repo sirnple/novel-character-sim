@@ -10,6 +10,10 @@ import { characterExtractTools } from "./character-extract-tools";
 import { analysisDomainTools } from "./analysis-tools";
 import { getCharacterExtractWorkspace } from "@/core/extractor/character-extract-workspace";
 import { SUBMIT_ENTITIES_OK } from "@/core/extractor/character-entity-types";
+import {
+  getNovelAnalysisWorkspace,
+  patchNovelAnalysisWorkspace,
+} from "@/core/extractor/novel-analysis-workspace";
 
 function pick(names: string[], pool: ToolDefinition[]): ToolDefinition[] {
   const byName = new Map(pool.map((t) => [t.name, t]));
@@ -46,13 +50,21 @@ const characterListLoop = makeLoopAgent({
 /** 子 Agent：工具循环由模型调度；成功后校验 workspace 实体 */
 export const characterEntityResolveAgent: AgentDef = {
   execute: async (ctx, llm, onChunk, onTrail) => {
-    // Fresh submit required each run
+    // Fresh roster each run: clear entities + draft membership so leftovers
+    // from prior analysis cannot inflate the final list after commit.
+    const branchId = ctx.branchId || "main";
     const existing = getCharacterExtractWorkspace(
       ctx.userId,
       ctx.novelId,
-      ctx.branchId || "main",
+      branchId,
     );
     if (existing) existing.entities = null;
+    if (getNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId)) {
+      patchNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId, {
+        charactersDraft: null,
+        relationshipEdges: null,
+      });
+    }
 
     const result = await characterListLoop.execute(ctx, llm, onChunk, onTrail);
 

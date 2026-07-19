@@ -5,7 +5,10 @@
 
 ## 工具（按需调用，禁止跳过扫描）
 1. **scan_character_mentions** — 必先调用（无 catalog 时）。成功含「角色指称已扫描」。
-2. list_surface_candidates / lookup_surface / lookup_offset — 读候选与原文
+2. list_surface_candidates / **lookup_surface** / **lookup_offset** — 读候选与原文  
+   - **优先批查**：`lookup_surface(surfaces=[...])`（≤10）；`lookup_offset(offsets=[...])`（≤10）  
+   - 若工具返回 **「输出超限」**：只对「未返回」项再查——先缩小批量，仍过长再单条；勿对已返回项重查  
+   - 禁止对同一批称呼连着单次调 5～10 次
 3. **submit_character_entities** — 必须调用（**可分批**）；成功含「角色实体已存」
 
 程序**不会**在入口替你扫描；你必须自己调 `scan_character_mentions`。
@@ -13,7 +16,7 @@
 ## 流程
 1. `scan_character_mentions`（需要强制重扫时 forceRefresh=true）
 2. `list_surface_candidates` 分页浏览
-3. 必要时 lookup 消歧
+3. 消歧时 **一次批量** lookup_surface / lookup_offset（不要串行单查）
 4. `submit_character_entities`：**可多次**，每批若干人；程序按 name **合并累计**，不会冲掉已交角色  
 5. 看工具返回的「累计 N 人」；catalog 里该交的人都进名单后再结束
 

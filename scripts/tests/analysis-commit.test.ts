@@ -237,5 +237,257 @@ export async function runAnalysisCommitTests(): Promise<void> {
       );
       assert.ok(r.content.includes("未落库"), r.content);
     });
+
+    await testAsync(
+      "commit replaces roster: drops DB leftovers not in staged entities",
+      async () => {
+        initRegistry();
+        const userId = `ac_${randomUUID().slice(0, 8)}`;
+        const novelId = `n_${randomUUID().slice(0, 8)}`;
+        const branchId = "main";
+        const text = "第一章\n孙悟空与唐僧。\n".repeat(8);
+        try {
+          importNovel(userId, novelId, "清理测试", text);
+          const { saveCharacters } = await import("../../src/lib/db");
+          saveCharacters(userId, novelId, [
+            {
+              id: "old1",
+              name: "路人甲",
+              aliases: [],
+              appearance: { summary: "旧残留" },
+              personality: {
+                traits: [],
+                description: "",
+                decisionStyle: "",
+                underPressure: "",
+              },
+              drive: {
+                goal: "",
+                motivation: "",
+                fear: "",
+                weakness: "",
+                bottomLine: "",
+                secret: "",
+              },
+              behavior: {
+                patterns: [],
+                habits: [],
+                attitudeToAuthority: "",
+              },
+              worldview: "",
+              values: [],
+              speakingStyle: {
+                description: "",
+                catchphrases: [],
+                sentenceStyle: "",
+                vocabulary: "",
+                emotionalExpression: "",
+              },
+              background: { origin: "", keyEvents: [], description: "" },
+              relationships: [],
+            },
+            {
+              id: "old2",
+              name: "孙悟空",
+              aliases: ["旧别名"],
+              appearance: { summary: "库里已有外貌描述足够长" },
+              personality: {
+                traits: ["旧"],
+                description: "库里性格描述足够长一些",
+                decisionStyle: "冲",
+                underPressure: "",
+              },
+              drive: {
+                goal: "旧目标",
+                motivation: "旧动机",
+                fear: "",
+                weakness: "",
+                bottomLine: "",
+                secret: "",
+              },
+              behavior: {
+                patterns: ["旧模式"],
+                habits: [],
+                attitudeToAuthority: "",
+              },
+              worldview: "旧观",
+              values: ["义"],
+              speakingStyle: {
+                description: "旧说话",
+                catchphrases: [],
+                sentenceStyle: "",
+                vocabulary: "",
+                emotionalExpression: "",
+              },
+              background: {
+                origin: "花果山",
+                keyEvents: [],
+                description: "旧背景足够长",
+              },
+              relationships: [],
+            },
+          ] as any);
+          assert.equal(getCharacters(userId, novelId).length, 2);
+
+          beginNovelAnalysisWorkspace(userId, novelId, branchId, {
+            fullText: text,
+            forceRefresh: true,
+          });
+          const ctx = { userId, novelId, branchId };
+          const unitScanLlm = {
+            async chatWithTool() {
+              return { characters: [{ name: "孙悟空", aliases: [] }] };
+            },
+            async chat() {
+              return '{"characters":[]}';
+            },
+          } as unknown as LLMProvider;
+          await getTool("scan_character_mentions")!.execute(
+            { forceRefresh: true },
+            ctx,
+            unitScanLlm,
+          );
+          await getTool("submit_character_entities")!.execute(
+            {
+              entities_json: JSON.stringify([
+                {
+                  name: "孙悟空",
+                  aliases: ["齐天大圣"],
+                  role: "protagonist",
+                  briefDescription: "新名单",
+                  surfaces: ["孙悟空"],
+                },
+              ]),
+            },
+            ctx,
+            dummyLlm,
+          );
+
+          const result = commitAnalysisWorkspace({ userId, novelId, branchId });
+          assert.ok(result.ok, result.content);
+          const chars = getCharacters(userId, novelId);
+          assert.equal(chars.length, 1, `expected only staged, got ${chars.map((c) => c.name)}`);
+          assert.equal(chars[0].name, "孙悟空");
+          assert.ok(
+            (chars[0].aliases || []).includes("齐天大圣") ||
+              (chars[0].aliases || []).includes("旧别名"),
+            JSON.stringify(chars[0].aliases),
+          );
+          // DB enrichment for same name kept when staged is stub
+          assert.ok(
+            (chars[0].drive?.goal || "").includes("旧") ||
+              (chars[0].appearance?.summary || "").length > 4,
+            JSON.stringify(chars[0]),
+          );
+        } finally {
+          deleteNovel(userId, novelId);
+        }
+      },
+    );
+
+    await testAsync(
+      "multi-batch submit drops names not in cumulative entities",
+      async () => {
+        initRegistry();
+        const userId = `ac_${randomUUID().slice(0, 8)}`;
+        const novelId = `n_${randomUUID().slice(0, 8)}`;
+        const branchId = "main";
+        const text = "孙悟空 唐僧 猪八戒\n".repeat(10);
+        try {
+          importNovel(userId, novelId, "分批清理", text);
+          beginNovelAnalysisWorkspace(userId, novelId, branchId, {
+            fullText: text,
+            forceRefresh: true,
+          });
+          // Seed polluted draft (simulates leftover)
+          const { patchNovelAnalysisWorkspace, getNovelAnalysisWorkspace } =
+            await import("../../src/core/extractor/novel-analysis-workspace");
+          patchNovelAnalysisWorkspace(userId, novelId, branchId, {
+            charactersDraft: [
+              {
+                id: "x",
+                name: "路人乙",
+                aliases: [],
+                appearance: { summary: "不该留下" },
+                personality: {
+                  traits: [],
+                  description: "",
+                  decisionStyle: "",
+                  underPressure: "",
+                },
+                drive: {
+                  goal: "",
+                  motivation: "",
+                  fear: "",
+                  weakness: "",
+                  bottomLine: "",
+                  secret: "",
+                },
+                behavior: {
+                  patterns: [],
+                  habits: [],
+                  attitudeToAuthority: "",
+                },
+                worldview: "",
+                values: [],
+                speakingStyle: {
+                  description: "",
+                  catchphrases: [],
+                  sentenceStyle: "",
+                  vocabulary: "",
+                  emotionalExpression: "",
+                },
+                background: { origin: "", keyEvents: [], description: "" },
+                relationships: [],
+              },
+            ] as any,
+          });
+          const ctx = { userId, novelId, branchId };
+          const unitScanLlm = {
+            async chatWithTool() {
+              return {
+                characters: [
+                  { name: "孙悟空", aliases: [] },
+                  { name: "唐僧", aliases: [] },
+                ],
+              };
+            },
+            async chat() {
+              return '{"characters":[]}';
+            },
+          } as unknown as LLMProvider;
+          await getTool("scan_character_mentions")!.execute(
+            { forceRefresh: true },
+            ctx,
+            unitScanLlm,
+          );
+          await getTool("submit_character_entities")!.execute(
+            {
+              entities_json: JSON.stringify([
+                { name: "孙悟空", aliases: [], role: "protagonist" },
+              ]),
+            },
+            ctx,
+            dummyLlm,
+          );
+          await getTool("submit_character_entities")!.execute(
+            {
+              entities_json: JSON.stringify([
+                { name: "唐僧", aliases: [], role: "protagonist" },
+              ]),
+            },
+            ctx,
+            dummyLlm,
+          );
+          const draft = getNovelAnalysisWorkspace(userId, novelId, branchId)
+            ?.charactersDraft;
+          assert.ok(draft);
+          assert.equal(draft!.length, 2, draft!.map((c) => c.name).join(","));
+          assert.ok(!draft!.some((c) => c.name === "路人乙"));
+        } finally {
+          deleteNovel(userId, novelId);
+        }
+      },
+    );
   });
 }

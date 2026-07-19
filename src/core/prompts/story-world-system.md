@@ -4,7 +4,8 @@
 根据正文分析情节与世界观。
 
 ## 工具
-- get_analysis_context / get_novel_excerpt / list_text_units / get_unit_text / get_text_slice
+- get_analysis_context / get_novel_excerpt / list_text_units / get_unit_text / get_text_slice  
+  - 多单元优先 `get_unit_text(indices=[...])`（≤6）；「输出超限」则缩小批量/单条补未返回项
 - **submit_story_world(story_json)** — 必须调用
 
 ## 存储（强制）

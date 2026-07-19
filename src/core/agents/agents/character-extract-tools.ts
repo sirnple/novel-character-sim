@@ -23,6 +23,11 @@ import {
   getNovelAnalysisWorkspace,
   patchNovelAnalysisWorkspace,
 } from "@/core/extractor/novel-analysis-workspace";
+import { rebuildDraftFromRoster } from "../character-draft-utils";
+import {
+  BATCH_TEXT_BUDGET,
+  formatBatchOverflowNotice,
+} from "../batch-tool-limits";
 import type { CharacterProfile } from "@/types";
 
 /**
@@ -80,6 +85,103 @@ function wsKey(ctx: { userId: string; novelId: string; branchId: string }) {
   };
 }
 
+/** Max surfaces per lookup_surface call (batch). */
+export const LOOKUP_SURFACE_BATCH_MAX = 10;
+/** Max offsets per lookup_offset call (batch). */
+export const LOOKUP_OFFSET_BATCH_MAX = 10;
+
+/** Parse surface list from surface | surfaces | surfaces_json. */
+export function parseSurfaceBatch(args: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const push = (s: unknown) => {
+    const t = String(s ?? "").trim();
+    if (t) out.push(t);
+  };
+  if (typeof args.surfaces_json === "string" && args.surfaces_json.trim()) {
+    try {
+      const p = JSON.parse(args.surfaces_json);
+      if (Array.isArray(p)) p.forEach(push);
+      else if (Array.isArray(p?.surfaces)) p.surfaces.forEach(push);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (Array.isArray(args.surfaces)) {
+    for (const s of args.surfaces) push(s);
+  }
+  if (typeof args.surface === "string" && args.surface.trim()) {
+    // Allow "甲,乙,丙" only when no surfaces array provided
+    const raw = args.surface.trim();
+    if (!out.length && raw.includes(",") && !raw.includes("，")) {
+      raw.split(",").forEach(push);
+    } else if (!out.length && raw.includes("，")) {
+      raw.split("，").forEach(push);
+    } else {
+      push(raw);
+    }
+  }
+  // de-dupe preserve order
+  const seen = new Set<string>();
+  return out.filter((s) => {
+    if (seen.has(s)) return false;
+    seen.add(s);
+    return true;
+  });
+}
+
+export function parseOffsetBatch(
+  args: Record<string, unknown>,
+): Array<{ offset: number; length?: number }> {
+  const out: Array<{ offset: number; length?: number }> = [];
+  const add = (o: unknown, len?: unknown) => {
+    const offset = Math.max(0, Math.floor(Number(o)));
+    if (!Number.isFinite(offset)) return;
+    const length =
+      len != null && Number.isFinite(Number(len))
+        ? Math.floor(Number(len))
+        : undefined;
+    out.push({ offset, length });
+  };
+  if (typeof args.offsets_json === "string" && args.offsets_json.trim()) {
+    try {
+      const p = JSON.parse(args.offsets_json);
+      const arr = Array.isArray(p) ? p : p?.offsets;
+      if (Array.isArray(arr)) {
+        for (const item of arr) {
+          if (item != null && typeof item === "object") {
+            add((item as any).offset ?? (item as any).o, (item as any).length ?? (item as any).len);
+          } else {
+            add(item);
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (Array.isArray(args.offsets)) {
+    for (const item of args.offsets) {
+      if (item != null && typeof item === "object") {
+        add((item as any).offset ?? (item as any).o, (item as any).length ?? (item as any).len);
+      } else {
+        add(item);
+      }
+    }
+  }
+  if (args.offset != null && args.offset !== "" && !out.length) {
+    add(args.offset, args.length);
+  } else if (args.offset != null && args.offset !== "" && out.length) {
+    // also allow single offset alongside batch? skip to avoid dup
+  }
+  // de-dupe by offset
+  const seen = new Set<number>();
+  return out.filter((r) => {
+    if (seen.has(r.offset)) return false;
+    seen.add(r.offset);
+    return true;
+  });
+}
+
 export const characterExtractTools: ToolDefinition[] = [
   {
     name: "list_surface_candidates",
@@ -127,21 +229,33 @@ export const characterExtractTools: ToolDefinition[] = [
   {
     name: "lookup_surface",
     description:
-      "查询某个称呼在小说正文中的出现位置及前后文，用于判断是否与其他称呼指同一人。" +
-      "例：查「齐天大圣」附近是否在写孙悟空；查「天蓬元帅」是否对应猪八戒。",
+      "查称呼上下文（消歧）。**优先批量** surfaces（最多 " +
+      `${LOOKUP_SURFACE_BATCH_MAX}）。` +
+      "若返回「输出超限」：缩小批量再查未返回项，必要时单条 surface。" +
+      "例：surfaces=[\"齐天大圣\",\"天蓬元帅\",\"周总\"]。",
     parameters: {
       type: "object",
       properties: {
         surface: {
           type: "string",
-          description: "要查询的称呼，如 齐天大圣、悟空",
+          description: "单个称呼；也可用中/英文逗号分隔多个（无 surfaces 时）",
+        },
+        surfaces: {
+          type: "array",
+          description: `多个称呼，最多 ${LOOKUP_SURFACE_BATCH_MAX} 个（推荐批查）`,
+          items: { type: "string" },
+        },
+        surfaces_json: {
+          type: "string",
+          description: 'JSON 数组，如 ["齐天大圣","周总"]',
         },
         maxHits: {
           type: "number",
-          description: "最多返回几处上下文，默认 3，最大 6",
+          description:
+            "每个称呼最多几处上下文。单查默认 3 最大 6；批查默认 2 最大 4",
         },
       },
-      required: ["surface"],
+      required: [],
     },
     execute: async (args, ctx) => {
       const { userId, novelId, branchId } = wsKey(ctx);
@@ -149,14 +263,73 @@ export const characterExtractTools: ToolDefinition[] = [
       if (!ws) {
         return { content: "无扫名工作区，无法查文。", messages: [] };
       }
-      const surface = String(args.surface || "").trim();
-      if (!surface) {
-        return { content: "缺少 surface 参数", messages: [] };
+      const allSurfaces = parseSurfaceBatch(args as Record<string, unknown>);
+      if (!allSurfaces.length) {
+        return {
+          content:
+            "缺少 surface/surfaces。优先批查：surfaces=[\"周总\",\"周伯彦\"]；单查：surface=\"周总\"。",
+          messages: [],
+        };
       }
-      const maxHits = Math.min(6, Math.max(1, Math.floor(Number(args.maxHits) || 3)));
-      const hits = ws.catalog.lookup(surface, maxHits);
+      const countOmitted = allSurfaces.slice(LOOKUP_SURFACE_BATCH_MAX);
+      let surfaces = allSurfaces.slice(0, LOOKUP_SURFACE_BATCH_MAX);
+      const batch = surfaces.length > 1;
+      const maxHits = Math.min(
+        batch ? 4 : 6,
+        Math.max(1, Math.floor(Number(args.maxHits) || (batch ? 2 : 3))),
+      );
+      const parts: string[] = [];
+      if (batch) {
+        parts.push(
+          `【批量 lookup_surface】请求 ${allSurfaces.length} 个称呼，本批处理 ${surfaces.length} 个` +
+            `（每称呼最多 ${maxHits} 处；输出预算 ${BATCH_TEXT_BUDGET} 字）`,
+        );
+      }
+      let used = 0;
+      let returned = 0;
+      const budgetOmitted: string[] = [];
+      for (let i = 0; i < surfaces.length; i++) {
+        const surface = surfaces[i];
+        if (used >= BATCH_TEXT_BUDGET) {
+          budgetOmitted.push(...surfaces.slice(i));
+          break;
+        }
+        const hits = ws.catalog.lookup(surface, maxHits);
+        const block = formatLookupResult(surface, hits);
+        parts.push(block);
+        used += block.length;
+        returned++;
+      }
+      const notices: string[] = [];
+      if (countOmitted.length) {
+        notices.push(
+          formatBatchOverflowNotice({
+            itemLabel: "称呼",
+            toolHint: 'lookup_surface(surfaces=[...])',
+            requested: allSurfaces.length,
+            returned: surfaces.length - budgetOmitted.length,
+            omitted: countOmitted,
+            reason: "count_cap",
+            countCap: LOOKUP_SURFACE_BATCH_MAX,
+          }),
+        );
+      }
+      if (budgetOmitted.length) {
+        notices.push(
+          formatBatchOverflowNotice({
+            itemLabel: "称呼",
+            toolHint: 'lookup_surface(surfaces=[...])',
+            requested: surfaces.length,
+            returned,
+            omitted: budgetOmitted,
+            reason: "output_budget",
+            budget: BATCH_TEXT_BUDGET,
+          }),
+        );
+      }
+      const body = parts.join("\n\n");
       return {
-        content: formatLookupResult(surface, hits),
+        content: notices.length ? `${body}\n\n${notices.join("\n\n")}` : body,
         messages: [],
       };
     },
@@ -164,20 +337,32 @@ export const characterExtractTools: ToolDefinition[] = [
   {
     name: "lookup_offset",
     description:
-      "按正文绝对字符 offset 读取一段原文（用于精读某次 lookup_surface 命中附近）。",
+      "按正文 offset 读原文。**优先批量** offsets（最多 " +
+      `${LOOKUP_OFFSET_BATCH_MAX}）。` +
+      "若返回「输出超限」：缩小批量再读未返回项，必要时单条 offset。" +
+      '例：offsets_json=[{"offset":1200,"length":400},{"offset":8800}]。',
     parameters: {
       type: "object",
       properties: {
         offset: {
           type: "number",
-          description: "正文起始 offset（0-based）",
+          description: "单次：正文起始 offset（0-based）",
         },
         length: {
           type: "number",
-          description: "读取长度，默认 400，最大 2000",
+          description: "单次读取长度，默认 400，最大 2000；批读默认更短",
+        },
+        offsets: {
+          type: "array",
+          description: `多个 offset 或 {offset,length}，最多 ${LOOKUP_OFFSET_BATCH_MAX}`,
+          items: {},
+        },
+        offsets_json: {
+          type: "string",
+          description: 'JSON：数字数组或 [{"offset":0,"length":400},...]',
         },
       },
-      required: ["offset"],
+      required: [],
     },
     execute: async (args, ctx) => {
       const { userId, novelId, branchId } = wsKey(ctx);
@@ -185,14 +370,88 @@ export const characterExtractTools: ToolDefinition[] = [
       if (!ws) {
         return { content: "无扫名工作区", messages: [] };
       }
-      const offset = Math.max(0, Math.floor(Number(args.offset) || 0));
-      const length = Math.min(2000, Math.max(50, Math.floor(Number(args.length) || 400)));
-      const end = Math.min(ws.fullText.length, offset + length);
-      const slice = ws.fullText.slice(offset, end);
+      const allRanges = parseOffsetBatch(args as Record<string, unknown>);
+      if (!allRanges.length) {
+        return {
+          content:
+            "缺少 offset/offsets。优先批读：offsets=[1200,8800]；单读：offset=1200。",
+          messages: [],
+        };
+      }
+      const countOmitted = allRanges.slice(LOOKUP_OFFSET_BATCH_MAX);
+      let ranges = allRanges.slice(0, LOOKUP_OFFSET_BATCH_MAX);
+      const batch = ranges.length > 1;
+      const defaultLen = batch ? 350 : 400;
+      const maxLen = batch ? 800 : 2000;
+      const globalLen =
+        args.length != null
+          ? Math.min(maxLen, Math.max(50, Math.floor(Number(args.length) || defaultLen)))
+          : null;
+      const parts: string[] = [];
+      if (batch) {
+        parts.push(
+          `【批量 lookup_offset】请求 ${allRanges.length} 处，本批处理 ${ranges.length} 处` +
+            `（每段默认 ${defaultLen}、上限 ${maxLen}；输出预算 ${BATCH_TEXT_BUDGET} 字）`,
+        );
+      }
+      let used = 0;
+      let returned = 0;
+      const budgetOmitted: Array<{ offset: number }> = [];
+      for (let i = 0; i < ranges.length; i++) {
+        const r = ranges[i];
+        if (used >= BATCH_TEXT_BUDGET) {
+          budgetOmitted.push(...ranges.slice(i));
+          break;
+        }
+        const length = Math.min(
+          maxLen,
+          Math.max(
+            50,
+            r.length != null
+              ? Math.floor(r.length)
+              : globalLen != null
+                ? globalLen
+                : defaultLen,
+          ),
+        );
+        const offset = r.offset;
+        const end = Math.min(ws.fullText.length, offset + length);
+        const slice = ws.fullText.slice(offset, end).replace(/\s+/g, " ").trim();
+        const block = `--- offset=${offset}..${end} / total=${ws.fullText.length} ---\n${slice}`;
+        parts.push(block);
+        used += block.length;
+        returned++;
+      }
+      const notices: string[] = [];
+      if (countOmitted.length) {
+        notices.push(
+          formatBatchOverflowNotice({
+            itemLabel: "正文位置",
+            toolHint: "lookup_offset(offsets=[...])",
+            requested: allRanges.length,
+            returned: ranges.length - budgetOmitted.length,
+            omitted: countOmitted.map((r) => String(r.offset)),
+            reason: "count_cap",
+            countCap: LOOKUP_OFFSET_BATCH_MAX,
+          }),
+        );
+      }
+      if (budgetOmitted.length) {
+        notices.push(
+          formatBatchOverflowNotice({
+            itemLabel: "正文位置",
+            toolHint: "lookup_offset(offsets=[...])",
+            requested: ranges.length,
+            returned,
+            omitted: budgetOmitted.map((r) => String(r.offset)),
+            reason: "output_budget",
+            budget: BATCH_TEXT_BUDGET,
+          }),
+        );
+      }
+      const body = parts.join("\n\n");
       return {
-        content:
-          `offset=${offset}..${end} / total=${ws.fullText.length}\n` +
-          slice.replace(/\s+/g, " ").trim(),
+        content: notices.length ? `${body}\n\n${notices.join("\n\n")}` : body,
         messages: [],
       };
     },
@@ -279,7 +538,7 @@ export const characterExtractTools: ToolDefinition[] = [
       if (!result.ok) {
         return { content: result.message, messages: [] };
       }
-      // Stage full merged roster into analysis draft (same merge semantics)
+      // Draft membership = full merged entities only (drop leftover names)
       try {
         let aws = getNovelAnalysisWorkspace(userId, novelId, branchId);
         if (!aws) {
@@ -290,35 +549,10 @@ export const characterExtractTools: ToolDefinition[] = [
             fullText: text,
           });
         }
-        // Rebuild draft from **full** merged entities so draft ≡ entities
         const staged = entitiesToProfiles(result.entities);
-        const prev = aws.charactersDraft || [];
-        const byName = new Map(
-          prev.map((c) => [c.name.replace(/\s+/g, ""), c] as const),
-        );
-        for (const p of staged) {
-          const key = p.name.replace(/\s+/g, "");
-          if (!byName.has(key)) byName.set(key, p);
-          else {
-            const old = byName.get(key)!;
-            byName.set(key, {
-              ...old,
-              aliases: Array.from(
-                new Set([...(old.aliases || []), ...(p.aliases || [])]),
-              ),
-              // keep richer brief if any
-              appearance: {
-                summary:
-                  (p.appearance?.summary || "").length >
-                  (old.appearance?.summary || "").length
-                    ? p.appearance?.summary || ""
-                    : old.appearance?.summary || "",
-              },
-            });
-          }
-        }
+        const nextDraft = rebuildDraftFromRoster(staged, aws.charactersDraft);
         patchNovelAnalysisWorkspace(userId, novelId, branchId, {
-          charactersDraft: Array.from(byName.values()),
+          charactersDraft: nextDraft,
         });
       } catch (e) {
         console.warn(

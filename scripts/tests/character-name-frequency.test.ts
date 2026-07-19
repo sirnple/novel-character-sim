@@ -21,6 +21,13 @@ import {
   buildRosterCandidateCards,
   gateRosterWithLlm,
 } from "../../src/core/extractor/character-roster-gate";
+import {
+  LOOKUP_OFFSET_BATCH_MAX,
+  LOOKUP_SURFACE_BATCH_MAX,
+  parseOffsetBatch,
+  parseSurfaceBatch,
+} from "../../src/core/agents/agents/character-extract-tools";
+import { formatBatchOverflowNotice } from "../../src/core/agents/batch-tool-limits";
 import type { LLMProvider } from "../../src/types";
 
 export async function runCharacterNameFrequencyTests(): Promise<void> {
@@ -291,6 +298,45 @@ export async function runCharacterNameFrequencyTests(): Promise<void> {
       assert.ok(yu.aliases.includes("周屿哥哥"));
       assert.ok(merged.some((e) => e.name === "黑仔"));
       assert.ok(merged.some((e) => e.name === "周伯彦"));
+    });
+
+    test("parseSurfaceBatch accepts surfaces array and de-dupes", () => {
+      const s = parseSurfaceBatch({
+        surfaces: ["周总", "周伯彦", "周总"],
+      });
+      assert.deepEqual(s, ["周总", "周伯彦"]);
+      assert.ok(LOOKUP_SURFACE_BATCH_MAX >= 8);
+      assert.ok(LOOKUP_OFFSET_BATCH_MAX >= 8);
+    });
+
+    test("parseOffsetBatch accepts offsets_json objects", () => {
+      const r = parseOffsetBatch({
+        offsets_json: JSON.stringify([
+          { offset: 100, length: 200 },
+          500,
+          { offset: 100 },
+        ]),
+      });
+      assert.equal(r.length, 2);
+      assert.equal(r[0].offset, 100);
+      assert.equal(r[0].length, 200);
+      assert.equal(r[1].offset, 500);
+    });
+
+    test("formatBatchOverflowNotice steers shrink-batch then single", () => {
+      const n = formatBatchOverflowNotice({
+        itemLabel: "称呼",
+        toolHint: "lookup_surface(surfaces=[...])",
+        requested: 12,
+        returned: 10,
+        omitted: ["甲", "乙"],
+        reason: "count_cap",
+        countCap: 10,
+      });
+      assert.ok(n.includes("输出超限"), n);
+      assert.ok(n.includes("缩小批量") || n.includes("优先仍批量"), n);
+      assert.ok(n.includes("单独调用") || n.includes("单条"), n);
+      assert.ok(n.includes("甲"));
     });
   });
 

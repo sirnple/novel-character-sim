@@ -6,7 +6,8 @@
 
 ## 工具
 - get_kept_roster — 看当前名单
-- get_novel_excerpt / list_text_units / get_unit_text / get_text_slice — 读原文
+- get_novel_excerpt / list_text_units / get_unit_text / get_text_slice — 读原文  
+  - **优先批读**：`get_unit_text(indices=[0,2,5])`（≤6）；若「输出超限」则缩小批量或单条，只补未返回项
 - **submit_character_detail(name, detail_json)** — 每人必须调用；成功含「角色详情已存」
 
 ## detail_json 必填结构（JSON 对象字符串）

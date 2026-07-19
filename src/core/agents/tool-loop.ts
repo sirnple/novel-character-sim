@@ -175,7 +175,9 @@ export async function runToolLoop(
             : toolName === "get_branch_text" ? 50000
             : toolName === "get_outline" ? 30000
             : toolName === "list_surface_candidates" ? 40000
-            : toolName === "lookup_surface" || toolName === "lookup_offset" ? 20000
+            // batch lookup / unit text can legitimately be large
+            : toolName === "lookup_surface" || toolName === "lookup_offset" ? 36000
+            : toolName === "get_unit_text" ? 36000
             : toolName === "submit_character_entities" ? 8000
             : 10000;
           resultContent = resultContent.slice(0, limit);

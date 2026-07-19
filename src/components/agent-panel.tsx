@@ -143,11 +143,12 @@ const TOOL_LABELS: Record<string, string> = {
   submit_form: "提交章法",
   scan_character_mentions: "扫描角色指称",
   list_surface_candidates: "列出称呼候选",
-  lookup_surface: "查称呼上下文",
-  lookup_offset: "按位置读文",
+  lookup_surface: "查称呼上下文(可批)",
+  lookup_offset: "按位置读文(可批)",
   submit_character_entities: "提交角色实体",
   finish_novel_analysis: "完成分析",
   list_text_units: "列出章节单元",
+  get_unit_text: "读单元正文(可批)",
   get_kept_roster: "角色名单摘要",
   // Sub-agents — 动宾中文名
   analyze_form: "分析章法",
@@ -218,6 +219,24 @@ function normalizeSubMessages(messages: SubAgentMessage[]): SubAgentMessage[] {
   return out;
 }
 
+/**
+ * Nested scroll: keep wheel on this box while it can still scroll,
+ * so the outer chat list does not steal the gesture mid-card.
+ */
+function nestedScrollWheel(
+  e: React.WheelEvent<HTMLElement>,
+): void {
+  const el = e.currentTarget;
+  const { scrollTop, scrollHeight, clientHeight } = el;
+  if (scrollHeight <= clientHeight + 1) return;
+  const atTop = scrollTop <= 0;
+  const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
+  if ((e.deltaY < 0 && atTop) || (e.deltaY > 0 && atBottom)) {
+    return;
+  }
+  e.stopPropagation();
+}
+
 function PrettyBody({ text, className }: { text: string; className?: string }) {
   const trimmed = text.trim();
   let pretty = text;
@@ -227,7 +246,13 @@ function PrettyBody({ text, className }: { text: string; className?: string }) {
     } catch { /* keep */ }
   }
   return (
-    <pre className={className || "text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto"}>
+    <pre
+      className={
+        className ||
+        "text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto overscroll-contain custom-scrollbar"
+      }
+      onWheel={nestedScrollWheel}
+    >
       {pretty}
     </pre>
   );
@@ -363,7 +388,7 @@ function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAg
               ) : (
                 <PrettyBody
                   text={call.content}
-                  className="text-xs text-sky-200/70  font-mono whitespace-pre-wrap break-all max-h-[120px] overflow-y-auto bg-sky-950/20 rounded p-1.5"
+                  className="text-xs text-sky-200/70  font-mono whitespace-pre-wrap break-all max-h-[160px] overflow-y-auto overscroll-contain custom-scrollbar bg-sky-950/20 rounded p-1.5"
                 />
               )}
             </div>
@@ -386,7 +411,7 @@ function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAg
               ) : (
                 <PrettyBody
                   text={result.content}
-                  className="text-xs text-muted-foreground  font-mono leading-relaxed whitespace-pre-wrap max-h-[220px] overflow-y-auto bg-emerald-950/15 rounded p-1.5"
+                  className="text-xs text-muted-foreground  font-mono leading-relaxed whitespace-pre-wrap max-h-[min(40vh,320px)] overflow-y-auto overscroll-contain custom-scrollbar bg-emerald-950/15 rounded p-1.5"
                 />
               )
             ) : (
@@ -403,7 +428,10 @@ function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAg
 function SubAgentTranscript({ messages }: { messages: SubAgentMessage[] }) {
   const items = groupTranscript(normalizeSubMessages(messages));
   return (
-    <div className="mt-1 space-y-2 max-h-[480px] overflow-y-auto bg-background rounded-lg p-2.5 border border-border/60">
+    <div
+      className="mt-1 space-y-2 max-h-[min(70vh,560px)] overflow-y-auto overscroll-contain custom-scrollbar bg-background rounded-lg p-2.5 border border-border/60"
+      onWheel={nestedScrollWheel}
+    >
       {items.map((item) => {
         if (item.kind === "tool") {
           return <ToolPairCard key={item.key} call={item.call} result={item.result} />;
@@ -418,7 +446,10 @@ function SubAgentTranscript({ messages }: { messages: SubAgentMessage[] }) {
                 <span className="uppercase tracking-wide">System</span>
                 <span className="text-fog">({sm.content.length} 字)</span>
               </summary>
-              <div className="mt-1.5 text-xs text-muted-foreground leading-relaxed bg-background rounded-lg p-2.5 border border-border/50 max-h-[200px] overflow-y-auto">
+              <div
+                className="mt-1.5 text-xs text-muted-foreground leading-relaxed bg-background rounded-lg p-2.5 border border-border/50 max-h-[200px] overflow-y-auto overscroll-contain custom-scrollbar"
+                onWheel={nestedScrollWheel}
+              >
                 <Markdown>{sm.content}</Markdown>
               </div>
             </details>
@@ -497,6 +528,9 @@ export default function AgentPanel({
     message?: string;
   } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  /** When false, user scrolled up to read history — do not yank to bottom on stream. */
+  const stickToBottomRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<AgentMessage[]>([]);
   const {
@@ -531,7 +565,13 @@ export default function AgentPanel({
   }, [messages]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!stickToBottomRef.current) return;
+    const el = messagesScrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+    }
   }, [messages]);
 
   useEffect(() => {
@@ -885,6 +925,7 @@ export default function AgentPanel({
           }
         : m
     );
+    stickToBottomRef.current = true;
     setMessages([...history, userMsg]);
     if (!overrideText) setInput("");
     await runChat(history, userMsg, opts);
@@ -1078,7 +1119,15 @@ export default function AgentPanel({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
+      <div
+        ref={messagesScrollRef}
+        className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3 min-h-0"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+          stickToBottomRef.current = dist < 80;
+        }}
+      >
         {messages.length === 0 && (
           <div className="text-center py-8 text-fog text-xs">
             <Bot className="w-6 h-6 mx-auto mb-2 opacity-30" />
@@ -1273,7 +1322,12 @@ export default function AgentPanel({
                       {msg.metadata?.tool === "get_findings" ? (
                         <FindingsDisplay text={msg.content} />
                       ) : (
-                        <pre className="text-xs text-muted-foreground  font-mono leading-relaxed whitespace-pre-wrap max-h-[200px] overflow-y-auto">{msg.content.slice(0, 5000)}</pre>
+                        <pre
+                          className="text-xs text-muted-foreground font-mono leading-relaxed whitespace-pre-wrap max-h-[min(40vh,320px)] overflow-y-auto overscroll-contain custom-scrollbar"
+                          onWheel={nestedScrollWheel}
+                        >
+                          {msg.content.slice(0, 5000)}
+                        </pre>
                       )}
                     </div>
                   </details>

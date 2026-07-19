@@ -58,6 +58,10 @@ import {
   beginCharacterExtractWorkspace,
   getCharacterExtractWorkspace,
 } from "@/core/extractor/character-extract-workspace";
+import {
+  BATCH_TEXT_BUDGET,
+  formatBatchOverflowNotice,
+} from "../batch-tool-limits";
 import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
 import { scanUnitHitsWithLlm } from "@/core/extractor/character-name-scan";
 import { relationshipTypePromptList } from "@/core/extractor/relationship-types";
@@ -326,14 +330,28 @@ export const analysisDomainTools: ToolDefinition[] = [
   },
   {
     name: "get_unit_text",
-    description: "按单元下标读取正文。",
+    description:
+      "按单元下标读正文。**优先批量** indices（最多 6）。" +
+      "若返回「输出超限」：缩小批量再读未返回项，必要时单条 index。",
     parameters: {
       type: "object",
       properties: {
-        index: { type: "number", description: "0-based unit index" },
-        maxChars: { type: "number", description: "截断长度，默认 8000" },
+        index: { type: "number", description: "单次：0-based unit index" },
+        indices: {
+          type: "array",
+          description: "批量：多个 0-based index，最多 6 个",
+          items: { type: "number" },
+        },
+        indices_json: {
+          type: "string",
+          description: "JSON 数组，如 [0,3,7]",
+        },
+        maxChars: {
+          type: "number",
+          description: "每单元截断。单读默认 8000；批读默认 2500，总预算约 16k",
+        },
       },
-      required: ["index"],
+      required: [],
     },
     execute: async (args, ctx) => {
       const { userId, novelId, branchId } = ids(ctx);
@@ -341,12 +359,112 @@ export const analysisDomainTools: ToolDefinition[] = [
       const text = loadText(userId, novelId, branchId);
       let units = ws?.units || [];
       if (!units.length) units = buildNameScanUnits(text);
-      const i = Math.floor(Number(args.index));
-      const u = units[i];
-      if (!u) return { content: `无单元 index=${i}`, messages: [] };
-      const max = Math.min(20000, Math.max(500, Number(args.maxChars) || 8000));
+
+      const UNIT_BATCH_BUDGET = BATCH_TEXT_BUDGET;
+      const UNIT_BATCH_MAX = 6;
+      let indices: number[] = [];
+      if (typeof args.indices_json === "string" && args.indices_json.trim()) {
+        try {
+          const p = JSON.parse(args.indices_json);
+          const arr = Array.isArray(p) ? p : p?.indices;
+          if (Array.isArray(arr)) {
+            indices = arr.map((x: unknown) => Math.floor(Number(x)));
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      if (Array.isArray(args.indices)) {
+        indices = args.indices.map((x: unknown) => Math.floor(Number(x)));
+      }
+      if (!indices.length && args.index != null && args.index !== "") {
+        indices = [Math.floor(Number(args.index))];
+      }
+      indices = indices.filter((i) => Number.isFinite(i) && i >= 0);
+      {
+        const seen = new Set<number>();
+        indices = indices.filter((i) => {
+          if (seen.has(i)) return false;
+          seen.add(i);
+          return true;
+        });
+      }
+      if (!indices.length) {
+        return {
+          content:
+            "缺少 index/indices。优先批读：indices=[0,2,5]；单读：index=0。",
+          messages: [],
+        };
+      }
+      const allIndices = indices;
+      const countOmitted = allIndices.slice(UNIT_BATCH_MAX).map(String);
+      indices = allIndices.slice(0, UNIT_BATCH_MAX);
+      const batch = indices.length > 1;
+      const defaultMax = batch ? 2500 : 8000;
+      const hardMax = batch ? 4000 : 20000;
+      const max = Math.min(
+        hardMax,
+        Math.max(200, Number(args.maxChars) || defaultMax),
+      );
+
+      const parts: string[] = [];
+      if (batch) {
+        parts.push(
+          `【批量 get_unit_text】请求 ${allIndices.length} 个单元，本批处理 ${indices.length} 个` +
+            `（每单元最多 ${max} 字；输出预算 ${UNIT_BATCH_BUDGET} 字）`,
+        );
+      }
+      let used = 0;
+      let returned = 0;
+      const budgetOmitted: string[] = [];
+      for (let j = 0; j < indices.length; j++) {
+        const i = indices[j];
+        if (used >= UNIT_BATCH_BUDGET) {
+          budgetOmitted.push(...indices.slice(j).map(String));
+          break;
+        }
+        const u = units[i];
+        if (!u) {
+          parts.push(`【index=${i}】无此单元`);
+          returned++;
+          continue;
+        }
+        const body = (u.text || "").slice(0, max);
+        const block = `【#${i} ${u.label}】chars=${(u.text || "").length}\n${body}`;
+        parts.push(block);
+        used += block.length;
+        returned++;
+      }
+      const notices: string[] = [];
+      if (countOmitted.length) {
+        notices.push(
+          formatBatchOverflowNotice({
+            itemLabel: "文本单元",
+            toolHint: "get_unit_text(indices=[...])",
+            requested: allIndices.length,
+            returned: indices.length - budgetOmitted.length,
+            omitted: countOmitted,
+            reason: "count_cap",
+            countCap: UNIT_BATCH_MAX,
+          }),
+        );
+      }
+      if (budgetOmitted.length) {
+        notices.push(
+          formatBatchOverflowNotice({
+            itemLabel: "文本单元",
+            toolHint: "get_unit_text(indices=[...])",
+            requested: indices.length,
+            returned,
+            omitted: budgetOmitted,
+            reason: "output_budget",
+            budget: UNIT_BATCH_BUDGET,
+          }),
+        );
+      }
+      const body = parts.join("\n\n");
       return {
-        content: `【${u.label}】\n${(u.text || "").slice(0, max)}`,
+        content: notices.length ? `${body}\n\n${notices.join("\n\n")}` : body,
         messages: [],
       };
     },

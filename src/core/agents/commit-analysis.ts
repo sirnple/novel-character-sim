@@ -106,38 +106,55 @@ export function commitAnalysisWorkspace(input: {
     skipped.push("form(missing)");
   }
 
-  // Merge: DB existing (if any) ← entities stubs ← charactersDraft (richest wins)
-  const byKey = new Map<string, CharacterProfile>();
-  for (const c of getCharacters(userId, novelId)) {
-    byKey.set(nameKey(c.name), c);
-  }
-  if (cws?.entities?.length) {
-    for (const p of entitiesToProfiles(cws.entities)) {
-      const k = nameKey(p.name);
-      byKey.set(k, byKey.has(k) ? mergeCharacterProfiles(byKey.get(k)!, p) : p);
+  // Roster membership = this analysis only (entities / draft), not union with old DB.
+  // Same-name rows in DB may enrich detail if re-list without re-detail.
+  const hasStagedRoster =
+    !!(cws?.entities?.length) ||
+    !!(ws?.charactersDraft && ws.charactersDraft.length);
+  let chars: CharacterProfile[] = [];
+  if (hasStagedRoster) {
+    const byKey = new Map<string, CharacterProfile>();
+    // 1) entities define base set when present
+    if (cws?.entities?.length) {
+      for (const p of entitiesToProfiles(cws.entities)) {
+        const k = nameKey(p.name);
+        if (k) byKey.set(k, p);
+      }
     }
-  }
-  if (Array.isArray(ws?.charactersDraft)) {
-    for (const p of ws!.charactersDraft!) {
-      if (!p?.name) continue;
-      const k = nameKey(p.name);
-      byKey.set(k, byKey.has(k) ? mergeCharacterProfiles(byKey.get(k)!, p) : p);
+    // 2) draft overlays (detail/rels); if no entities, draft alone is the set
+    if (Array.isArray(ws?.charactersDraft)) {
+      for (const p of ws!.charactersDraft!) {
+        if (!p?.name) continue;
+        const k = nameKey(p.name);
+        if (!k) continue;
+        if (cws?.entities?.length && !byKey.has(k)) {
+          // entities are authoritative set — drop draft-only leftovers
+          continue;
+        }
+        byKey.set(k, byKey.has(k) ? mergeCharacterProfiles(byKey.get(k)!, p) : p);
+      }
     }
+    // 3) same-name DB enrichment only (never add DB-only names)
+    // base = staged roster identity; DB fills empty detail fields
+    for (const dbc of getCharacters(userId, novelId)) {
+      const k = nameKey(dbc.name);
+      if (!k || !byKey.has(k)) continue;
+      byKey.set(k, mergeCharacterProfiles(byKey.get(k)!, dbc));
+    }
+    chars = Array.from(byKey.values());
+    if (ws?.relationshipEdges?.length) {
+      chars = applyRelationshipEdges(chars, ws.relationshipEdges).chars;
+    }
+    chars = chars
+      .filter((c) => c && String(c.name || "").trim())
+      .map((c, i) => ({
+        ...c,
+        id: c.id || `char_${i}_${nameKey(c.name).slice(0, 24)}`,
+        name: String(c.name).trim(),
+        aliases: Array.isArray(c.aliases) ? c.aliases : [],
+        relationships: Array.isArray(c.relationships) ? c.relationships : [],
+      }));
   }
-  // Apply staged relationship edges last
-  let chars = Array.from(byKey.values());
-  if (ws?.relationshipEdges?.length) {
-    chars = applyRelationshipEdges(chars, ws.relationshipEdges).chars;
-  }
-  chars = chars
-    .filter((c) => c && String(c.name || "").trim())
-    .map((c, i) => ({
-      ...c,
-      id: c.id || `char_${i}_${nameKey(c.name).slice(0, 24)}`,
-      name: String(c.name).trim(),
-      aliases: Array.isArray(c.aliases) ? c.aliases : [],
-      relationships: Array.isArray(c.relationships) ? c.relationships : [],
-    }));
 
   const richN = chars.filter(profileHasDetail).length;
   const relN = chars.reduce((n, c) => n + (c.relationships?.length || 0), 0);
@@ -155,8 +172,12 @@ export function commitAnalysisWorkspace(input: {
       skipped.push("characters(error:" + (e as Error).message + ")");
       console.warn("[commit-analysis] saveCharacters failed:", e);
     }
+  } else if (hasStagedRoster) {
+    skipped.push("characters(missing — staged empty after filter)");
+  } else if (getCharacters(userId, novelId).length) {
+    skipped.push("characters(keep existing DB — no staged roster)");
   } else {
-    skipped.push("characters(missing — no draft/entities/DB)");
+    skipped.push("characters(missing — no draft/entities)");
     console.warn("[commit-analysis] no characters to commit", {
       userId,
       novelId,
