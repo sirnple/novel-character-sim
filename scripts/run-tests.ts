@@ -24,6 +24,8 @@ import { runAnalysisWiringTests } from "./tests/analysis-wiring.test";
 import { runAnalysisCommitTests } from "./tests/analysis-commit.test";
 import { runAgentFrontmatterTests } from "./tests/agent-frontmatter.test";
 import { runAgentPromptRenderTests } from "./tests/agent-prompt-render.test";
+import { runSharePayloadTests } from "./tests/share-payload.test";
+import { runShareStoreTests } from "./tests/share-store.test";
 
 async function main() {
   resetCounters();
@@ -50,6 +52,8 @@ async function main() {
   await runCharacterNameFrequencyTests();
   await runAnalysisWiringTests();
   await runAnalysisCommitTests();
+  runSharePayloadTests();
+  runShareStoreTests();
 
   const { failed } = summary();
   if (failed > 0) process.exitCode = 1;

@@ -672,6 +672,8 @@ export interface RelationshipGraphProps {
   className?: string;
   /** Called after successful DB save */
   onCharactersChange?: (characters: CharacterProfile[]) => void;
+  /** Hide edit/save; no mutations (e.g. public share page) */
+  readOnly?: boolean;
 }
 
 interface DraftRel {
@@ -691,6 +693,7 @@ export default function RelationshipGraph({
   height = 420,
   className = "",
   onCharactersChange,
+  readOnly = false,
 }: RelationshipGraphProps) {
   const [localChars, setLocalChars] = useState<CharacterProfile[]>(() =>
     cloneChars(charactersProp),
@@ -730,6 +733,14 @@ export default function RelationshipGraph({
     if (dirty) return;
     setLocalChars(cloneChars(charactersProp));
   }, [charactersProp, dirty]);
+
+  // Never enter edit mode on public share surfaces
+  useEffect(() => {
+    if (!readOnly) return;
+    setEditing(false);
+    setDraft(null);
+    setDirty(false);
+  }, [readOnly]);
 
   const { nodes: seedNodes, edges: allEdges } = useMemo(
     () => buildGraph(localChars),
@@ -1093,7 +1104,7 @@ export default function RelationshipGraph({
         </span>
       </div>
       <div className="flex items-center gap-1 flex-wrap">
-        {editing && (
+        {!readOnly && editing && (
           <button
             type="button"
             data-ui
@@ -1104,23 +1115,25 @@ export default function RelationshipGraph({
             添加关系
           </button>
         )}
-        <button
-          type="button"
-          data-ui
-          onClick={() => {
-            setEditing((v) => !v);
-            if (editing) setDraft(null);
-          }}
-          className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
-            editing
-              ? "bg-primary/15 border-primary/40 text-primary"
-              : "bg-secondary border-border/50 text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <Pencil className="w-3.5 h-3.5" />
-          {editing ? "编辑中" : "编辑"}
-        </button>
-        {dirty && (
+        {!readOnly && (
+          <button
+            type="button"
+            data-ui
+            onClick={() => {
+              setEditing((v) => !v);
+              if (editing) setDraft(null);
+            }}
+            className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
+              editing
+                ? "bg-primary/15 border-primary/40 text-primary"
+                : "bg-secondary border-border/50 text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Pencil className="w-3.5 h-3.5" />
+            {editing ? "编辑中" : "编辑"}
+          </button>
+        )}
+        {!readOnly && dirty && (
           <>
             <button
               type="button"
