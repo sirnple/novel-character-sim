@@ -8,6 +8,7 @@ import type {
 import type { ForeshadowingLedger } from "@/core/foreshadowing/types";
 import { emptyLedger } from "@/core/foreshadowing/types";
 import type { ShareOverviewPayload, ShareVisibility } from "@/lib/share-payload";
+import { isAdminEmail } from "@/lib/admin-users";
 
 /** Default app DB. Override with NCS_DB_PATH or NOVEL_DB_PATH (absolute or cwd-relative). */
 export function resolveDbPath(): string {
@@ -415,6 +416,7 @@ function initSchema(db: Database.Database) {
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       display_name TEXT NOT NULL DEFAULT '',
+      is_admin INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -459,6 +461,10 @@ function initSchema(db: Database.Database) {
   for (const table of ["novels", "story_info", "characters", "simulations"]) {
     try { db.exec(`ALTER TABLE ${table} ADD COLUMN user_id TEXT NOT NULL DEFAULT 'guest'`); console.log(`[DB] Added user_id to ${table}`); } catch { /* already exists */ }
   }
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`);
+    console.log(`[DB] Added is_admin to users`);
+  } catch { /* already exists */ }
 }
 
 // ---- Auth users / sessions ----
@@ -467,10 +473,29 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string;
+  isAdmin: boolean;
 }
 
 export interface AuthUserRow extends AuthUser {
   passwordHash: string;
+}
+
+function resolveIsAdmin(row: { id: string; email: string; is_admin?: number }): boolean {
+  const fromDb = Number(row.is_admin) === 1;
+  const fromEnv = isAdminEmail(row.email);
+  if (fromEnv && !fromDb) {
+    // Persist ADMIN_EMAILS grant so subsequent lookups stay consistent.
+    try {
+      getDb()
+        .prepare(
+          `UPDATE users SET is_admin = 1, updated_at = datetime('now') WHERE id = ?`,
+        )
+        .run(row.id);
+    } catch {
+      /* best-effort */
+    }
+  }
+  return fromDb || fromEnv;
 }
 
 export function createUser(input: {
@@ -478,18 +503,27 @@ export function createUser(input: {
   email: string;
   passwordHash: string;
   displayName: string;
+  isAdmin?: boolean;
 }): AuthUser {
   const d = getDb();
+  const isAdmin = input.isAdmin === true || isAdminEmail(input.email);
   d.prepare(
-    `INSERT INTO users (id, email, password_hash, display_name)
-     VALUES (?, ?, ?, ?)`
-  ).run(input.id, input.email, input.passwordHash, input.displayName);
-  return { id: input.id, email: input.email, displayName: input.displayName };
+    `INSERT INTO users (id, email, password_hash, display_name, is_admin)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(input.id, input.email, input.passwordHash, input.displayName, isAdmin ? 1 : 0);
+  return {
+    id: input.id,
+    email: input.email,
+    displayName: input.displayName,
+    isAdmin,
+  };
 }
 
 export function getUserByEmail(email: string): AuthUserRow | null {
   const row = getDb()
-    .prepare("SELECT id, email, password_hash, display_name FROM users WHERE email = ?")
+    .prepare(
+      "SELECT id, email, password_hash, display_name, is_admin FROM users WHERE email = ?",
+    )
     .get(email) as any;
   if (!row) return null;
   return {
@@ -497,15 +531,21 @@ export function getUserByEmail(email: string): AuthUserRow | null {
     email: row.email,
     displayName: row.display_name || "",
     passwordHash: row.password_hash,
+    isAdmin: resolveIsAdmin(row),
   };
 }
 
 export function getUserById(id: string): AuthUser | null {
   const row = getDb()
-    .prepare("SELECT id, email, display_name FROM users WHERE id = ?")
+    .prepare("SELECT id, email, display_name, is_admin FROM users WHERE id = ?")
     .get(id) as any;
   if (!row) return null;
-  return { id: row.id, email: row.email, displayName: row.display_name || "" };
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name || "",
+    isAdmin: resolveIsAdmin(row),
+  };
 }
 
 export function createSession(token: string, userId: string, maxAgeSec: number): void {
@@ -519,7 +559,7 @@ export function getSessionUser(token: string): AuthUser | null {
   const d = getDb();
   const row = d
     .prepare(
-      `SELECT u.id, u.email, u.display_name
+      `SELECT u.id, u.email, u.display_name, u.is_admin
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > datetime('now')`
@@ -530,7 +570,12 @@ export function getSessionUser(token: string): AuthUser | null {
     d.prepare("DELETE FROM sessions WHERE token = ?").run(token);
     return null;
   }
-  return { id: row.id, email: row.email, displayName: row.display_name || "" };
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name || "",
+    isAdmin: resolveIsAdmin(row),
+  };
 }
 
 export function deleteSession(token: string): void {

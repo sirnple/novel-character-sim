@@ -5,10 +5,11 @@ import { useState, useEffect, useCallback } from "react";
 interface LimitStatus {
   key: string;
   label: string;
-  limit: number;
-  remaining: number;
+  limit: number | null;
+  remaining: number | null;
   windowSec: number;
   resetSec: number;
+  unlimited?: boolean;
 }
 
 /**
@@ -102,7 +103,10 @@ export function useRateLimitTip(endpoint: string | null): string | null {
   }, [fetchStatus]);
 
   if (!status) return null;
-  if (status.remaining <= 2) {
+  if (status.unlimited || status.limit == null) {
+    return "管理员：无并发/次数限制";
+  }
+  if ((status.remaining ?? 0) <= 2) {
     return `⚠️ 仅剩 ${status.remaining}/${status.limit} 次 · ${status.resetSec} 秒后重置`;
   }
   return `剩余 ${status.remaining}/${status.limit} 次`;

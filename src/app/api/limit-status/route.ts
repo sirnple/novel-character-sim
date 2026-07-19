@@ -12,21 +12,24 @@ const ENDPOINTS = [
 
 export async function GET(request: NextRequest) {
   const auth = resolveAuth(request);
+  const isAdmin = !!auth.user?.isAdmin;
   // Rate limit display still keyed by identity (guest cookie or user)
   const limits = ENDPOINTS.map((e) => {
     const status = queryRateLimit(auth.userId, e.key, { windowMs: e.windowMs, maxRequests: e.maxRequests });
     return {
       key: e.key,
       label: e.label,
-      limit: e.maxRequests,
-      remaining: status.remaining,
+      limit: isAdmin ? null : e.maxRequests,
+      remaining: isAdmin ? null : status.remaining,
       windowSec: Math.round(e.windowMs / 1000),
-      resetSec: Math.max(0, Math.ceil((status.resetAt - Date.now()) / 1000)),
+      resetSec: isAdmin ? 0 : Math.max(0, Math.ceil((status.resetAt - Date.now()) / 1000)),
+      unlimited: isAdmin,
     };
   });
   return NextResponse.json({
     userId: auth.userId,
     kind: auth.kind,
+    isAdmin,
     clientIp: getClientIP(request),
     limits,
   });

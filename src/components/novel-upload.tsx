@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Upload, Loader2 } from "lucide-react";
 import { useRateLimitCooldown } from "@/lib/rate-limit-ui";
 import { isClientDebugMode } from "@/lib/debug-mode";
@@ -17,16 +17,31 @@ export default function NovelUpload({ onParsed }: NovelUploadProps) {
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const debugMode = isClientDebugMode();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled) setIsAdmin(!!data?.user?.isAdmin);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const MAX_FILE_MB = 5;
+  const skipSizeLimit = debugMode || isAdmin;
 
   function validateFile(file: File): string | null {
     const name = file.name.toLowerCase();
     if (!name.endsWith(".txt") && !name.endsWith(".zip")) {
       return `不支持的文件格式（${file.name}），请上传 .txt 或 .zip 文件。`;
     }
-    // Debug: no size cap for local large-novel testing
-    if (!debugMode) {
+    // Admin / debug: no size cap for large-novel testing
+    if (!skipSizeLimit) {
       const mb = file.size / (1024 * 1024);
       if (file.size > MAX_FILE_MB * 1024 * 1024) {
         return `文件过大（${mb.toFixed(1)} MB），限制为 ${MAX_FILE_MB} MB。请拆分章节后重新上传。`;
@@ -96,8 +111,10 @@ export default function NovelUpload({ onParsed }: NovelUploadProps) {
               <p className="text-muted-foreground">拖入 .txt 或 .zip 文件，或点击浏览</p>
               <p className="text-xs text-muted-foreground/60 mt-1">
                 支持 .txt / .zip
-                {debugMode
-                  ? " · debug：不限制大小"
+                {skipSizeLimit
+                  ? isAdmin
+                    ? " · 管理员：不限制大小"
+                    : " · debug：不限制大小"
                   : `，单个文件限制 ${MAX_FILE_MB} MB`}
               </p>
             </div>

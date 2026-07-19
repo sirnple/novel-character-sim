@@ -1,9 +1,13 @@
 /**
- * Simple in-memory rate limiter keyed by IP.
+ * Simple in-memory rate limiter keyed by IP / user id.
  *
  * NOTE: This is per-process.  Behind a load balancer with multiple instances,
  * use Redis or a similar shared store instead.
+ *
+ * Admin users (users.is_admin / ADMIN_EMAILS) are unlimited.
  */
+
+import { getUserById } from "@/lib/db";
 
 interface RateLimitEntry {
   count: number;
@@ -20,6 +24,27 @@ const store = new Map<string, Map<string, RateLimitEntry>>();
 // Periodically clean up expired entries (every 5 min)
 const CLEANUP_MS = 5 * 60_000;
 let lastCleanup = Date.now();
+
+const UNLIMITED = Number.MAX_SAFE_INTEGER;
+
+/** Logged-in admin accounts skip rate limits (concurrency / request caps). */
+function isUnlimitedIdentity(key: string): boolean {
+  if (!key || !key.startsWith("user_")) return false;
+  try {
+    return !!getUserById(key)?.isAdmin;
+  } catch {
+    return false;
+  }
+}
+
+function unlimitedResult(config: RateLimitConfig): RateLimitResult {
+  return {
+    allowed: true,
+    remaining: UNLIMITED,
+    limit: UNLIMITED,
+    resetAt: Date.now() + config.windowMs,
+  };
+}
 
 function cleanExpired(): void {
   if (Date.now() - lastCleanup < CLEANUP_MS) return;
@@ -44,6 +69,8 @@ export function checkRateLimit(
   endpoint: string,
   config: RateLimitConfig
 ): RateLimitResult {
+  if (isUnlimitedIdentity(ip)) return unlimitedResult(config);
+
   cleanExpired();
 
   const now = Date.now();
@@ -76,6 +103,8 @@ export function queryRateLimit(
   endpoint: string,
   config: RateLimitConfig
 ): RateLimitResult {
+  if (isUnlimitedIdentity(ip)) return unlimitedResult(config);
+
   cleanExpired();
 
   const now = Date.now();

@@ -150,7 +150,16 @@ export function registerUser(
   });
   const sessionToken = mintSessionToken();
   createSession(sessionToken, user.id, SESSION_MAX_AGE_SEC);
-  return { ok: true, user: { id: user.id, email: user.email, displayName: user.displayName }, sessionToken };
+  return {
+    ok: true,
+    user: {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      isAdmin: user.isAdmin,
+    },
+    sessionToken,
+  };
 }
 
 export function loginUser(
@@ -166,7 +175,12 @@ export function loginUser(
   createSession(sessionToken, row.id, SESSION_MAX_AGE_SEC);
   return {
     ok: true,
-    user: { id: row.id, email: row.email, displayName: row.displayName },
+    user: {
+      id: row.id,
+      email: row.email,
+      displayName: row.displayName,
+      isAdmin: row.isAdmin,
+    },
     sessionToken,
   };
 }
@@ -192,9 +206,20 @@ export function publicUser(user: AuthUser | null, auth: AuthContext) {
     userId: auth.userId,
     kind: auth.kind,
     user: user
-      ? { id: user.id, email: user.email, displayName: user.displayName }
+      ? {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          isAdmin: !!user.isAdmin,
+        }
       : null,
   };
+}
+
+/** True when the request is from a logged-in admin user. */
+export function isAuthAdmin(request: Request): boolean {
+  const auth = resolveAuth(request);
+  return !!auth.user?.isAdmin;
 }
 
 export function getAuthUserById(id: string): AuthUser | null {

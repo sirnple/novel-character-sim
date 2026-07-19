@@ -1,17 +1,16 @@
 import { NextRequest } from "next/server";
-import { runtimeEnvOptional } from "@/lib/runtime-env";
 import { isServerDebugMode } from "@/lib/debug-mode";
+import { resolveAuth } from "@/lib/auth";
 
 /**
- * Production: requires ADMIN_PASSWORD (runtime env).
- * Debug / development: no password — any login mints a session token.
- * Must use runtimeEnvOptional — not process.env.ADMIN_PASSWORD (build-time empty).
+ * Admin access:
+ * 1. Logged-in user with isAdmin (ADMIN_EMAILS / users.is_admin) — production path
+ * 2. Debug/dev auto-token for local work
+ *
+ * Shared ADMIN_PASSWORD is no longer enough to enter /admin; use admin user accounts.
  */
-function adminPassword(): string | null {
-  return runtimeEnvOptional("ADMIN_PASSWORD");
-}
 
-// Simple in-memory session — resets on server restart
+// Simple in-memory session token — resets on server restart
 let activeToken: string | null = null;
 
 function mintToken(prefix = "admin_"): string {
@@ -22,12 +21,24 @@ function mintToken(prefix = "admin_"): string {
 
 export type VerifyPasswordResult =
   | { ok: true; token: string }
-  | { ok: false; reason: "not_configured" | "invalid" };
+  | { ok: false; reason: "not_configured" | "invalid" | "not_admin" };
 
-export function verifyPassword(password: string): VerifyPasswordResult {
-  // Local/debug: skip password (and allow even when ADMIN_PASSWORD unset).
-  // Reuse existing debug token so React Strict Mode double-mount / parallel
-  // unlocks don't invalidate a token the client just stored.
+/**
+ * Unlock admin APIs: logged-in admin user, or debug mode.
+ */
+export function verifyAdminAccess(
+  req: NextRequest,
+  _password?: string,
+): VerifyPasswordResult {
+  const auth = resolveAuth(req);
+  if (auth.user?.isAdmin) {
+    if (activeToken?.startsWith("admin_user_")) {
+      return { ok: true, token: activeToken };
+    }
+    return { ok: true, token: mintToken("admin_user_") };
+  }
+
+  // Local/debug only
   if (isServerDebugMode()) {
     if (activeToken?.startsWith("admin_debug_")) {
       return { ok: true, token: activeToken };
@@ -35,20 +46,30 @@ export function verifyPassword(password: string): VerifyPasswordResult {
     return { ok: true, token: mintToken("admin_debug_") };
   }
 
-  const secret = adminPassword();
-  if (!secret) {
-    console.error(
-      "[admin-auth] ADMIN_PASSWORD is not set at runtime — admin login disabled",
-    );
-    return { ok: false, reason: "not_configured" };
+  return { ok: false, reason: "not_admin" };
+}
+
+/** @deprecated Prefer verifyAdminAccess */
+export function verifyPassword(password: string): VerifyPasswordResult {
+  void password;
+  if (isServerDebugMode()) {
+    if (activeToken?.startsWith("admin_debug_")) {
+      return { ok: true, token: activeToken };
+    }
+    return { ok: true, token: mintToken("admin_debug_") };
   }
-  if (!password || password !== secret) {
-    return { ok: false, reason: "invalid" };
-  }
-  return { ok: true, token: mintToken("admin_") };
+  return { ok: false, reason: "not_admin" };
 }
 
 export function isAdmin(req: NextRequest): boolean {
+  // Preferred: logged-in admin user (session cookie)
+  try {
+    const auth = resolveAuth(req);
+    if (auth.user?.isAdmin) return true;
+  } catch {
+    /* ignore */
+  }
+
   const token = req.headers.get("x-admin-token");
   if (!token) return false;
   // Debug: any mint from this process is enough (avoids Strict Mode remount

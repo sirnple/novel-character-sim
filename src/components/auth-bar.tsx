@@ -6,7 +6,7 @@ import { LogIn, LogOut, User, X } from "lucide-react";
 interface MeResponse {
   userId: string;
   kind: "user" | "guest";
-  user: { id: string; email: string; displayName: string } | null;
+  user: { id: string; email: string; displayName: string; isAdmin?: boolean } | null;
 }
 
 type Mode = "login" | "register";
@@ -95,9 +95,10 @@ export default function AuthBar() {
           type="button"
           onClick={() => copyId(me.userId)}
           className="hidden sm:inline text-sm text-muted-foreground max-w-[140px] truncate hover:text-foreground px-2 py-1.5 rounded-lg"
-          title={`${me.user.email}\nID: ${me.userId}\n点击复制 ID`}
+          title={`${me.user.email}\nID: ${me.userId}${me.user.isAdmin ? "\n管理员" : ""}\n点击复制 ID`}
         >
           {me.user.displayName || me.user.email}
+          {me.user.isAdmin ? " · 管" : ""}
         </button>
         <button
           type="button"

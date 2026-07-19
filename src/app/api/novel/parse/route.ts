@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseNovel } from "@/core/parser/novel-parser";
-import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
+import { checkRateLimit, rateLimitMessage } from "@/lib/rate-limit";
+import { resolveAuth } from "@/lib/auth";
 import { importNovel } from "@/lib/db";
 import {
   cleanFilenameTitle,
@@ -40,7 +41,9 @@ function decodeChineseText(buffer: Buffer): string {
 const MAX_FILE_BYTES = 5 * 1024 * 1024;  // 5 MB (production / non-debug)
 
 export async function POST(request: NextRequest) {
-  const userId = getUserId(request);
+  const auth = resolveAuth(request);
+  const userId = auth.userId;
+  const isAdmin = !!auth.user?.isAdmin;
   const rate = checkRateLimit(userId, "novel_parse", { windowMs: 60_000, maxRequests: 30 });
   if (!rate.allowed) {
     return NextResponse.json(
@@ -60,18 +63,19 @@ export async function POST(request: NextRequest) {
     const fileName = file.name.toLowerCase();
     const fileBytes = file.size;
     const debugMode = isServerDebugMode();
+    const skipSizeLimit = debugMode || isAdmin;
 
-    // Size check — skipped in debug (local large TXT testing)
-    if (!debugMode && fileBytes > MAX_FILE_BYTES) {
+    // Size check — skipped for admin users and debug (large TXT testing)
+    if (!skipSizeLimit && fileBytes > MAX_FILE_BYTES) {
       const mb = (fileBytes / (1024 * 1024)).toFixed(1);
       return NextResponse.json(
         { error: `文件过大（${mb} MB），限制为 5 MB。请拆分章节后重新上传。` },
         { status: 413 }
       );
     }
-    if (debugMode && fileBytes > MAX_FILE_BYTES) {
+    if (skipSizeLimit && fileBytes > MAX_FILE_BYTES) {
       console.log(
-        `[NovelParse] debug: allowing large upload ${(fileBytes / (1024 * 1024)).toFixed(1)} MB`,
+        `[NovelParse] ${isAdmin ? "admin" : "debug"}: allowing large upload ${(fileBytes / (1024 * 1024)).toFixed(1)} MB`,
       );
     }
 

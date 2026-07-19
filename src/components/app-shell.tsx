@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BookMarked, Settings, X, PanelLeft } from "lucide-react";
@@ -18,6 +18,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   /** Mobile library drawer */
   const [libraryMobileOpen, setLibraryMobileOpen] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  /** Only admin users see the admin entry */
+  const [showAdmin, setShowAdmin] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled) setShowAdmin(!!data?.user?.isAdmin);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const onImportClick = useCallback(() => {
     setLibraryMobileOpen(false);
@@ -72,13 +87,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <AuthBar />
-          <a
-            href="/admin"
-            className="flex items-center gap-1.5 text-sm text-fog hover:text-muted-foreground px-2.5 py-2 rounded-lg hover:bg-panel-elevated"
-          >
-            <Settings className="w-4 h-4" />
-            <span className="hidden sm:inline">管理</span>
-          </a>
+          {showAdmin && (
+            <a
+              href="/admin"
+              className="flex items-center gap-1.5 text-sm text-fog hover:text-muted-foreground px-2.5 py-2 rounded-lg hover:bg-panel-elevated"
+            >
+              <Settings className="w-4 h-4" />
+              <span className="hidden sm:inline">管理</span>
+            </a>
+          )}
         </div>
       </header>
 

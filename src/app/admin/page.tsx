@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ArrowLeft,
-  Key,
   Save,
   RotateCcw,
   Terminal,
@@ -98,56 +97,79 @@ function shortId(id: string, n = 10): string {
   return id.length > n ? id.slice(0, n) + "…" : id;
 }
 
-function PasswordGate({ onUnlock }: { onUnlock: (token: string) => void }) {
-  const [pw, setPw] = useState("");
+/**
+ * Admin gate: only logged-in admin users (users.is_admin / ADMIN_EMAILS).
+ * Debug mode still auto-unlocks for local development.
+ */
+function AdminAccessGate({ onUnlock }: { onUnlock: (token: string) => void }) {
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<"checking" | "denied" | "unlocking">("checking");
   const debugMode = isClientDebugMode();
-  /** Strict Mode remounts effects; only auto-unlock once per gate mount cycle. */
   const autoUnlockStarted = useRef(false);
 
-  const unlock = async (password: string) => {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch("/api/admin/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        onUnlock(data.token);
-      } else {
-        setError(data.error || "验证失败");
+  const unlock = useCallback(
+    async (password = "") => {
+      setStatus("unlocking");
+      setError("");
+      try {
+        const res = await fetch("/api/admin/auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          onUnlock(data.token);
+        } else {
+          setError(data.error || "验证失败");
+          setStatus("denied");
+        }
+      } catch {
+        setError("网络错误");
+        setStatus("denied");
       }
-    } catch {
-      setError("网络错误");
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [onUnlock],
+  );
 
-  // Debug/dev: skip password gate automatically (once — avoid remount loop)
   useEffect(() => {
-    if (!debugMode || autoUnlockStarted.current) return;
+    if (autoUnlockStarted.current) return;
     autoUnlockStarted.current = true;
-    void unlock("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once on mount in debug
-  }, [debugMode]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await unlock(pw);
-  };
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/me");
+        const me = res.ok ? await res.json() : null;
+        if (me?.user?.isAdmin) {
+          await unlock("");
+          return;
+        }
+        if (debugMode) {
+          await unlock("");
+          return;
+        }
+        setStatus("denied");
+        setError("需要管理员账号登录后访问");
+      } catch {
+        if (debugMode) {
+          await unlock("");
+          return;
+        }
+        setStatus("denied");
+        setError("无法验证登录状态");
+      }
+    })();
+  }, [debugMode, unlock]);
 
-  if (debugMode) {
+  if (status === "checking" || status === "unlocking") {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm">
         <div className="w-full max-w-sm px-8 py-10 border border-border rounded-lg bg-card shadow-2xl shadow-black/50 text-center">
           <Loader2 className="w-6 h-6 animate-spin text-primary mx-auto mb-3" />
           <p className="text-sm text-muted-foreground font-mono">
-            debug 模式：免密进入管理后台…
+            {debugMode && status === "unlocking"
+              ? "debug 模式：进入管理后台…"
+              : "正在验证管理员权限…"}
           </p>
           {error && (
             <p className="text-xs text-red-400 mt-3 flex items-center justify-center gap-1">
@@ -170,37 +192,24 @@ function PasswordGate({ onUnlock }: { onUnlock: (token: string) => void }) {
             <h2 className="text-sm font-semibold text-foreground font-mono tracking-wide">
               管理后台
             </h2>
-            <p className="text-xs text-muted-foreground">Agent 提示词管理</p>
+            <p className="text-xs text-muted-foreground">仅管理员可访问</p>
           </div>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs text-muted-foreground mb-1.5 font-mono">
-              <Key className="w-3 h-3 inline mr-1.5 -mt-0.5" />
-              请输入管理密码
-            </label>
-            <input
-              type="password"
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              className="w-full px-3 py-2 bg-[#1a1a1a] border border-border rounded text-sm text-foreground font-mono placeholder-neutral-600 focus:outline-none focus:border-primary transition-colors"
-              placeholder="······"
-              autoFocus
-            />
-          </div>
-          {error && (
-            <p className="text-xs text-red-400 flex items-center gap-1">
-              <AlertCircle className="w-3 h-3" /> {error}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={loading || !pw}
-            className="w-full py-2 bg-primary hover:bg-primary disabled:bg-secondary disabled:text-fog text-white text-sm font-mono rounded transition-colors"
-          >
-            {loading ? "验证中..." : "进入后台"}
-          </button>
-        </form>
+        <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+          请使用已标记为管理员的账号登录后再访问此页面。
+          管理员邮箱通过环境变量 <code className="text-xs font-mono text-primary">ADMIN_EMAILS</code> 配置。
+        </p>
+        {error && (
+          <p className="text-xs text-red-400 flex items-center gap-1 mb-4">
+            <AlertCircle className="w-3 h-3" /> {error}
+          </p>
+        )}
+        <a
+          href="/"
+          className="block w-full py-2 text-center bg-secondary hover:bg-panel-elevated text-foreground text-sm font-mono rounded transition-colors"
+        >
+          返回首页登录
+        </a>
       </div>
     </div>
   );
@@ -690,7 +699,7 @@ export default function AdminPage() {
   const selectedMeta = agents.find((a) => a.agent_id === selectedId);
 
   if (!token) {
-    return <PasswordGate onUnlock={handleUnlock} />;
+    return <AdminAccessGate onUnlock={handleUnlock} />;
   }
 
   const grouped = agents.reduce(
