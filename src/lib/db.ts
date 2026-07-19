@@ -476,7 +476,7 @@ function initSchema(db: Database.Database) {
 
 /** Mark users matching ADMIN_EMAILS as is_admin=1. Safe to call repeatedly. */
 function promoteAdminEmailsFromEnv(d: Database.Database): void {
-  const emails = [...parseAdminEmails()];
+  const emails = Array.from(parseAdminEmails());
   if (emails.length === 0) {
     console.log("[DB] ADMIN_EMAILS not set — no admin auto-promote");
     return;
