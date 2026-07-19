@@ -1,22 +1,51 @@
 import fs from "fs";
 import path from "path";
+import {
+  parseAgentFrontmatter,
+  type AgentFrontmatter,
+  type ParsedAgentDocument,
+} from "./frontmatter";
 
 const PROMPTS_DIR = path.join(process.cwd(), "src", "core", "prompts");
 
-/** Load prompt template, cached in memory after first read */
-const cache = new Map<string, string>();
+/** Raw file cache (includes frontmatter) */
+const rawCache = new Map<string, string>();
+/** Parsed document cache */
+const docCache = new Map<string, ParsedAgentDocument>();
 
-export function loadPromptFile(name: string): string {
-  if (cache.has(name)) return cache.get(name)!;
+function readRaw(name: string): string {
+  if (rawCache.has(name)) return rawCache.get(name)!;
   const p = path.join(PROMPTS_DIR, name);
   const t = fs.readFileSync(p, "utf-8");
-  cache.set(name, t);
+  rawCache.set(name, t);
   return t;
+}
+
+/** Load full agent document (frontmatter + body). Cached. */
+export function loadPromptDocument(name: string): ParsedAgentDocument {
+  if (docCache.has(name)) return docCache.get(name)!;
+  const doc = parseAgentFrontmatter(readRaw(name));
+  docCache.set(name, doc);
+  return doc;
+}
+
+/**
+ * Load prompt template body (frontmatter stripped). Cached.
+ * Safe for LLM system/user prompts — never injects YAML headers.
+ */
+export function loadPromptFile(name: string): string {
+  return loadPromptDocument(name).body;
+}
+
+/** Frontmatter only from a prompt file (empty object if none). */
+export function loadPromptFrontmatter(name: string): AgentFrontmatter {
+  return loadPromptDocument(name).frontmatter;
 }
 
 /** Clear md cache (tests / hot-reload after file edit). */
 export function clearPromptFileCache(): void {
-  cache.clear();
+  rawCache.clear();
+  docCache.clear();
 }
 
 /**

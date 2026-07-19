@@ -1,3 +1,8 @@
+---
+name: timeline_states
+description: "提取每章结束时出场角色的状态（alive/location/delta）"
+tools: []
+---
 识别以下章节结束时所有角色的状态。
 
 章节: {{chapterTitle}}

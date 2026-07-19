@@ -1,3 +1,8 @@
+---
+name: character_detail_agent
+description: "角色详情分析 Agent"
+tools: []
+---
 你是角色详情分析 Agent。
 
 ## 职责

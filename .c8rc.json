@@ -1,0 +1,22 @@
+{
+  "reporter": ["text", "text-summary", "html", "lcov"],
+  "reports-dir": "coverage",
+  "include": [
+    "src/core/prompts/**/*.ts",
+    "src/core/agents/**/*.ts",
+    "src/core/form/**/*.ts",
+    "src/core/foreshadowing/**/*.ts",
+    "src/lib/text-window.ts",
+    "src/lib/export-txt-toc.ts",
+    "src/lib/utils.ts"
+  ],
+  "exclude": [
+    "**/*.md",
+    "**/*.test.ts",
+    "**/node_modules/**",
+    "scripts/**",
+    "src/core/prompts/admin-auth.ts"
+  ],
+  "all": false,
+  "check-coverage": false
+}

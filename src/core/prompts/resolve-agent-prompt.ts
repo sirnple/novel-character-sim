@@ -1,10 +1,14 @@
 /**
  * Resolve agent prompts: Admin DB override → markdown defaults.
  * All runtime agents should call this (or getDefaultPrompt) instead of hardcoding.
+ *
+ * Markdown defaults use standard agent frontmatter (name/description/tools);
+ * loadPromptFile strips the YAML header so only the body reaches the LLM.
  */
 import { getAgentPrompt } from "@/lib/db";
 import { getAgentPromptFiles } from "./agent-prompt-map";
 import { loadPromptFile, renderTemplate } from "./renderer";
+export { getAgentAllowedTools, resolveAgentToolSchemas } from "./agent-tools";
 
 export interface ResolvedPrompt {
   system: string;

@@ -22,11 +22,15 @@ import { runCharacterCandidatesTests } from "./tests/character-candidates.test";
 import { runCharacterNameFrequencyTests } from "./tests/character-name-frequency.test";
 import { runAnalysisWiringTests } from "./tests/analysis-wiring.test";
 import { runAnalysisCommitTests } from "./tests/analysis-commit.test";
+import { runAgentFrontmatterTests } from "./tests/agent-frontmatter.test";
+import { runAgentPromptRenderTests } from "./tests/agent-prompt-render.test";
 
 async function main() {
   resetCounters();
   console.log("novel-character-sim — agent continuation core tests\n");
 
+  runAgentFrontmatterTests();
+  runAgentPromptRenderTests();
   runProseGuardTests();
   runIntermediateStoreTests();
   runCriticalMissTests();

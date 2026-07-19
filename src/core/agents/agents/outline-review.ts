@@ -1,23 +1,13 @@
 import type { AgentDef, TrailMessage } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { getFindings, getOutline } from "../intermediate-store";
-import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
-import { branchTools } from "./branch-tools";
-import { intermediateReadTools, intermediateTools, SAVE_FINDINGS_OK } from "./intermediate-tools";
-import { foreshadowTools } from "./foreshadow-tools";
+import {
+  resolveAgentPrompt,
+  resolveAgentToolSchemas,
+} from "@/core/prompts/resolve-agent-prompt";
+import { SAVE_FINDINGS_OK } from "./intermediate-tools";
 import { getStoryInfo } from "@/lib/db";
 import { toolSaveSucceeded } from "../save-verify";
-
-const TOOLS = [
-  ...branchTools,
-  ...intermediateReadTools.filter((t) => t.name === "get_outline"),
-  ...intermediateTools.filter((t) => t.name === "save_findings"),
-  ...foreshadowTools.filter((t) => t.name === "get_foreshadowing_ledger"),
-].map((t) => ({
-  name: t.name,
-  description: t.description,
-  parameters: t.parameters as Record<string, unknown>,
-}));
 
 export interface OutlineReviewResult {
   pass: boolean;
@@ -58,6 +48,8 @@ export async function runOutlineReview(
     `取证后调用 save_findings：dimension="outline"，findings=JSON 数组字符串（无问题 "[]"）。\n` +
     `不要在聊天贴完整 JSON。程序只认 save_findings。\n`;
 
+  // tools allowlist from review-outline-system.md frontmatter
+  const TOOLS = resolveAgentToolSchemas("outline_review");
   const run = (user: string) =>
     runSubAgentToolLoop(llm, sys, user, TOOLS, ctx as any, undefined, onTrail, {
       maxTokens: 4096,

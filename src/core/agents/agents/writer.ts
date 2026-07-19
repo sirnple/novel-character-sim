@@ -1,10 +1,10 @@
 import type { AgentDef, TrailMessage } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { getProse } from "../intermediate-store";
-import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
-import { branchTools } from "./branch-tools";
-import { intermediateReadTools, saveProseTool } from "./intermediate-tools";
-import { foreshadowTools } from "./foreshadow-tools";
+import {
+  resolveAgentPrompt,
+  resolveAgentToolSchemas,
+} from "@/core/prompts/resolve-agent-prompt";
 import { getStyle } from "@/lib/db";
 import {
   looksLikeFindingsNotProse,
@@ -12,58 +12,6 @@ import {
   SAVE_PROSE_OK_PREFIX,
   SAVE_PROSE_REJECT_PREFIX,
 } from "../prose-guard";
-
-function schemas(
-  names: string[],
-  extra: { name: string; description: string; parameters: Record<string, unknown> }[] = [],
-) {
-  const fromBranch = branchTools
-    .filter(t => names.includes(t.name))
-    .map(t => ({ name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown> }));
-  const fromInter = intermediateReadTools
-    .filter(t => names.includes(t.name))
-    .map(t => ({ name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown> }));
-  return [...fromBranch, ...fromInter, ...extra];
-}
-
-const SAVE_SCHEMA = {
-  name: saveProseTool.name,
-  description: saveProseTool.description,
-  parameters: saveProseTool.parameters as Record<string, unknown>,
-};
-
-const FS_READ = foreshadowTools
-  .filter(t =>
-    t.name === "get_foreshadowing_ledger" ||
-    t.name === "get_foreshadowing_plan",
-  )
-  .map(t => ({
-    name: t.name,
-    description: t.description,
-    parameters: t.parameters as Record<string, unknown>,
-  }));
-
-/** Create: outline + branch + form + foreshadow + save_prose */
-const CREATE_TOOLS = [
-  ...schemas([
-    "get_outline",
-    "get_branch_text",
-    "get_branch_characters",
-    "get_branch_timeline",
-    "get_branch_world",
-    "get_branch_meta",
-    "get_novel_form",
-  ]),
-  ...FS_READ,
-  SAVE_SCHEMA,
-];
-
-/** Rewrite: prose + findings + form + save_prose */
-const REWRITE_TOOLS = [
-  ...schemas(["get_prose", "get_findings", "get_branch_text", "get_novel_form"]),
-  ...FS_READ,
-  SAVE_SCHEMA,
-];
 
 /** Did the agent successfully call save_prose? (tool_result in trail) */
 function findSaveProseOutcome(trail: TrailMessage[]): {
@@ -121,7 +69,8 @@ export const writerAgent: AgentDef = {
       novelId: ctx.novelId,
       branchId: ctx.branchId,
     });
-    const tools = isRewrite ? REWRITE_TOOLS : CREATE_TOOLS;
+    // tools allowlist from writer-*-system.md frontmatter
+    const tools = resolveAgentToolSchemas(agentId);
 
     let styleBlock = "";
     if (ctx.selectedStyleId) {

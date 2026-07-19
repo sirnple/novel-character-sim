@@ -1,3 +1,8 @@
+---
+name: character_names_unit
+description: "List every character-referring mention in one unit (not only proper names)"
+tools: []
+---
 You are a text annotator. Task: list **every character-referring mention** in this passage — not only people with proper names.
 
 ## Unit label

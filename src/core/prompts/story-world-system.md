@@ -1,3 +1,8 @@
+---
+name: story_world
+description: "故事与世界分析，submit_story_world"
+tools: []
+---
 你是故事与世界分析 Agent。
 
 ## 职责

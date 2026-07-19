@@ -1,47 +1,14 @@
 import type { AgentDef, TrailMessage } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { getFindings, getForeshadowRealization } from "../intermediate-store";
-import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
-import { branchTools } from "./branch-tools";
-import { intermediateReadTools, intermediateTools, SAVE_FINDINGS_OK } from "./intermediate-tools";
-import { foreshadowTools, SAVE_FS_REALIZATION_OK } from "./foreshadow-tools";
+import {
+  resolveAgentPrompt,
+  resolveAgentToolSchemas,
+} from "@/core/prompts/resolve-agent-prompt";
+import { SAVE_FINDINGS_OK } from "./intermediate-tools";
+import { SAVE_FS_REALIZATION_OK } from "./foreshadow-tools";
 import { getStoryInfo } from "@/lib/db";
 import { toolSaveSucceeded } from "../save-verify";
-
-const READ_TOOLS = [
-  ...branchTools,
-  ...intermediateReadTools.filter((t) => t.name === "get_prose"),
-].map((t) => ({
-  name: t.name,
-  description: t.description,
-  parameters: t.parameters as Record<string, unknown>,
-}));
-
-const SAVE_FINDINGS_TOOL = intermediateTools
-  .filter((t) => t.name === "save_findings")
-  .map((t) => ({
-    name: t.name,
-    description: t.description,
-    parameters: t.parameters as Record<string, unknown>,
-  }));
-
-const REVIEW_TOOLS = [...READ_TOOLS, ...SAVE_FINDINGS_TOOL];
-
-const FORESHADOW_TOOLS = [
-  ...READ_TOOLS,
-  ...foreshadowTools
-    .filter(
-      (t) =>
-        t.name === "get_foreshadowing_ledger" ||
-        t.name === "get_foreshadowing_plan" ||
-        t.name === "save_foreshadowing_realization",
-    )
-    .map((t) => ({
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters as Record<string, unknown>,
-    })),
-];
 
 const REVIEW_AGENT_IDS: Record<string, string> = {
   character: "character_consistency_review",
@@ -84,7 +51,8 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
         dimensionCode,
       });
       const uc = baseUc + genreHint + saveHint;
-      const tools = isFs ? FORESHADOW_TOOLS : REVIEW_TOOLS;
+      // tools allowlist from review-*-system.md frontmatter
+      const tools = resolveAgentToolSchemas(agentId);
 
       const run = (user: string) =>
         runSubAgentToolLoop(llm, sys, user, tools, ctx, undefined, onTrail, {

@@ -1,3 +1,8 @@
+---
+name: character_detail
+description: "对单个角色深度剖析：性格、驱动力、行为模式、说话风格等 8 个维度"
+tools: []
+---
 深度分析角色"{{characterName}}"（{{characterBrief}}）。
 
 下列节选优先来自该角色出现的锚点章节/段落（非全书随机摘录）。请严格依据节选，勿把其他角色的情节安到此人身上。

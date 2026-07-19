@@ -1,3 +1,8 @@
+---
+name: timeline
+description: "Extract key events per chapter"
+tools: []
+---
 Extract key events from this chapter in chronological order.
 
 Chapter: {{chapterTitle}}
