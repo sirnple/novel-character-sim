@@ -1,0 +1,64 @@
+{
+  "ranAt": "2026-07-19T11:24:03.903Z",
+  "codeVersion": {
+    "commit": "a616584e1a6bb491fcc72fc827dd1bfebf864817",
+    "commitShort": "a616584",
+    "branch": "master",
+    "dirty": true,
+    "packageVersion": "0.1.0",
+    "describe": "a616584-dirty"
+  },
+  "dbPath": "C:\\Users\\57864\\Repositories\\novel-character-sim\\data\\novels.db",
+  "userIdFilter": "guest_b2e7023ce0bf4198b25e5dd536830c4e",
+  "goldFilter": "novel_ew7ku6",
+  "includePublic": false,
+  "passBars": {
+    "short": 0.9,
+    "long": 0.85
+  },
+  "books": [
+    {
+      "goldId": "novel_ew7ku6",
+      "title": "欲孽灼心",
+      "novelFound": true,
+      "userIdUsed": "guest_b2e7023ce0bf4198b25e5dd536830c4e",
+      "tier": "short",
+      "passBar": 0.9,
+      "mustFindCount": 17,
+      "rosterCount": 16,
+      "hit": [
+        "周屿",
+        "秦予嫣",
+        "许栀",
+        "周航",
+        "周伯彦",
+        "王铎",
+        "张达",
+        "肖诺",
+        "裴冉",
+        "老吴"
+      ],
+      "miss": [
+        "黑仔",
+        "阿龙",
+        "王建国",
+        "短发大叔",
+        "长脸大叔",
+        "老阿伯",
+        "果园老头"
+      ],
+      "recall": 0.5882352941176471,
+      "passed": false,
+      "extraSample": [
+        "吴副主任"
+      ]
+    }
+  ],
+  "summary": {
+    "scored": 1,
+    "passed": 0,
+    "failed": 1,
+    "skipped": 0,
+    "allPassed": false
+  }
+}
