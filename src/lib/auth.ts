@@ -24,6 +24,7 @@ import {
 } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/auth-password";
 import { adminEmailsConfiguredCount } from "@/lib/admin-users";
+import { adminRelatedEnvKeys } from "@/lib/runtime-env";
 
 export type { AuthUser };
 
@@ -208,6 +209,8 @@ export function publicUser(user: AuthUser | null, auth: AuthContext) {
     kind: auth.kind,
     /** True when ADMIN_EMAILS / ADMIN_EMAIL is set on the server. */
     adminConfigured: adminEmailsConfiguredCount() > 0,
+    /** Key names only (no values) — helps confirm Railway injected ADMIN_* vars. */
+    adminEnvKeys: adminRelatedEnvKeys(),
     user: user
       ? {
           id: user.id,

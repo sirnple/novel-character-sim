@@ -1,30 +1,31 @@
 /**
  * Runtime environment access for Docker / Railway.
  *
- * Next.js webpack often freezes `process.env.FOO` (static key) to the value
- * present at `next build`. Variables only set at container start (e.g. Railway
- * secrets) then look "missing". Always read via dynamic key access so the
- * live process env is used.
+ * Next.js may rewrite static `process.env.FOO` at build time. Always use
+ * dynamic key access against the live process env object.
  */
 
+function liveEnv(): NodeJS.ProcessEnv {
+  // Avoid webpack static analysis replacing process.env with a frozen object.
+  try {
+    const env = new Function("return (typeof process !== 'undefined' && process.env) || {}")() as NodeJS.ProcessEnv;
+    if (env && typeof env === "object") return env;
+  } catch {
+    /* ignore */
+  }
+  try {
+    const g = globalThis as typeof globalThis & { process?: { env?: NodeJS.ProcessEnv } };
+    if (g.process?.env) return g.process.env;
+  } catch {
+    /* ignore */
+  }
+  return {};
+}
+
 function readRaw(name: string): string | undefined {
-  // Dynamic key — must not be rewritten to a build-time constant.
-  try {
-    // Prefer the real Node process (standalone server.js)
-    // Dynamic require avoids webpack freezing process.env at build time.
-    const nodeProc = require("node:process") as NodeJS.Process;
-    const a = nodeProc?.env?.[name];
-    if (a !== undefined && a !== null && String(a).length > 0) return String(a);
-  } catch {
-    /* ignore */
-  }
-  try {
-    const b = typeof process !== "undefined" ? process.env[name] : undefined;
-    if (b !== undefined && b !== null && String(b).length > 0) return String(b);
-  } catch {
-    /* ignore */
-  }
-  return undefined;
+  const v = liveEnv()[name];
+  if (v === undefined || v === null) return undefined;
+  return String(v);
 }
 
 export function runtimeEnv(name: string, fallback: string = ""): string {
@@ -39,4 +40,11 @@ export function runtimeEnvOptional(name: string): string | null {
   if (v === undefined) return null;
   const t = v.trim();
   return t.length > 0 ? t : null;
+}
+
+/** Diagnostic: env key names that look admin-related (values never returned). */
+export function adminRelatedEnvKeys(): string[] {
+  return Object.keys(liveEnv())
+    .filter((k) => /ADMIN|EMAIL/i.test(k))
+    .sort();
 }
