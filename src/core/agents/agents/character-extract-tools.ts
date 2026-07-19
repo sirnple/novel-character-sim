@@ -385,7 +385,7 @@ export const characterExtractTools: ToolDefinition[] = [
         offsets: {
           type: "array",
           description: `多个 offset 或 {offset,length}，最多 ${LOOKUP_OFFSET_BATCH_MAX}`,
-          items: {},
+          items: { type: "string" },
         },
         offsets_json: {
           type: "string",
@@ -394,7 +394,7 @@ export const characterExtractTools: ToolDefinition[] = [
         anchors: {
           type: "array",
           description: '锚点 id 或对象，如 ["a@1200",{"offset":8800}]',
-          items: {},
+          items: { type: "string" },
         },
         anchors_json: {
           type: "string",
@@ -416,18 +416,19 @@ export const characterExtractTools: ToolDefinition[] = [
         return { content: "无正文可读（请先 scan 或加载小说）", messages: [] };
       }
       // Merge anchors into offset batch
-      const fromAnchors = normalizeAnchors(
-        typeof args.anchors_json === "string" && args.anchors_json.trim()
-          ? (() => {
-              try {
-                return JSON.parse(args.anchors_json as string);
-              } catch {
-                return [];
-              }
-            })()
-          : args.anchors,
-      ).map((a) => ({ offset: a.offset }));
-      const mergedRanges = [
+      const fromAnchors: Array<{ offset: number; length?: number }> =
+        normalizeAnchors(
+          typeof args.anchors_json === "string" && args.anchors_json.trim()
+            ? (() => {
+                try {
+                  return JSON.parse(args.anchors_json as string);
+                } catch {
+                  return [];
+                }
+              })()
+            : args.anchors,
+        ).map((a) => ({ offset: a.offset }));
+      const mergedRanges: Array<{ offset: number; length?: number }> = [
         ...parseOffsetBatch(args as Record<string, unknown>),
         ...fromAnchors,
       ];

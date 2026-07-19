@@ -1419,9 +1419,6 @@ export function saveCharacterExtractJobRow(job: {
   status: string;
   updatedAt?: string;
   createdAt?: string;
-  // full job JSON-serialized
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [k: string]: any;
 }): void {
   const d = getDb();
   ensureCharacterExtractTables(d);
