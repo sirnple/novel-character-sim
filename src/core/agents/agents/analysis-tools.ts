@@ -749,10 +749,10 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "scan_character_mentions",
     description:
-      "【角色列表子 Agent 调用】LLM 分段扫描角色指称：对每个正文 unit 抽取人物 surface" +
-      "（姓名/外号/亲属与描述指代，不限正式姓名），写入 catalog。" +
-      "成功含「角色指称已扫描」。之后用 list_surface_candidates / submit_character_entities。" +
-      "无 catalog 时必须先调本工具；catalog 已有且未 forceRefresh 则复用。",
+      "【角色列表子 Agent】LLM 分段扫角色指称 surface，写入 catalog；" +
+      "每条 surface 带出现位置 **锚点 a@offset**（供消解/详情按位置读文，防同名异人）。" +
+      "成功含「角色指称已扫描」。之后 list_surface_candidates / lookup_* / submit_character_entities。" +
+      "无 catalog 须先调；有 catalog 且未 forceRefresh 则复用。",
     parameters: {
       type: "object",
       properties: {
@@ -774,33 +774,49 @@ export const analysisDomainTools: ToolDefinition[] = [
         mode: "cached" | "fresh",
         surfaceCount: number,
         unitCount: number,
-        topSurfaces: string[],
+        topLines: string[],
       ) => {
         const head =
           mode === "cached"
             ? `${ANALYSIS_OK.scan}（复用已有 catalog）`
             : `${ANALYSIS_OK.scan}（LLM 分段新建 catalog）`;
         const top =
-          topSurfaces.length > 0
-            ? topSurfaces.map((s, i) => `${i + 1}. ${s}`).join("\n")
+          topLines.length > 0
+            ? topLines.map((s, i) => `${i + 1}. ${s}`).join("\n")
             : "（无候选指称 — 扫描结果为空）";
         return (
           `${head}\n` +
-          `units=${unitCount} surfaces=${surfaceCount}\n` +
-          `前 ${Math.min(30, topSurfaces.length)} 个候选：\n${top}\n` +
-          `完整列表请调用 list_surface_candidates(offset, limit)。`
+          `units=${unitCount} surfaces=${surfaceCount}（每条含锚点 a@offset）\n` +
+          `前 ${Math.min(30, topLines.length)} 个候选（含锚点样例）：\n${top}\n` +
+          `完整列表 list_surface_candidates；消歧/详情请按锚点 lookup_offset(anchors=…)。`
         );
       };
 
+      const topSurfaceLines = (
+        stats: Array<{ surface: string; anchors?: Array<{ offset: number; unitLabel?: string }> }>,
+      ) =>
+        stats.slice(0, 30).map((s) => {
+          const a0 = s.anchors?.[0];
+          const a1 = s.anchors?.[1];
+          const bits = [`「${s.surface}」`];
+          if (a0) {
+            bits.push(
+              `锚点 a@${a0.offset}${a0.unitLabel ? " " + a0.unitLabel : ""}` +
+                (a1 ? `；a@${a1.offset}` : "") +
+                ((s.anchors?.length || 0) > 2 ? "…" : ""),
+            );
+          }
+          return bits.join(" ");
+        });
+
       const existing = getCharacterExtractWorkspace(userId, novelId, branchId);
       if (existing?.catalog?.stats?.length && !args.forceRefresh) {
-        const top = existing.catalog.stats.slice(0, 30).map((s) => s.surface);
         return {
           content: formatScanSummary(
             "cached",
             existing.catalog.stats.length,
             existing.unitCount || 0,
-            top,
+            topSurfaceLines(existing.catalog.stats),
           ),
           messages: [],
         };
@@ -827,9 +843,13 @@ export const analysisDomainTools: ToolDefinition[] = [
           llm,
         );
         const after = getCharacterExtractWorkspace(userId, novelId, branchId);
-        const top = (after?.catalog?.stats || []).slice(0, 30).map((s) => s.surface);
         return {
-          content: formatScanSummary("fresh", surfaceCount, unitCount, top),
+          content: formatScanSummary(
+            "fresh",
+            surfaceCount,
+            unitCount,
+            topSurfaceLines(after?.catalog?.stats || []),
+          ),
           messages: [],
         };
       } catch (e) {
@@ -1005,47 +1025,75 @@ export const analysisDomainTools: ToolDefinition[] = [
   },
   {
     name: "get_kept_roster",
-    description: "获取当前角色名单摘要（工作区 draft / 消解实体 / 库内）。",
+    description:
+      "当前角色名单摘要。每人含 **锚点 a@offset**（出现位置）；详情/消歧请 lookup_offset(anchors=…) 按锚点读文，勿只按姓名。",
     parameters: { type: "object", properties: {}, required: [] },
     execute: async (_args, ctx) => {
       const { userId, novelId, branchId } = ids(ctx);
+      const formatAnchors = (
+        anchors: Array<{ offset: number; unitLabel?: string; surface?: string }> | undefined,
+      ) => {
+        if (!anchors?.length) return " 锚点=（无 — 请用 lookup_surface 或 scan 补）";
+        return (
+          " 锚点=" +
+          anchors
+            .slice(0, 6)
+            .map((a) => {
+              const bits = [`a@${a.offset}`];
+              if (a.unitLabel) bits.push(a.unitLabel);
+              if (a.surface) bits.push(`「${a.surface}」`);
+              return bits.join(" ");
+            })
+            .join("；") +
+          (anchors.length > 6 ? "…" : "")
+        );
+      };
       const ws = getNovelAnalysisWorkspace(userId, novelId, branchId);
       const draft = ws?.charactersDraft || [];
       if (draft.length) {
         return {
-          content: draft
-            .map(
-              (c, i) =>
-                `${i + 1}. ${c.name}` +
-                (c.aliases?.length ? ` aliases=${c.aliases.join("/")}` : ""),
-            )
-            .join("\n"),
+          content:
+            "【读原文请用锚点】lookup_offset(anchors=[\"a@…\"]) 或 lookup_surface(surfaces=[…])\n" +
+            draft
+              .map(
+                (c, i) =>
+                  `${i + 1}. ${c.name}` +
+                  (c.aliases?.length ? ` aliases=${c.aliases.join("/")}` : "") +
+                  formatAnchors(c.mentionAnchors),
+              )
+              .join("\n"),
           messages: [],
         };
       }
       const cws = getCharacterExtractWorkspace(userId, novelId, branchId);
       if (cws?.entities?.length) {
         return {
-          content: cws.entities
-            .map(
-              (e, i) =>
-                `${i + 1}. ${e.name}` +
-                (e.aliases?.length ? ` aliases=${e.aliases.join("/")}` : ""),
-            )
-            .join("\n"),
+          content:
+            "【读原文请用锚点】lookup_offset(anchors=[\"a@…\"])\n" +
+            cws.entities
+              .map(
+                (e, i) =>
+                  `${i + 1}. ${e.name}` +
+                  (e.aliases?.length ? ` aliases=${e.aliases.join("/")}` : "") +
+                  formatAnchors(e.anchors),
+              )
+              .join("\n"),
           messages: [],
         };
       }
       const chars = getCharacters(userId, novelId);
       if (chars.length) {
         return {
-          content: chars
-            .map(
-              (c, i) =>
-                `${i + 1}. ${c.name}` +
-                (c.aliases?.length ? ` aliases=${c.aliases.join("/")}` : ""),
-            )
-            .join("\n"),
+          content:
+            "【读原文请用锚点】lookup_offset(anchors=[\"a@…\"])\n" +
+            chars
+              .map(
+                (c, i) =>
+                  `${i + 1}. ${c.name}` +
+                  (c.aliases?.length ? ` aliases=${c.aliases.join("/")}` : "") +
+                  formatAnchors(c.mentionAnchors),
+              )
+              .join("\n"),
           messages: [],
         };
       }

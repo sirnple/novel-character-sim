@@ -5,10 +5,16 @@
 禁止只交一句角色简介或只填 personality。
 
 ## 工具
-- get_kept_roster — 看当前名单
-- get_novel_excerpt / list_text_units / get_unit_text / get_text_slice — 读原文  
-  - **优先批读**：`get_unit_text(indices=[0,2,5])`（≤6）；若「输出超限」则缩小批量或单条，只补未返回项
+- get_kept_roster — 名单 + **每人锚点 a@offset**（必看）
+- **lookup_offset(anchors=[...])** / **lookup_surface(surfaces=[...])** — **优先按锚点读文**，勿只靠角色名（同名异人）
+- get_novel_excerpt / list_text_units / get_unit_text / get_text_slice — 辅助读原文  
+  - 批读单元：`get_unit_text(indices=[...])`（≤6）；超限则缩小批量
 - **submit_character_detail(name, detail_json)** — 每人必须调用；成功含「角色详情已存」
+
+## 锚点（强制）
+1. get_kept_roster 后，对当前角色用其 **锚点** 调 `lookup_offset(anchors=["a@…"])` 取证据段落  
+2. 禁止仅用姓名在全书搜写详情（易张冠李戴）  
+3. 若无锚点，先 `lookup_surface(surfaces=[角色名及 aliases])` 拿到 a@offset 再精读
 
 ## detail_json 必填结构（JSON 对象字符串）
 
@@ -58,9 +64,9 @@
 - 必须：`appearance` + `personality`，且 `drive` / `behavior` / `worldview|values` / `speakingStyle` / `background` 中**至少 2 项**有实质内容
 
 ## 存储（强制）
-1. get_kept_roster 拿名单  
-2. 读原文相关片段  
+1. get_kept_roster 拿名单与锚点  
+2. **按锚点** lookup_offset / lookup_surface 读证据  
 3. 对每个焦点角色 `submit_character_detail`  
-4. 若返回「详情过空/维度不足」，按缺失字段补全再提交  
+4. 若返回「详情过空/维度不足」，补全再提交  
 
 只据正文；程序只认工具成功结果。

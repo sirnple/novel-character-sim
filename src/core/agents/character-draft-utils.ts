@@ -127,6 +127,29 @@ export function mergeCharacterProfiles(
         : relationships;
   }
 
+  const baseAnchors = Array.isArray(base.mentionAnchors) ? base.mentionAnchors : [];
+  const richAnchors = Array.isArray((richer as any).mentionAnchors)
+    ? ((richer as any).mentionAnchors as CharacterProfile["mentionAnchors"])
+    : [];
+  const anchorBy = new Map<number, NonNullable<CharacterProfile["mentionAnchors"]>[number]>();
+  for (const a of [...baseAnchors, ...(richAnchors || [])]) {
+    if (!a || !Number.isFinite(Number(a.offset))) continue;
+    const off = Math.floor(Number(a.offset));
+    const prev = anchorBy.get(off);
+    if (!prev) anchorBy.set(off, { ...a, offset: off });
+    else {
+      anchorBy.set(off, {
+        offset: off,
+        unitIndex: prev.unitIndex ?? a.unitIndex,
+        unitLabel: prev.unitLabel || a.unitLabel,
+        surface: prev.surface || a.surface,
+      });
+    }
+  }
+  const mentionAnchors = Array.from(anchorBy.values())
+    .sort((x, y) => x.offset - y.offset)
+    .slice(0, 12);
+
   return {
     ...base,
     ...richer,
@@ -149,6 +172,9 @@ export function mergeCharacterProfiles(
         ? richer.values
         : base.values || [],
     relationships,
+    mentionAnchors: mentionAnchors.length
+      ? mentionAnchors
+      : base.mentionAnchors || (richer as any).mentionAnchors,
   } as CharacterProfile;
 }
 

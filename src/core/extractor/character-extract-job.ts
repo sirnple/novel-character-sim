@@ -257,23 +257,25 @@ export function cancelCharacterExtractJob(jobId: string): boolean {
   return true;
 }
 
-/** Mentions = names + epithets + kinship/role referents (not proper-name-only). */
+/** Mentions = names + epithets + stable kinship/role (not pronouns / 他爸). */
 const UNIT_SCHEMA = {
   name: "unit_character_mentions",
   description:
-    "Character-referring mentions in this passage (proper names, nicknames, kinship/role labels, descriptive epithets).",
+    "Specific character mentions: proper names, nicknames, stable third-person " +
+    "kinship/role/epithets. Exclude bare pronouns (他/她/它) and deictic kinship (他爸).",
   parameters: {
     type: "object",
     properties: {
       characters: {
         type: "array",
+        description: "Exclude 他/她/它/他爸/我爸/有人 as surfaces.",
         items: {
           type: "object",
           properties: {
             name: {
               type: "string",
               description:
-                "Surface as written: proper name OR stable referent. Do not invent names.",
+                "Proper name OR stable referent (周屿的母亲). Never bare 他/它/他爸.",
             },
             aliases: { type: "array", items: { type: "string" } },
           },
@@ -286,7 +288,7 @@ const UNIT_SCHEMA = {
 };
 
 // Bump when unit prompt/schema changes so name-unit cache invalidates
-const PROMPT_VERSION = "char-mentions-unit-v3";
+const PROMPT_VERSION = "char-mentions-unit-v4-no-pronoun";
 
 async function mapPool<T, R>(
   items: T[],

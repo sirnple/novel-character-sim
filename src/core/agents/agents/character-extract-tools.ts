@@ -9,6 +9,7 @@ import {
   saveResolvedEntities,
 } from "@/core/extractor/character-extract-workspace";
 import {
+  anchorsForSurfaces,
   formatLookupResult,
   formatSurfaceCandidatesForPrompt,
 } from "@/core/extractor/character-surface-catalog";
@@ -18,6 +19,11 @@ import {
   SUBMIT_ENTITIES_OK,
   type ResolvedEntity,
 } from "@/core/extractor/character-entity-types";
+import {
+  mergeAnchors,
+  normalizeAnchors,
+} from "@/core/extractor/mention-anchor";
+import type { SurfaceCatalog } from "@/core/extractor/character-surface-catalog";
 import {
   beginNovelAnalysisWorkspace,
   getNovelAnalysisWorkspace,
@@ -37,6 +43,12 @@ import type { CharacterProfile } from "@/types";
  */
 export function entitiesToProfiles(entities: ResolvedEntity[]): CharacterProfile[] {
   return entities.map((e, i) => {
+    const mentionAnchors = (e.anchors || []).map((a) => ({
+      offset: a.offset,
+      unitIndex: a.unitIndex,
+      unitLabel: a.unitLabel,
+      surface: a.surface,
+    }));
     return {
       id: `char_${i}_${e.name.replace(/\s+/g, "").slice(0, 24)}`,
       name: e.name,
@@ -73,7 +85,25 @@ export function entitiesToProfiles(entities: ResolvedEntity[]): CharacterProfile
       voice: { description: "" },
       background: { origin: "", keyEvents: [], description: "" },
       relationships: [],
+      mentionAnchors: mentionAnchors.length ? mentionAnchors : undefined,
     } as CharacterProfile;
+  });
+}
+
+/** Fill missing entity anchors from catalog surface rows. */
+export function enrichEntitiesWithCatalogAnchors(
+  entities: ResolvedEntity[],
+  catalog: SurfaceCatalog | null | undefined,
+): ResolvedEntity[] {
+  if (!catalog) return entities;
+  return entities.map((e) => {
+    const fromCatalog = anchorsForSurfaces(catalog, [
+      e.name,
+      ...(e.aliases || []),
+      ...(e.surfaces || []),
+    ]);
+    const anchors = mergeAnchors(e.anchors, fromCatalog);
+    return anchors.length ? { ...e, anchors } : e;
   });
 }
 
@@ -229,10 +259,10 @@ export const characterExtractTools: ToolDefinition[] = [
   {
     name: "lookup_surface",
     description:
-      "查称呼上下文（消歧）。**优先批量** surfaces（最多 " +
+      "按称呼查上下文，结果带 **锚点 a@offset**（同名异人按锚点拆）。" +
+      "**优先批量** surfaces（最多 " +
       `${LOOKUP_SURFACE_BATCH_MAX}）。` +
-      "若返回「输出超限」：缩小批量再查未返回项，必要时单条 surface。" +
-      "例：surfaces=[\"齐天大圣\",\"天蓬元帅\",\"周总\"]。",
+      "若返回「输出超限」：缩小批量再查。例：surfaces=[\"齐天大圣\",\"周总\"]。",
     parameters: {
       type: "object",
       properties: {
@@ -337,16 +367,16 @@ export const characterExtractTools: ToolDefinition[] = [
   {
     name: "lookup_offset",
     description:
-      "按正文 offset 读原文。**优先批量** offsets（最多 " +
+      "按 **锚点 offset** 读原文（消解/详情请用名单里的 a@offset，勿只靠角色名）。" +
+      "**优先批量** offsets/anchors（最多 " +
       `${LOOKUP_OFFSET_BATCH_MAX}）。` +
-      "若返回「输出超限」：缩小批量再读未返回项，必要时单条 offset。" +
-      '例：offsets_json=[{"offset":1200,"length":400},{"offset":8800}]。',
+      '例：offsets=[1200,8800] 或 anchors_json=["a@1200","a@8800"]。',
     parameters: {
       type: "object",
       properties: {
         offset: {
           type: "number",
-          description: "单次：正文起始 offset（0-based）",
+          description: "单次：正文起始 offset（0-based）= 锚点数字部分",
         },
         length: {
           type: "number",
@@ -361,20 +391,56 @@ export const characterExtractTools: ToolDefinition[] = [
           type: "string",
           description: 'JSON：数字数组或 [{"offset":0,"length":400},...]',
         },
+        anchors: {
+          type: "array",
+          description: '锚点 id 或对象，如 ["a@1200",{"offset":8800}]',
+          items: {},
+        },
+        anchors_json: {
+          type: "string",
+          description: '锚点 JSON，如 ["a@1200","a@8800"]',
+        },
       },
       required: [],
     },
     execute: async (args, ctx) => {
       const { userId, novelId, branchId } = wsKey(ctx);
       const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
-      if (!ws) {
-        return { content: "无扫名工作区", messages: [] };
+      // Fall back to analysis fullText if extract workspace missing (detail agent)
+      let fullText = ws?.fullText || "";
+      if (!fullText) {
+        const aws = getNovelAnalysisWorkspace(userId, novelId, branchId);
+        fullText = aws?.fullText || "";
       }
-      const allRanges = parseOffsetBatch(args as Record<string, unknown>);
+      if (!fullText) {
+        return { content: "无正文可读（请先 scan 或加载小说）", messages: [] };
+      }
+      // Merge anchors into offset batch
+      const fromAnchors = normalizeAnchors(
+        typeof args.anchors_json === "string" && args.anchors_json.trim()
+          ? (() => {
+              try {
+                return JSON.parse(args.anchors_json as string);
+              } catch {
+                return [];
+              }
+            })()
+          : args.anchors,
+      ).map((a) => ({ offset: a.offset }));
+      const mergedRanges = [
+        ...parseOffsetBatch(args as Record<string, unknown>),
+        ...fromAnchors,
+      ];
+      const seenOff = new Set<number>();
+      const allRanges = mergedRanges.filter((r) => {
+        if (seenOff.has(r.offset)) return false;
+        seenOff.add(r.offset);
+        return true;
+      });
       if (!allRanges.length) {
         return {
           content:
-            "缺少 offset/offsets。优先批读：offsets=[1200,8800]；单读：offset=1200。",
+            "缺少 offset/offsets/anchors。优先用名单锚点：anchors=[\"a@1200\",\"a@8800\"]。",
           messages: [],
         };
       }
@@ -415,9 +481,10 @@ export const characterExtractTools: ToolDefinition[] = [
           ),
         );
         const offset = r.offset;
-        const end = Math.min(ws.fullText.length, offset + length);
-        const slice = ws.fullText.slice(offset, end).replace(/\s+/g, " ").trim();
-        const block = `--- offset=${offset}..${end} / total=${ws.fullText.length} ---\n${slice}`;
+        const end = Math.min(fullText.length, offset + length);
+        const slice = fullText.slice(offset, end).replace(/\s+/g, " ").trim();
+        const block =
+          `--- a@${offset} offset=${offset}..${end} / total=${fullText.length} ---\n${slice}`;
         parts.push(block);
         used += block.length;
         returned++;
@@ -426,11 +493,11 @@ export const characterExtractTools: ToolDefinition[] = [
       if (countOmitted.length) {
         notices.push(
           formatBatchOverflowNotice({
-            itemLabel: "正文位置",
-            toolHint: "lookup_offset(offsets=[...])",
+            itemLabel: "锚点",
+            toolHint: 'lookup_offset(anchors=["a@…"])',
             requested: allRanges.length,
             returned: ranges.length - budgetOmitted.length,
-            omitted: countOmitted.map((r) => String(r.offset)),
+            omitted: countOmitted.map((r) => `a@${r.offset}`),
             reason: "count_cap",
             countCap: LOOKUP_OFFSET_BATCH_MAX,
           }),
@@ -439,11 +506,11 @@ export const characterExtractTools: ToolDefinition[] = [
       if (budgetOmitted.length) {
         notices.push(
           formatBatchOverflowNotice({
-            itemLabel: "正文位置",
-            toolHint: "lookup_offset(offsets=[...])",
+            itemLabel: "锚点",
+            toolHint: 'lookup_offset(anchors=["a@…"])',
             requested: ranges.length,
             returned,
-            omitted: budgetOmitted.map((r) => String(r.offset)),
+            omitted: budgetOmitted.map((r) => `a@${r.offset}`),
             reason: "output_budget",
             budget: BATCH_TEXT_BUDGET,
           }),
@@ -459,9 +526,9 @@ export const characterExtractTools: ToolDefinition[] = [
   {
     name: "submit_character_entities",
     description:
-      "提交指代消解结果（可分批）。每批按 name 合并进工作区，不覆盖其它已交角色。" +
-      "name=第三人称稳定指称；aliases=仅第三人称；禁止我爸/你妈等。" +
-      "成功含「角色实体已存」并回报本批/累计人数。",
+      "提交指代消解结果（可分批）。每批按 name 合并。" +
+      "须带 surfaces；**建议带 anchors**（a@offset）归属此人的出现位置；同名异人拆成多条不同 name 或不同锚点集。" +
+      "aliases 仅第三人称。成功含「角色实体已存」。",
     parameters: {
       type: "object",
       properties: {
@@ -473,8 +540,8 @@ export const characterExtractTools: ToolDefinition[] = [
         entities_json: {
           type: "string",
           description:
-            "实体 JSON。aliases 必须第三人称。" +
-            '例：[{"name":"周伯彦","aliases":["周总","周屿的父亲"],"role":"supporting","briefDescription":"...","surfaces":["周伯彦","周总"]}]' +
+            "实体 JSON。aliases 第三人称；anchors 为出现位置。" +
+            '例：[{"name":"周伯彦","aliases":["周总"],"surfaces":["周伯彦","周总"],"anchors":[{"offset":1200,"unitLabel":"第1章"},{"offset":8800}]}]' +
             "（不可 aliases 含 我爸/你爸）",
         },
       },
@@ -498,7 +565,6 @@ export const characterExtractTools: ToolDefinition[] = [
           };
         }
       } else if (Array.isArray(args.entities)) {
-        // Models sometimes pass array of objects despite schema saying string items
         raw = args.entities as unknown as ResolvedEntity[];
         if (raw.length && typeof raw[0] === "string") {
           try {
@@ -512,7 +578,6 @@ export const characterExtractTools: ToolDefinition[] = [
         }
       }
 
-      // name/aliases must be third-person only — reject so the model rewrites and resubmits
       const deicticIssues = findFirstSecondPersonAliasIssues(raw);
       if (deicticIssues.length) {
         return {
@@ -525,7 +590,7 @@ export const characterExtractTools: ToolDefinition[] = [
         };
       }
 
-      const entities = normalizeResolvedEntities(raw);
+      let entities = normalizeResolvedEntities(raw);
       if (!entities.length) {
         return {
           content: "实体列表为空。请至少提交 1 个有效实体（name 必填，且非第一二人称）。",
@@ -533,18 +598,19 @@ export const characterExtractTools: ToolDefinition[] = [
         };
       }
 
-      // Merge batch into workspace (multi-submit safe)
+      // Attach catalog anchors when agent omitted them
+      const cws = getCharacterExtractWorkspace(userId, novelId, branchId);
+      entities = enrichEntitiesWithCatalogAnchors(entities, cws?.catalog);
+      const withAnchors = entities.filter((e) => (e.anchors?.length || 0) > 0).length;
+
       const result = saveResolvedEntities(userId, novelId, branchId, entities);
       if (!result.ok) {
         return { content: result.message, messages: [] };
       }
-      // Draft membership = full merged entities only (drop leftover names)
       try {
         let aws = getNovelAnalysisWorkspace(userId, novelId, branchId);
         if (!aws) {
-          const text =
-            getCharacterExtractWorkspace(userId, novelId, branchId)?.fullText ||
-            "";
+          const text = cws?.fullText || "";
           aws = beginNovelAnalysisWorkspace(userId, novelId, branchId, {
             fullText: text,
           });
@@ -563,7 +629,7 @@ export const characterExtractTools: ToolDefinition[] = [
       return {
         content:
           `${SUBMIT_ENTITIES_OK}：本批 ${result.batchCount} 人，累计 ${result.totalCount} 人` +
-          `（可继续分批 submit；待 finish_novel_analysis 落库）`,
+          `（本批含锚点 ${withAnchors}/${entities.length}；可继续分批；待 finish 落库）`,
         messages: [],
       };
     },

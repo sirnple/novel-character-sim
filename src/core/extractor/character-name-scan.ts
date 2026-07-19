@@ -20,23 +20,25 @@ import {
 const UNIT_NAME_SCHEMA = {
   name: "unit_character_mentions",
   description:
-    "All character-referring mentions in this passage (proper names, nicknames, " +
-    "kinship/role labels, descriptive epithets). Not limited to people with formal names.",
+    "Specific character mentions only: proper names, nicknames, stable third-person " +
+    "kinship/role/epithets (e.g. 周屿的母亲, 短发大叔). " +
+    "Do NOT include bare pronouns (他/她/它) or deictic kinship (他爸/他妈) as-is.",
   parameters: {
     type: "object",
     properties: {
       characters: {
         type: "array",
         description:
-          "Each entry is one surface form for a specific person in this unit. " +
-          "If they have no proper name, use the referent string (e.g. 周屿的母亲, 短发大叔).",
+          "One surface per specific person. Prefer stable third-person labels. " +
+          "Exclude 他/她/它/他爸/我爸/有人 etc.",
         items: {
           type: "object",
           properties: {
             name: {
               type: "string",
               description:
-                "Surface as written: proper name OR stable referent (外号/亲属/描述称呼). Do not invent names.",
+                "Proper name OR stable referent (周屿的母亲/短发大叔). " +
+                "Never bare 他/她/它 or 他爸 alone.",
             },
             aliases: {
               type: "array",

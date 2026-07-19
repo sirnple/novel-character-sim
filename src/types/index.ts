@@ -100,6 +100,14 @@ export interface Relationship {
   dynamics: string;
 }
 
+/** Occurrence position in novel text (character roster / detail focus). */
+export interface CharacterMentionAnchor {
+  offset: number;
+  unitIndex?: number;
+  unitLabel?: string;
+  surface?: string;
+}
+
 export interface CharacterProfile {
   id: string;
   name: string;
@@ -114,6 +122,11 @@ export interface CharacterProfile {
   voice: VoiceConfig;
   background: BackgroundDetail;
   relationships: Relationship[];
+  /**
+   * Where this person appears (from scan + coref). Prefer lookup by these
+   * anchors for detail/coref — same name at different offsets may be another person.
+   */
+  mentionAnchors?: CharacterMentionAnchor[];
 }
 
 // --- Structured Novel Input (folder upload) ---

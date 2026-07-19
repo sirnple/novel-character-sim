@@ -28,6 +28,14 @@ import {
   parseSurfaceBatch,
 } from "../../src/core/agents/agents/character-extract-tools";
 import { formatBatchOverflowNotice } from "../../src/core/agents/batch-tool-limits";
+import {
+  formatSurfaceCandidatesForPrompt,
+} from "../../src/core/extractor/character-surface-catalog";
+import {
+  formatAnchorId,
+  normalizeAnchors,
+  sampleAnchors,
+} from "../../src/core/extractor/mention-anchor";
 import type { LLMProvider } from "../../src/types";
 
 export async function runCharacterNameFrequencyTests(): Promise<void> {
@@ -337,6 +345,47 @@ export async function runCharacterNameFrequencyTests(): Promise<void> {
       assert.ok(n.includes("缩小批量") || n.includes("优先仍批量"), n);
       assert.ok(n.includes("单独调用") || n.includes("单条"), n);
       assert.ok(n.includes("甲"));
+    });
+
+    test("buildSurfaceCatalog attaches position anchors", () => {
+      const text =
+        "第一章 孙悟空出世。\n\n".repeat(3) +
+        "中间填充字样".repeat(50) +
+        "\n\n后文 齐天大圣大闹天宫。孙悟空又现。";
+      const units = buildNameScanUnits(text);
+      const unitHits = units.map((u) => {
+        const hits: UnitNameHit[] = [];
+        if (u.text.includes("孙悟空")) hits.push({ name: "孙悟空", count: 1 });
+        if (u.text.includes("齐天大圣"))
+          hits.push({ name: "齐天大圣", aliases: ["孙悟空"], count: 1 });
+        return hits;
+      });
+      const catalog = buildSurfaceCatalog(unitHits, units, text);
+      const st = catalog.getStat("孙悟空");
+      assert.ok(st, "孙悟空 in catalog");
+      assert.ok((st!.anchors?.length || 0) >= 1, JSON.stringify(st));
+      assert.ok(st!.anchors![0].offset >= 0);
+      const listed = formatSurfaceCandidatesForPrompt([st!]);
+      assert.ok(listed.includes("a@") || listed.includes("锚点"), listed);
+      const hits = catalog.lookup("孙悟空", 3);
+      assert.ok(hits.length >= 1);
+      assert.ok(hits[0].anchorId.startsWith("a@"), hits[0].anchorId);
+    });
+
+    test("normalizeAnchors accepts a@offset strings", () => {
+      const a = normalizeAnchors(["a@100", { offset: 200, unitLabel: "第2章" }, 100]);
+      assert.equal(a.length, 2);
+      assert.equal(a[0].offset, 100);
+      assert.equal(a[1].offset, 200);
+      assert.equal(formatAnchorId(a[0]), "a@100");
+    });
+
+    test("sampleAnchors keeps first and last", () => {
+      const many = Array.from({ length: 20 }, (_, i) => ({ offset: i * 10 }));
+      const s = sampleAnchors(many, 4);
+      assert.ok(s.length <= 4);
+      assert.equal(s[0].offset, 0);
+      assert.equal(s[s.length - 1].offset, 190);
     });
   });
 

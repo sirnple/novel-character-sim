@@ -2,6 +2,14 @@
  * Shared types for character entity resolve (agent + frequency).
  */
 
+import {
+  mergeAnchors,
+  normalizeAnchors,
+  type MentionAnchor,
+} from "./mention-anchor";
+
+export type { MentionAnchor };
+
 export interface ResolvedEntity {
   /** Real personal name or stable third-person referent */
   name: string;
@@ -11,6 +19,11 @@ export interface ResolvedEntity {
   briefDescription?: string;
   /** All surfaces attributed for counting (may include dialogue forms in catalog) */
   surfaces?: string[];
+  /**
+   * Occurrence anchors (offset + unit) owned by **this** person.
+   * Same surface string at distant anchors may be different people — split entities.
+   */
+  anchors?: MentionAnchor[];
 }
 
 /**
@@ -85,12 +98,14 @@ export function normalizeResolvedEntities(
           .filter((s) => s && !isFirstOrSecondPersonDeictic(s)),
       ),
     );
+    const anchors = normalizeAnchors((e as any).anchors);
     out.push({
       name,
       aliases,
       role: e.role || "supporting",
       briefDescription: (e.briefDescription || "").trim() || undefined,
       surfaces,
+      anchors: anchors.length ? anchors : undefined,
     });
   }
   return out;
@@ -126,6 +141,7 @@ export function mergeResolvedEntities(
     );
     const briefIncoming = (e.briefDescription || "").trim();
     const briefOld = (old.briefDescription || "").trim();
+    const anchors = mergeAnchors(old.anchors, e.anchors);
     byKey.set(k, {
       name: old.name || e.name,
       aliases,
@@ -136,6 +152,7 @@ export function mergeResolvedEntities(
           : old.role || e.role || "supporting",
       briefDescription:
         briefIncoming.length >= briefOld.length ? briefIncoming || undefined : briefOld || undefined,
+      anchors: anchors.length ? anchors : undefined,
     });
   }
   return Array.from(byKey.values());

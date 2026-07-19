@@ -10,6 +10,7 @@ import {
   analysisMasterTools,
   ANALYSIS_OK,
 } from "./analysis-tools";
+import { characterExtractTools } from "./character-extract-tools";
 import { getTool } from "../registry";
 import { buildMasterAgentToolSchema } from "../analysis-allowlist";
 import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
@@ -18,12 +19,20 @@ import { toolSaveSucceeded } from "../save-verify";
 import type { TrailMessage } from "../types";
 
 function pick(names: string[], pool: ToolDefinition[]): ToolDefinition[] {
-  const set = new Set(names);
-  return pool.filter((t) => set.has(t.name));
+  const byName = new Map(pool.map((t) => [t.name, t]));
+  return names.map((n) => byName.get(n)).filter(Boolean) as ToolDefinition[];
 }
 
 const domain = analysisDomainTools;
 const master = analysisMasterTools;
+/** Domain tools + surface/anchor lookup (list + detail agents). */
+const domainWithLookup: ToolDefinition[] = (() => {
+  const m = new Map<string, ToolDefinition>();
+  for (const t of [...analysisDomainTools, ...characterExtractTools]) {
+    if (!m.has(t.name)) m.set(t.name, t);
+  }
+  return Array.from(m.values());
+})();
 
 // ---- Domain sub-agents ----
 
@@ -75,9 +84,12 @@ const characterDetailLoop = makeLoopAgent({
       "list_text_units",
       "get_unit_text",
       "get_text_slice",
+      // Anchor-aware reads (same-name different people)
+      "lookup_surface",
+      "lookup_offset",
       "submit_character_detail",
     ],
-    domain,
+    domainWithLookup,
   ),
   submitTool: "submit_character_detail",
   okMarker: ANALYSIS_OK.detail,
