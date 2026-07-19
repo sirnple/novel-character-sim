@@ -34,10 +34,40 @@ function getDb(): Database.Database {
   }
   if (!db) {
     const dir = path.dirname(DB_PATH);
-    const fs = require("fs");
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const fs = require("fs") as typeof import("fs");
+    try {
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      // Volume mounts may be root-owned; try to ensure we can create the db file.
+      try {
+        fs.accessSync(dir, fs.constants.W_OK);
+      } catch {
+        try {
+          fs.chmodSync(dir, 0o777);
+        } catch {
+          /* ignore — entrypoint should have fixed perms */
+        }
+      }
+    } catch (e) {
+      console.error(`[DB] cannot prepare dir ${dir}:`, e);
+      throw e;
+    }
 
-    db = new Database(DB_PATH);
+    try {
+      db = new Database(DB_PATH);
+    } catch (e) {
+      console.error(
+        `[DB] SQLITE open failed path=${DB_PATH} dirWritable=${(() => {
+          try {
+            fs.accessSync(dir, fs.constants.W_OK);
+            return true;
+          } catch {
+            return false;
+          }
+        })()}`,
+        e,
+      );
+      throw e;
+    }
     dbPathOpened = DB_PATH;
     db.pragma("journal_mode = WAL");
     initSchema(db);

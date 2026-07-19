@@ -37,11 +37,17 @@ RUN mkdir -p /app/public
 # Data directory for SQLite (mount Railway Volume at /app/data)
 RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data /app/src
 
-USER nextjs
+# Do NOT switch to nextjs before start: Railway volume mounts are often root-owned.
+# A non-root process then gets SQLITE_CANTOPEN on /app/data/novels.db.
+# Entrypoint runs as root, fixes mount perms, then drops to nextjs when possible.
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 3000
 
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+USER root
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["node", "server.js"]
