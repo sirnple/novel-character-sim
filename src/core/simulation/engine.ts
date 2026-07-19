@@ -9,6 +9,7 @@ import { renderCodexAsPrompt } from "@/core/codex/renderer";
 import { runFullReview, rewriteProse, generateAnnotations, buildSharedReviewSystemPrompt, runFullReviewClean } from "@/core/codex/review-orchestrator";
 import { updateCodexAfterChapter } from "@/core/codex/updater";
 import type { WritersCodex, ProseAnnotation, ReviewFinding } from "@/core/codex/types";
+import { formatRelationshipsForPrompt } from "@/core/character/format-relationships-for-prompt";
 
 export type SimulationEventCallback = (event: SimulationEvent) => void;
 
@@ -54,13 +55,20 @@ export function buildWriterPrompt(opts: {
   const charProfiles = presentChars
     .map(c => {
       const traits = c.personality.traits.join("、");
-      const rels = c.relationships
-        .filter(r => presentChars.some(pc => pc.name === r.characterName))
-        .map(r => `${r.characterName}（${r.type}）：${r.description}`)
-        .join("；");
-      return zh
-        ? `### ${c.name}\n- 性格：${traits}。${c.personality.description}\n- 核心目标：${c.drive.goal}\n- 动机：${c.drive.motivation}\n- 恐惧：${c.drive.fear}\n- 弱点：${c.drive.weakness}\n- 底线：${c.drive.bottomLine}\n- 秘密：${c.drive.secret}\n- 说话风格：${c.speakingStyle.description}（口头禅：${c.speakingStyle.catchphrases.join("、") || "无"}）\n${rels ? `- 在场人际关系：${rels}` : ""}`
-        : `### ${c.name}\n- Personality: ${traits}. ${c.personality.description}\n- Goal: ${c.drive.goal}\n- Motivation: ${c.drive.motivation}\n- Fear: ${c.drive.fear}\n- Weakness: ${c.drive.weakness}\n- Bottom line: ${c.drive.bottomLine}\n- Secret: ${c.drive.secret}\n- Speaking style: ${c.speakingStyle.description}\n${rels ? `- Relationships present: ${rels}` : ""}`;
+      const presentNames = presentChars.map((pc) => pc.name);
+      const relBlock = formatRelationshipsForPrompt(c, {
+        zh,
+        presentNames,
+        maxEdges: 6,
+        priority: "drama",
+        voice: "third_person",
+        withConstraints: true,
+        ownerName: c.name,
+      });
+      const base = zh
+        ? `### ${c.name}\n- 性格：${traits}。${c.personality.description}\n- 核心目标：${c.drive.goal}\n- 动机：${c.drive.motivation}\n- 恐惧：${c.drive.fear}\n- 弱点：${c.drive.weakness}\n- 底线：${c.drive.bottomLine}\n- 秘密：${c.drive.secret}\n- 说话风格：${c.speakingStyle.description}（口头禅：${c.speakingStyle.catchphrases.join("、") || "无"}）`
+        : `### ${c.name}\n- Personality: ${traits}. ${c.personality.description}\n- Goal: ${c.drive.goal}\n- Motivation: ${c.drive.motivation}\n- Fear: ${c.drive.fear}\n- Weakness: ${c.drive.weakness}\n- Bottom line: ${c.drive.bottomLine}\n- Secret: ${c.drive.secret}\n- Speaking style: ${c.speakingStyle.description}`;
+      return relBlock ? `${base}\n${relBlock}` : base;
     })
     .join("\n\n");
 

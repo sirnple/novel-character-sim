@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { WritersCodex, CharacterQuote, CharacterStateSnapshot } from "./types";
+import { formatRelationshipsForPrompt } from "@/core/character/format-relationships-for-prompt";
 
 /**
  * Render all 7 Codex segments into system prompt + user context text.
@@ -241,9 +242,14 @@ function renderCharacterDossiers(codex: WritersCodex): string {
     const speakingStyle = profile.speakingStyle?.description || "";
     const catchphrases = (Array.isArray(profile.speakingStyle?.catchphrases) ? profile.speakingStyle!.catchphrases : []).join("、");
 
-    const rels = (profile.relationships || [])
-      .map(r => `  - ${r.characterName}: ${r.type} — ${r.description}（${r.dynamics}）`)
-      .join("\n");
+    const rels = formatRelationshipsForPrompt(profile, {
+      zh: true,
+      maxEdges: 20,
+      priority: "drama",
+      voice: "third_person",
+      withConstraints: false,
+      ownerName: profile.name,
+    });
 
     const quoteBlock =
       quotes.length > 0

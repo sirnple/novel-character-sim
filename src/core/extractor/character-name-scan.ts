@@ -92,7 +92,7 @@ async function extractNamesInUnit(
       characters: { name: string; aliases?: string[] }[];
     }>([{ role: "user", content: prompt }], UNIT_NAME_SCHEMA, {
       temperature: 0.2,
-      maxTokens: 2048,
+      maxTokens: 8192,
     });
     return (result.characters || [])
       .map((c) => ({
@@ -117,7 +117,7 @@ async function extractNamesInUnit(
               '\n\n只输出 JSON：{"characters":[{"name":"...","aliases":[]}]}',
           },
         ],
-        { temperature: 0.2, maxTokens: 2048 },
+        { temperature: 0.2, maxTokens: 8192 },
       );
       const parsed = extractJSON<{
         characters?: { name: string; aliases?: string[] }[];

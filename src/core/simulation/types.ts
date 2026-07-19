@@ -1,4 +1,5 @@
 import type { CharacterProfile, SceneDefinition, WritingStyle } from "@/types";
+import { formatRelationshipsForPrompt } from "@/core/character/format-relationships-for-prompt";
 
 function isZh(profile: CharacterProfile): boolean {
   const sample = profile.personality.description + profile.worldview + profile.speakingStyle.description;
@@ -64,9 +65,14 @@ ${profile.speakingStyle.description}
 ${profile.background.description}
 
 ## 你的人际关系
-${profile.relationships
-  .map((r) => `- ${r.characterName}：${r.type} — ${r.description}（${r.history}。权力动态：${r.dynamics}）`)
-  .join("\n")}`;
+${formatRelationshipsForPrompt(profile, {
+    zh: true,
+    maxEdges: 8,
+    priority: "drama",
+    voice: "third_person",
+    withConstraints: true,
+    ownerName: profile.name,
+  }) || "（尚无已抽取的有向关系）"}`;
   }
 
   return `You are "${profile.name}", a character from a novel.
@@ -115,9 +121,14 @@ ${profile.speakingStyle.description}
 ${profile.background.description}
 
 ## Your Relationships
-${profile.relationships
-  .map((r) => `- ${r.characterName}: ${r.type} — ${r.description} (History: ${r.history}. Dynamics: ${r.dynamics})`)
-  .join("\n")}`;
+${formatRelationshipsForPrompt(profile, {
+    zh: false,
+    maxEdges: 8,
+    priority: "drama",
+    voice: "third_person",
+    withConstraints: true,
+    ownerName: profile.name,
+  }) || "(no directed relationships extracted)"}`;
 }
 
 export function buildCharacterSystemPrompt(profile: CharacterProfile): string {
@@ -173,9 +184,14 @@ ${profile.speakingStyle.description}
 ${profile.background.description}
 
 ## 你的人际关系
-${profile.relationships
-  .map((r) => `- ${r.characterName}：${r.type} — ${r.description}（${r.history}。权力关系：${r.dynamics}）`)
-  .join("\n")}
+${formatRelationshipsForPrompt(profile, {
+    zh: true,
+    maxEdges: 8,
+    priority: "drama",
+    voice: "third_person",
+    withConstraints: true,
+    ownerName: profile.name,
+  }) || "（尚无已抽取的有向关系）"}
 
 ## 指令
 你正在参与一个即兴场景。轮到你时：
@@ -236,7 +252,14 @@ Key events: ${profile.background.keyEvents.join(", ")}
 ${profile.background.description}
 
 ## Relationships
-${profile.relationships.map((r) => `- ${r.characterName}: ${r.type} — ${r.description} (History: ${r.history}. Dynamics: ${r.dynamics})`).join("\n")}
+${formatRelationshipsForPrompt(profile, {
+  zh: false,
+  maxEdges: 8,
+  priority: "drama",
+  voice: "third_person",
+  withConstraints: true,
+  ownerName: profile.name,
+}) || "(no directed relationships extracted)"}
 
 ## INSTRUCTIONS
 You are participating in an improvised scene. When it's your turn:
@@ -254,12 +277,18 @@ export function buildDirectorSystemPrompt(
 ): string {
   const zh = characters.length > 0 && isZh(characters[0]);
 
+  const presentNames = characters.map((c) => c.name);
   const characterDescriptions = characters
     .map((c) => {
-      const rels = c.relationships
-        .filter((r) => characters.some((pc) => pc.id === r.characterId))
-        .map((r) => `    - ${r.characterName}: ${r.type} — ${r.description}（${r.dynamics}）`)
-        .join("\n");
+      const rels = formatRelationshipsForPrompt(c, {
+        zh,
+        presentNames,
+        maxEdges: 5,
+        priority: "drama",
+        voice: "third_person",
+        withConstraints: true,
+        ownerName: c.name,
+      });
       const driveInfo = c.drive
         ? `    ${zh ? '目标' : 'Goal'}: ${c.drive.goal || '?'}
     ${zh ? '恐惧' : 'Fear'}: ${c.drive.fear || '?'}
@@ -270,8 +299,7 @@ export function buildDirectorSystemPrompt(
     ${zh ? '驱动力' : 'Drive'}:
 ${driveInfo}
     ${zh ? '世界观' : 'Worldview'}: ${c.worldview}
-    ${zh ? '相关关系' : 'Relevant relationships'}:
-${rels || `    (${zh ? '无' : 'none'})`}`;
+${rels || `    (${zh ? '无已抽取有向关系' : 'none'})`}`;
     })
     .join("\n\n");
 

@@ -701,8 +701,8 @@ export default function WritePage() {
           <h2 className="text-lg font-semibold text-foreground">本书尚未完成分析</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
             需要<strong className="text-foreground/90 font-medium">故事 · 角色 · 目录</strong>
-            。若分析后仍无目录，视为未完成，不可写作。请回到概览点右下角
-            <span className="text-primary font-medium"> 分析 </span>
+            。若分析后仍无目录，视为未完成，不可写作。请回到概览，用右侧
+            <span className="text-primary font-medium"> 分析助手 </span>
             （可关闭面板，后台进行）。
           </p>
           <div className="flex flex-col sm:flex-row gap-2 justify-center">

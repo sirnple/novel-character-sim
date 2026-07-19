@@ -20,8 +20,10 @@ import { runExportTxtTocTests } from "./tests/export-txt-toc.test";
 import { runTitleResolveTests } from "./tests/title-resolve.test";
 import { runCharacterCandidatesTests } from "./tests/character-candidates.test";
 import { runCharacterNameFrequencyTests } from "./tests/character-name-frequency.test";
+import { runAnalysisWiringTests } from "./tests/analysis-wiring.test";
+import { runAnalysisCommitTests } from "./tests/analysis-commit.test";
 
-function main() {
+async function main() {
   resetCounters();
   console.log("novel-character-sim — agent continuation core tests\n");
 
@@ -42,9 +44,14 @@ function main() {
   runTitleResolveTests();
   runCharacterCandidatesTests();
   runCharacterNameFrequencyTests();
+  await runAnalysisWiringTests();
+  await runAnalysisCommitTests();
 
   const { failed } = summary();
   if (failed > 0) process.exitCode = 1;
 }
 
-main();
+main().catch((e) => {
+  console.error(e);
+  process.exitCode = 1;
+});

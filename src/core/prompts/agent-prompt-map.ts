@@ -22,24 +22,90 @@ export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
     system: "master-system.md",
   },
 
-  // ---- Extraction ----
+  // ---- Extraction / novel analysis ----
+  novel_analysis: {
+    system: "novel-analysis-master-system.md",
+    systemEn: "novel-analysis-master-system.en.md",
+    user: "novel-analysis-master-user.md",
+    userEn: "novel-analysis-master-user.en.md",
+    // vars: prompt, novelId, branchId, modules, forceRefresh
+  },
+  // Domain agents — canonical verb-object ids (+ noun aliases for Admin/history)
+  analyze_form: {
+    system: "form-analysis-system.md",
+    user: "form-analysis-user.md",
+  },
+  analyze_story_world: {
+    system: "story-world-system.md",
+    user: "story-world-user.md",
+  },
+  story_world: {
+    system: "story-world-system.md",
+    user: "story-world-user.md",
+  },
   character_names_unit: {
     system: "character-names-unit-system.md",
     systemEn: "character-names-unit-system.en.md",
-    // vars: unitLabel, unitText
+  },
+  analyze_character_list: {
+    system: "character-entity-resolve-system.md",
+    systemEn: "character-entity-resolve-system.en.md",
+    user: "character-entity-resolve-user.md",
+    userEn: "character-entity-resolve-user.en.md",
+  },
+  resolve_character_roster: {
+    system: "character-entity-resolve-system.md",
+    systemEn: "character-entity-resolve-system.en.md",
+    user: "character-entity-resolve-user.md",
+    userEn: "character-entity-resolve-user.en.md",
+  },
+  character_roster: {
+    system: "character-entity-resolve-system.md",
+    systemEn: "character-entity-resolve-system.en.md",
+    user: "character-entity-resolve-user.md",
+    userEn: "character-entity-resolve-user.en.md",
+  },
+  character_entity_resolve: {
+    system: "character-entity-resolve-system.md",
+    systemEn: "character-entity-resolve-system.en.md",
+    user: "character-entity-resolve-user.md",
+    userEn: "character-entity-resolve-user.en.md",
   },
   character_list: {
     system: "character-list-system.md",
     systemEn: "character-list-system.en.md",
-    // vars: novelContext, frequencyRoster
+  },
+  extract_character_detail: {
+    system: "character-detail-agent-system.md",
+    user: "character-detail-agent-user.md",
   },
   character_detail: {
     system: "character-detail-system.md",
     systemEn: "character-detail-system.en.md",
   },
+  character_detail_agent: {
+    system: "character-detail-agent-system.md",
+    user: "character-detail-agent-user.md",
+  },
+  extract_character_relationships: {
+    system: "character-relationships-system.md",
+    user: "character-relationships-user.md",
+  },
+  character_relationships: {
+    system: "character-relationships-system.md",
+    user: "character-relationships-user.md",
+  },
   relationships: {
     system: "relationships-system.md",
     systemEn: "relationships-system.en.md",
+  },
+  analyze_timeline: {
+    system: "timeline-analysis-system.md",
+    user: "timeline-analysis-user.md",
+  },
+  timeline_analysis: {
+    system: "timeline-analysis-system.md",
+    user: "timeline-analysis-user.md",
   },
   chapter_end_states: {
     system: "chapter-end-states-system.md",
@@ -57,17 +123,33 @@ export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
     system: "timeline-states-system.md",
     systemEn: "timeline-states-system.en.md",
   },
+  extract_style: {
+    system: "style-extract-agent-system.md",
+    user: "style-extract-agent-user.md",
+  },
   style_extract: {
     system: "style-extract-system.md",
     systemEn: "style-extract-system.en.md",
     user: "style-extract-user.md",
     userEn: "style-extract-user.en.md",
   },
+  style_extract_agent: {
+    system: "style-extract-agent-system.md",
+    user: "style-extract-agent-user.md",
+  },
+  extract_ideas: {
+    system: "idea-extract-agent-system.md",
+    user: "idea-extract-agent-user.md",
+  },
   idea_extract: {
     system: "idea-extract-system.md",
     systemEn: "idea-extract-system.en.md",
     user: "idea-extract-user.md",
     userEn: "idea-extract-user.en.md",
+  },
+  idea_extract_agent: {
+    system: "idea-extract-agent-system.md",
+    user: "idea-extract-agent-user.md",
   },
 
   // ---- Outline (agent framework) ----

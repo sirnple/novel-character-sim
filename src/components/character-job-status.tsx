@@ -20,6 +20,8 @@ interface JobState {
 const RUNNING = new Set([
   "queued",
   "scanning",
+  "resolving",
+  "counting",
   "clustering",
   "merging",
   "detail",

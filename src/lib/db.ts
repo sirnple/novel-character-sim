@@ -411,6 +411,16 @@ function initSchema(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+    -- Staged analysis results (workspace) until user confirms finish
+    CREATE TABLE IF NOT EXISTS analysis_workspace (
+      user_id TEXT NOT NULL DEFAULT 'guest',
+      novel_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, novel_id, branch_id)
+    );
   `);
 
   // Migrate old tables that may be missing user_id.
@@ -2057,7 +2067,14 @@ export function upsertExtractedStyle(
 ): StyleLibraryEntry | null {
   if (!writingStyle?.styleDescription && !writingStyle?.genre) return null;
   const id = `style_${novelId}_canon`;
-  const title = (novelTitle || "").trim() || novelId;
+  // Prefer explicit title; if caller passed novelId by mistake, re-read novels row
+  let title = (novelTitle || "").trim();
+  if (!title || title === novelId) {
+    const n = getNovel(userId, novelId);
+    const nt = (n?.title || "").trim();
+    if (nt && nt !== novelId) title = nt;
+  }
+  if (!title) title = novelId;
   const entry: StyleLibraryEntry = {
     id,
     // Display name = novel title so styles are distinguishable across books
@@ -2162,4 +2179,50 @@ export function replaceExtractedIdeas(
     "DELETE FROM idea_library WHERE user_id = ? AND source_novel_id = ? AND source = 'extracted'"
   ).run(userId, novelId);
   saveIdeasBatch(userId, entries);
+}
+
+// ---- Analysis workspace staging (until user confirms finish) ----
+
+export function saveAnalysisWorkspaceRow(
+  userId: string,
+  novelId: string,
+  branchId: string,
+  data: unknown,
+): void {
+  const d = getDb();
+  d.prepare(
+    `INSERT OR REPLACE INTO analysis_workspace (user_id, novel_id, branch_id, data, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))`,
+  ).run(userId || "guest", novelId, branchId || "main", JSON.stringify(data));
+}
+
+export function loadAnalysisWorkspaceRow(
+  userId: string,
+  novelId: string,
+  branchId: string,
+): unknown | null {
+  const d = getDb();
+  const row = d
+    .prepare(
+      "SELECT data FROM analysis_workspace WHERE user_id = ? AND novel_id = ? AND branch_id = ?",
+    )
+    .get(userId || "guest", novelId, branchId || "main") as { data: string } | undefined;
+  if (!row?.data) return null;
+  try {
+    return JSON.parse(row.data);
+  } catch {
+    return null;
+  }
+}
+
+export function deleteAnalysisWorkspaceRow(
+  userId: string,
+  novelId: string,
+  branchId: string,
+): void {
+  getDb()
+    .prepare(
+      "DELETE FROM analysis_workspace WHERE user_id = ? AND novel_id = ? AND branch_id = ?",
+    )
+    .run(userId || "guest", novelId, branchId || "main");
 }

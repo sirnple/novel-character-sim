@@ -1,18 +1,33 @@
 /**
- * Async character extraction job (unit Flash scan → frequency gate → merge → detail → relationships).
- * Mirrors timeline-job patterns: in-memory + SQLite JSON row.
+ * Async character extraction job — pipeline A:
+ *   unit surface scan (parallel map)
+ *   → real coref agent (tools + Admin/md prompt)
+ *   → entity frequency → detail → relationships
  */
 import { randomUUID } from "node:crypto";
 import { createLLMProvider } from "@/core/llm/factory";
 import { parseNovel } from "@/core/parser/novel-parser";
 import { CharacterExtractor } from "@/core/extractor/character-extractor";
 import { buildNameScanUnits, type TextUnit } from "@/core/extractor/character-name-units";
-import { runNameFrequencyPipeline } from "@/core/extractor/character-name-pipeline";
 import type { UnitNameHit } from "@/core/extractor/character-name-aggregate";
+import { filterByMentionFrequency } from "@/core/extractor/character-name-aggregate";
+import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
+import { countResolvedEntities } from "@/core/extractor/character-entity-frequency";
+import {
+  beginCharacterExtractWorkspace,
+  clearCharacterExtractWorkspace,
+  getCharacterExtractWorkspace,
+} from "@/core/extractor/character-extract-workspace";
+import {
+  consolidateRawCharacters,
+  sanitizeAliasesAgainstRoster,
+} from "@/core/extractor/character-name-consolidate";
 import { extractJSON, isChinese, novelFingerprint } from "@/lib/utils";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
 import { runWithTokenContext } from "@/lib/token-usage-context";
 import { isServerDebugMode } from "@/lib/debug-mode";
+import { initRegistry } from "@/core/agents/init";
+import { getAgent } from "@/core/agents/agent-registry";
 import {
   getBranchProse,
   getCharacters,
@@ -25,9 +40,20 @@ import {
   saveGenerationLog,
 } from "@/lib/db";
 
+let agentsReady = false;
+function ensureAgents(): void {
+  if (!agentsReady) {
+    initRegistry();
+    agentsReady = true;
+  }
+}
+
 export type CharJobPhase =
   | "queued"
   | "scanning"
+  | "resolving"
+  | "counting"
+  /** @deprecated kept for old job rows in DB */
   | "clustering"
   | "merging"
   | "detail"
@@ -81,6 +107,8 @@ function touch(job: CharacterExtractJob) {
 const RUNNING_PHASES = new Set<CharJobPhase>([
   "queued",
   "scanning",
+  "resolving",
+  "counting",
   "clustering",
   "merging",
   "detail",
@@ -247,7 +275,7 @@ const UNIT_SCHEMA = {
   },
 };
 
-const PROMPT_VERSION = "char-names-unit-v1";
+const PROMPT_VERSION = "char-names-unit-v2-surface";
 
 async function mapPool<T, R>(
   items: T[],
@@ -283,7 +311,8 @@ async function extractUnitNames(
       characters: { name: string; aliases?: string[] }[];
     }>([{ role: "user", content: prompt }], UNIT_SCHEMA, {
       temperature: 0.2,
-      maxTokens: 2048,
+      // Reasoning models share max_tokens with CoT; keep high for quality.
+      maxTokens: 8192,
     });
     return (result.characters || [])
       .map((c) => ({
@@ -303,7 +332,7 @@ async function extractUnitNames(
               '\n\n只输出 JSON：{"characters":[{"name":"...","aliases":[]}]}',
           },
         ],
-        { temperature: 0.2, maxTokens: 2048 },
+        { temperature: 0.2, maxTokens: 8192 },
       );
       const parsed = extractJSON<{
         characters?: { name: string; aliases?: string[] }[];
@@ -405,7 +434,6 @@ async function runCharacterJob(
   const zh = isChinese(fullText);
   const fp = job.contentFp || novelFingerprint(fullText);
   const unitHits: UnitNameHit[][] = new Array(units.length);
-  const unitIndexBySurface = new Map<string, Set<number>>();
 
   // Production: cap fan-out. Debug/dev: no concurrency limit (full unit parallelism).
   const scanConcurrency = isServerDebugMode() ? units.length : 4;
@@ -466,18 +494,6 @@ async function runCharacterJob(
       }
 
       unitHits[i] = hits;
-      for (const h of hits) {
-        const surfaces = [
-          h.name,
-          ...(h.aliases || []),
-        ]
-          .map((s) => (s || "").replace(/\s+/g, "").trim())
-          .filter((s) => s.length >= 1);
-        for (const name of surfaces) {
-          if (!unitIndexBySurface.has(name)) unitIndexBySurface.set(name, new Set());
-          unitIndexBySurface.get(name)!.add(i);
-        }
-      }
 
       job.completed = unitHits.filter(Boolean).length;
       job.message = `扫描人名 ${job.completed}/${units.length}`;
@@ -505,53 +521,127 @@ async function runCharacterJob(
     }
   }
 
-  job.phase = "clustering";
-  job.status = "clustering";
-  job.message = "频次过滤与别名聚类…";
+  // --- Pipeline A: catalog → real coref agent → entity frequency ---
+  job.phase = "resolving";
+  job.status = "resolving";
+  job.message = "构建称呼索引…";
   touch(job);
 
-  const pipe = runNameFrequencyPipeline(unitHits, {
-    textLength: fullText.length,
-    unitCount: units.length,
-    softMaxClusters: 120,
-    unitIndexBySurface,
-  });
-
-  job.phase = "merging";
-  job.status = "merging";
-  job.message = `合并名单（${pipe.kept.length} 个频次合格）…`;
-  touch(job);
-
-  const parsed = parseNovel(fullText);
-  parsed.fullText = fullText;
-  const extractor = new CharacterExtractor(parsed);
-
-  const rawList = await runWithTokenContext(
-    {
-      userId: job.userId,
-      novelId: job.novelId,
-      agentId: "character_list",
-      category: "extract",
-    },
-    () => extractor.mergeFrequencyRoster(llm, pipe.rosterPrompt),
+  const catalog = buildSurfaceCatalog(unitHits, units, fullText);
+  console.log(
+    `[char-job] ${jobId} surfaces=${catalog.stats.length} → coref agent`,
   );
 
-  if (!rawList.length) {
-    throw new Error("合并后未得到角色名单");
+  if (stop()) {
+    job.status = "cancelled";
+    job.phase = "cancelled";
+    touch(job);
+    return;
   }
+
+  ensureAgents();
+  beginCharacterExtractWorkspace(job.userId, job.novelId, job.branchId, {
+    fullText,
+    catalog,
+    unitCount: units.length,
+  });
+
+  job.message = `指代消解 Agent（${catalog.stats.length} 个候选）…`;
+  touch(job);
+
+  const resolveAgent = getAgent("character_entity_resolve");
+  if (!resolveAgent) {
+    throw new Error("character_entity_resolve agent 未注册");
+  }
+
+  const agentResult = await resolveAgent.execute(
+    {
+      prompt: `将 ${catalog.stats.length} 个扫名候选归并为角色实体（name=真实姓名，aliases=封号外号）。高召回，次要角色也保留。`,
+      novelId: job.novelId,
+      branchId: job.branchId,
+      userId: job.userId,
+    },
+    llm,
+  );
+
+  if (stop()) {
+    clearCharacterExtractWorkspace(job.userId, job.novelId, job.branchId);
+    job.status = "cancelled";
+    job.phase = "cancelled";
+    touch(job);
+    return;
+  }
+
+  const entities =
+    getCharacterExtractWorkspace(job.userId, job.novelId, job.branchId)
+      ?.entities || [];
+
+  if (!entities.length) {
+    const hint = agentResult.content || "无详情";
+    clearCharacterExtractWorkspace(job.userId, job.novelId, job.branchId);
+    throw new Error(`指代消解 Agent 未提交实体：${hint.slice(0, 200)}`);
+  }
+
+  console.log(
+    `[char-job] ${jobId} coref agent done entities=${entities.length} trail=${agentResult.messages?.length || 0}`,
+  );
+
+  job.phase = "counting";
+  job.status = "counting";
+  job.message = `按实体计次（${entities.length} 人）…`;
+  touch(job);
+
+  const counted = countResolvedEntities(entities, catalog);
+  const gated = filterByMentionFrequency(counted, {
+    textLength: fullText.length,
+    unitCount: units.length,
+    softMaxNames: 120,
+  });
+
+  // Prefer entity with role/brief from resolve; match by name or surface
+  const findEntity = (aggName: string) => {
+    const key = aggName.replace(/\s+/g, "").trim();
+    for (const e of entities) {
+      if (e.name.replace(/\s+/g, "").trim() === key) return e;
+      if ((e.surfaces || []).some((s) => s.replace(/\s+/g, "").trim() === key))
+        return e;
+      if ((e.aliases || []).some((s) => s.replace(/\s+/g, "").trim() === key))
+        return e;
+    }
+    return undefined;
+  };
+  let rawList = gated.kept.map((agg) => {
+    const ent = findEntity(agg.name);
+    return {
+      name: agg.name,
+      aliases: agg.aliases.length ? agg.aliases : ent?.aliases || [],
+      role: ent?.role || "supporting",
+      briefDescription: ent?.briefDescription || "",
+    };
+  });
+
+  rawList = sanitizeAliasesAgainstRoster(consolidateRawCharacters(rawList));
+
+  if (!rawList.length) {
+    throw new Error("频次过滤后角色名单为空");
+  }
+
+  console.log(
+    `[char-job] ${jobId} entities=${entities.length} gated=${rawList.length}` +
+      (gated.thresholdRaised ? " (threshold raised)" : ""),
+  );
 
   job.phase = "detail";
   job.status = "detail";
   job.message = `深挖人设（锚点章节）/ ${rawList.length}…`;
   touch(job);
 
-  // Prefer kept aggregates (have unitIndices); fall back to full clusters
-  const scanClusters =
-    pipe.kept?.length > 0
-      ? pipe.kept
-      : pipe.clusters?.length
-        ? pipe.clusters
-        : [];
+  const parsed = parseNovel(fullText);
+  parsed.fullText = fullText;
+  const extractor = new CharacterExtractor(parsed);
+
+  // Anchors = entity aggregates with unitIndices (post-coref counts)
+  const scanClusters = gated.kept;
 
   const profiles = await runWithTokenContext(
     {
@@ -564,7 +654,6 @@ async function runCharacterJob(
       extractor.completeFromRawList(llm, rawList, {
         units,
         scanClusters,
-        // No fixed top-12: focus count follows appearance importance thresholds
         onPhase: (p, msg) => {
           if (p === "detail") {
             job.phase = "detail";
@@ -589,12 +678,14 @@ async function runCharacterJob(
       userId: job.userId,
       novelId: job.novelId,
       category: "extract",
-      label: "角色提取（分段扫名）",
+      label: "角色提取（扫名→消解→计次）",
       inputSummary: fullText.slice(0, 200),
       outputPreview: profiles.map((c) => c.name).join(", "),
       fullOutput: JSON.stringify({
         jobId,
-        kept: pipe.kept.length,
+        surfaces: catalog.stats.length,
+        entities: entities.length,
+        kept: rawList.length,
         failedUnits: job.failedUnitIds,
         names: profiles.map((c) => c.name),
       }),
@@ -603,13 +694,15 @@ async function runCharacterJob(
     /* ignore */
   }
 
+  clearCharacterExtractWorkspace(job.userId, job.novelId, job.branchId);
+
   job.characterCount = profiles.length;
   job.phase = "done";
   job.status = "done";
   job.message =
     `完成 ${profiles.length} 角色` +
     (job.failedUnitIds.length ? ` · ${job.failedUnitIds.length} 段扫名失败已跳过` : "") +
-    (pipe.thresholdRaised ? " · 频次门槛已抬升" : "");
+    (gated.thresholdRaised ? " · 频次门槛已抬升" : "");
   touch(job);
   console.log(`[char-job] ${jobId} done chars=${profiles.length}`);
 }

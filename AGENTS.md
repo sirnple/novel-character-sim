@@ -45,7 +45,19 @@ Single-page app with step flow: Upload → Characters → Scene → Simulation. 
 
 ### LLM configuration
 
-Provider selected via `LLM_PROVIDER` in `.env.local`. DeepSeek uses `OpenAIProvider` with `baseURL: https://api.deepseek.com/v1`. OpenCode Go (`LLM_PROVIDER=opencode-go`) uses `OpencodeGoProvider` against `https://opencode.ai/zen/go/v1` (OpenAI-compatible for most models; MiniMax/Qwen via Anthropic Messages). Role models stay on `DEEPSEEK_ANALYSIS_MODEL` / `DEEPSEEK_WRITE_MODEL`; with opencode-go put the OpenCode key in `DEEPSEEK_API_KEY` (or `OPENCODE_API_KEY`).
+Canonical env (see `.env.example` / `src/lib/config.ts`):
+
+| Var | Meaning |
+|-----|---------|
+| `LLM_PROVIDER` | `claude` \| `openai` \| `deepseek` \| `opencode-go` |
+| `LLM_API_KEY` | API key for the **active** provider |
+| `LLM_ANALYSIS_MODEL` | Analysis / extract model id |
+| `LLM_WRITE_MODEL` | Write / 续写 agent model id |
+| `LLM_BASE_URL` | Optional OpenAI-compatible base (defaults per provider) |
+
+OpenCode Go: `LLM_PROVIDER=opencode-go`, key from https://opencode.ai/auth in `LLM_API_KEY`, base default `https://opencode.ai/zen/go/v1`.  
+DeepSeek direct: `LLM_PROVIDER=deepseek`, same `LLM_API_KEY` / models, base default `https://api.deepseek.com/v1`.  
+Legacy `DEEPSEEK_*` / `OPENCODE_API_KEY` still fall back if `LLM_*` unset.
 
 ### Development rules
 

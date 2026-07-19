@@ -356,8 +356,8 @@ export default function NovelPage() {
 
         {needsAnalysis && (
           <p className="mt-10 text-center text-xs text-fog">
-            资料未齐（故事 · 角色 · 目录）。无目录视为分析未完成。点右下角{" "}
-            <span className="text-primary font-medium">分析</span>{" "}
+            资料未齐（故事 · 角色 · 目录）。无目录视为分析未完成。请用右侧{" "}
+            <span className="text-primary font-medium">分析助手</span>{" "}
             完成后可续写。
           </p>
         )}

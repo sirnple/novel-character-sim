@@ -1,5 +1,5 @@
 import { register } from "./registry";
-import { registerAgent, getAgent } from "./agent-registry";
+import { registerAgent, getAgent, listAgentTypes } from "./agent-registry";
 import { branchTools } from "./agents/branch-tools";
 import { intermediateTools } from "./agents/intermediate-tools";
 import { libraryTools } from "./agents/library-tools";
@@ -15,14 +15,35 @@ import {
   reviewStyleAgent, reviewWorldAgent, reviewPacingAgent,
 } from "./agents/review";
 import { outlineReviewAgent } from "./agents/outline-review";
+import { characterExtractTools } from "./agents/character-extract-tools";
+import { ANALYSIS_AGENT_REGISTRATIONS } from "./agents/analysis-agents";
+import { allAnalysisTools } from "./agents/analysis-tools";
+import { resolveAnalysisAgentType } from "./analysis-allowlist";
 
 const AGENT_TYPES = [
+  // write — verb-object
   "generate_outline", "write_prose", "review_outline",
   "review_character", "review_continuity", "review_foreshadowing",
   "review_style", "review_world", "review_pacing",
+  // analysis master + domain — verb-object
+  "novel_analysis",
+  "analyze_form",
+  "analyze_story_world",
+  "analyze_character_list",
+  "extract_character_detail",
+  "extract_character_relationships",
+  "analyze_timeline",
+  "extract_style",
+  "extract_ideas",
 ] as const;
 
+let registryInitialized = false;
+
+/** Idempotent: safe to call from chat route and character extract job. */
 export function initRegistry(): void {
+  if (registryInitialized) return;
+  registryInitialized = true;
+
   registerAgent("generate_outline", outlineAgent);
   registerAgent("write_prose", writerAgent);
   registerAgent("review_outline", outlineReviewAgent);
@@ -33,17 +54,27 @@ export function initRegistry(): void {
   registerAgent("review_world", reviewWorldAgent);
   registerAgent("review_pacing", reviewPacingAgent);
 
+  for (const { id, def } of ANALYSIS_AGENT_REGISTRATIONS) {
+    registerAgent(id, def);
+  }
+
   register({
     name: "agent",
     description:
-      "调用子 Agent。可选: generate_outline（含自动大纲审核）、review_outline、write_prose、review_*。只传任务说明，勿塞正文。",
+      "调用子 Agent（动宾命名）。写作: generate_outline/write_prose/review_*；" +
+      "分析: analyze_form / analyze_story_world / analyze_character_list / extract_character_detail / " +
+      "extract_character_relationships / analyze_timeline / extract_style / extract_ideas。" +
+      "只传任务说明，勿塞正文。",
     parameters: {
       type: "object",
       properties: {
         agent_type: {
           type: "string",
           enum: [...AGENT_TYPES],
-          description: "Agent 类型: " + AGENT_TYPES.join(", "),
+          description:
+            "子 Agent 类型（动宾）：generate_outline、write_prose、review_*、" +
+            "analyze_form、analyze_story_world、analyze_character_list、extract_character_detail、" +
+            "extract_character_relationships、analyze_timeline、extract_style、extract_ideas",
         },
         prompt: {
           type: "string",
@@ -53,8 +84,18 @@ export function initRegistry(): void {
       required: ["agent_type", "prompt"],
     },
     execute: async (args, ctx, llm, onChunk) => {
-      const agentDef = getAgent(args.agent_type as string);
-      if (!agentDef) throw new Error(`Unknown agent: ${args.agent_type}`);
+      const raw = String(args.agent_type || "");
+      // Analysis aliases (analyze_story → analyze_story_world); write ids pass through
+      const resolved =
+        resolveAnalysisAgentType(raw) || raw;
+      const agentDef = getAgent(resolved) || getAgent(raw);
+      if (!agentDef) {
+        throw new Error(
+          `Unknown agent: ${raw}` +
+            (resolved !== raw ? ` (resolved: ${resolved})` : "") +
+            `。可用: ${listAgentTypes().join(", ")}`,
+        );
+      }
       // Nested agent tool path has no trail sink; chat route calls agents directly with onTrail
       return agentDef.execute({ prompt: args.prompt as string, ...ctx }, llm, onChunk);
     },
@@ -154,6 +195,14 @@ export function initRegistry(): void {
   }
 
   for (const tool of foreshadowTools) {
+    register(tool);
+  }
+
+  for (const tool of characterExtractTools) {
+    register(tool);
+  }
+
+  for (const tool of allAnalysisTools()) {
     register(tool);
   }
 }

@@ -7,6 +7,11 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { CharacterProfile, Relationship } from "@/types";
 import {
+  RELATIONSHIP_TYPE_DEFS,
+  relationshipTypeMeta,
+  relationshipTypeZh,
+} from "@/core/extractor/relationship-types";
+import {
   GitBranch,
   ZoomIn,
   ZoomOut,
@@ -22,48 +27,21 @@ import {
   Loader2,
 } from "lucide-react";
 
-/* ── relationship type palette ─────────────────────────────────────────── */
+/* ── relationship type palette (shared with extractor catalog) ─────────── */
 
-const REL_TYPES = [
-  { value: "家人", color: "#f43f5e", label: "家人" },
-  { value: "朋友", color: "#38bdf8", label: "朋友" },
-  { value: "恋人", color: "#f472b6", label: "恋人" },
-  { value: "敌人", color: "#ef4444", label: "敌人", dash: "6 4" },
-  { value: "对手", color: "#fb923c", label: "对手", dash: "4 3" },
-  { value: "同僚", color: "#a78bfa", label: "同僚" },
-  { value: "师徒", color: "#2dd4bf", label: "师徒" },
-  { value: "相识", color: "#94a3b8", label: "相识" },
-  { value: "其他", color: "#a8a29e", label: "其他" },
-] as const;
-
-const REL_META: Record<string, { color: string; label: string; dash?: string }> = {
-  family: { color: "#f43f5e", label: "家人" },
-  家人: { color: "#f43f5e", label: "家人" },
-  friend: { color: "#38bdf8", label: "朋友" },
-  朋友: { color: "#38bdf8", label: "朋友" },
-  lover: { color: "#f472b6", label: "恋人" },
-  恋人: { color: "#f472b6", label: "恋人" },
-  enemy: { color: "#ef4444", label: "敌人", dash: "6 4" },
-  敌人: { color: "#ef4444", label: "敌人", dash: "6 4" },
-  rival: { color: "#fb923c", label: "对手", dash: "4 3" },
-  对手: { color: "#fb923c", label: "对手", dash: "4 3" },
-  colleague: { color: "#a78bfa", label: "同僚" },
-  同僚: { color: "#a78bfa", label: "同僚" },
-  "mentor-student": { color: "#2dd4bf", label: "师徒" },
-  师徒: { color: "#2dd4bf", label: "师徒" },
-  acquaintance: { color: "#94a3b8", label: "相识" },
-  相识: { color: "#94a3b8", label: "相识" },
-  other: { color: "#a8a29e", label: "其他" },
-  其他: { color: "#a8a29e", label: "其他" },
-};
+const REL_TYPES = RELATIONSHIP_TYPE_DEFS.map((d) => ({
+  value: d.zh,
+  color: d.color,
+  label: d.zh,
+  dash: d.dash,
+}));
 
 function relMeta(type: string) {
-  return REL_META[type] || { color: "#a8a29e", label: type || "关系" };
+  return relationshipTypeMeta(type);
 }
 
 function normalizeType(type: string): string {
-  const m = relMeta(type);
-  return m.label || type || "其他";
+  return relationshipTypeZh(type);
 }
 
 /* ── layout helpers ────────────────────────────────────────────────────── */
@@ -86,6 +64,11 @@ interface SimEdge {
   label: string;
   color: string;
   dash?: string;
+  /** uni / bi / asymmetric — controls arrow heads */
+  symmetry: "unidirectional" | "bidirectional" | "asymmetric";
+  reverseType?: string;
+  valence?: string;
+  visibility?: string;
   description: string;
   history: string;
   dynamics: string;
@@ -122,6 +105,7 @@ function buildGraph(characters: CharacterProfile[]): {
   const degree = new Map<string, number>();
   characters.forEach((c) => degree.set(charKey(c), 0));
 
+  // Directed edges: one entry per owner→other (do not collapse undirected)
   const edgeMap = new Map<string, SimEdge>();
   for (const c of characters) {
     const rels = c.relationships || [];
@@ -130,16 +114,27 @@ function buildGraph(characters: CharacterProfile[]): {
       if (!other || charKey(other) === charKey(c)) return;
       const a = charKey(c);
       const b = charKey(other);
-      const pair = [a, b].sort().join("\0");
-      if (edgeMap.has(pair)) return;
+      const dir = `${a}\0>\0${b}`;
+      if (edgeMap.has(dir)) return;
       const meta = relMeta(rel.type);
-      edgeMap.set(pair, {
+      const symmetry =
+        rel.symmetry === "bidirectional" ||
+        rel.symmetry === "asymmetric" ||
+        rel.symmetry === "unidirectional"
+          ? rel.symmetry
+          : // legacy mirrored data without symmetry → treat as bidirectional
+            "bidirectional";
+      edgeMap.set(dir, {
         source: a,
         target: b,
         type: rel.type,
         label: meta.label,
         color: meta.color,
         dash: meta.dash,
+        symmetry,
+        reverseType: rel.reverseType,
+        valence: rel.valence,
+        visibility: rel.visibility,
         description: rel.description || "",
         history: rel.history || "",
         dynamics: rel.dynamics || "",
@@ -668,7 +663,7 @@ export default function RelationshipGraph({
 
   if (charactersProp.length === 0 && localChars.length === 0) return null;
 
-  const edgeKey = (e: SimEdge) => `${e.source}-${e.target}`;
+  const edgeKey = (e: SimEdge) => `${e.source}→${e.target}`;
 
   const toolbar = (
     <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -881,6 +876,19 @@ export default function RelationshipGraph({
         className="block w-full h-full touch-none cursor-grab active:cursor-grabbing"
         style={{ minHeight: fullscreen ? undefined : Math.max(height, 360) }}
       >
+        <defs>
+          <marker
+            id="rel-arrow"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#c4b5a5" />
+          </marker>
+        </defs>
         <g
           transform={`translate(${pan.x + size.w / 2},${pan.y + size.h / 2}) scale(${zoom}) translate(${-size.w / 2},${-size.h / 2})`}
         >
@@ -907,6 +915,16 @@ export default function RelationshipGraph({
             const stroke = dim ? "#6b6560" : e.color;
             const labelColor = dim ? "#8a847c" : e.color;
 
+            // Arrow for directed edges; bidirectional keeps simple line or double-end
+            const needArrow =
+              e.symmetry === "unidirectional" || e.symmetry === "asymmetric";
+            const labelText =
+              e.symmetry === "unidirectional"
+                ? `${e.label}→`
+                : e.symmetry === "asymmetric"
+                  ? `${e.label}⇄`
+                  : e.label;
+
             return (
               <g
                 key={k}
@@ -928,6 +946,7 @@ export default function RelationshipGraph({
                   }
                   strokeDasharray={e.dash}
                   strokeOpacity={dim ? 0.55 : 0.9}
+                  markerEnd={needArrow ? "url(#rel-arrow)" : undefined}
                 />
                 <path
                   d={`M ${a.x} ${a.y} Q ${cpx} ${cpy} ${b.x} ${b.y}`}
@@ -937,9 +956,9 @@ export default function RelationshipGraph({
                 />
                 <g transform={`translate(${cpx}, ${cpy})`}>
                   <rect
-                    x={-18}
+                    x={-22}
                     y={-9}
-                    width={36}
+                    width={44}
                     height={16}
                     rx={8}
                     fill="hsl(24 12% 11%)"
@@ -955,7 +974,7 @@ export default function RelationshipGraph({
                     fontWeight={600}
                     style={{ pointerEvents: "none" }}
                   >
-                    {e.label.length > 3 ? e.label.slice(0, 3) : e.label}
+                    {labelText.length > 4 ? labelText.slice(0, 4) : labelText}
                   </text>
                 </g>
               </g>

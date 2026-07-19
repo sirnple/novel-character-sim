@@ -11,14 +11,13 @@ export const PROVIDER_MODELS: Record<LLMProviderType, string> = {
   "opencode-go": "deepseek-v4-flash",
 };
 
-/** DeepSeek role defaults (overridden by env). */
-export const DEEPSEEK_ROLE_MODELS = {
+/** Default role model ids (overridden by LLM_ANALYSIS_MODEL / LLM_WRITE_MODEL). */
+export const DEFAULT_ROLE_MODELS = {
   analysis: "deepseek-v4-flash",
   write: "deepseek-v4-pro",
 } as const;
 
-/** OpenCode Go role defaults (overridden by env). Same IDs as Go catalog. */
-export const OPENCODE_GO_ROLE_MODELS = {
-  analysis: "deepseek-v4-flash",
-  write: "deepseek-v4-pro",
-} as const;
+/** @deprecated use DEFAULT_ROLE_MODELS */
+export const DEEPSEEK_ROLE_MODELS = DEFAULT_ROLE_MODELS;
+/** @deprecated use DEFAULT_ROLE_MODELS */
+export const OPENCODE_GO_ROLE_MODELS = DEFAULT_ROLE_MODELS;

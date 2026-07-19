@@ -207,10 +207,19 @@ export function formatFrequencyRosterForPrompt(
 ): string {
   const list = limit && limit > 0 ? names.slice(0, limit) : names;
   if (!list.length) return "（无达到频次阈值的人名）";
-  return list
-    .map((n, i) => {
-      const al = n.aliases.length ? `，别名线索：${n.aliases.slice(0, 4).join("、")}` : "";
-      return `${i + 1}. ${n.name}（出现约${n.mentions}次，跨${n.unitHits}段${al}）`;
-    })
-    .join("\n");
+  const header =
+    "【合并提示】同一人只保留一条。name=真实姓名；封号/外号/法号/绰号放 aliases；" +
+    "例：name=孙悟空、aliases 含齐天大圣/美猴王/悟空；name=猪八戒、aliases 可含天蓬元帅。" +
+    "别名线索只归属对应角色，禁止把别名写成另一个角色。\n";
+  return (
+    header +
+    list
+      .map((n, i) => {
+        const al = n.aliases.length
+          ? `，别名线索：${n.aliases.slice(0, 4).join("、")}`
+          : "";
+        return `${i + 1}. ${n.name}（出现约${n.mentions}次，跨${n.unitHits}段${al}）`;
+      })
+      .join("\n")
+  );
 }

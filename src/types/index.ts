@@ -48,13 +48,56 @@ export interface BackgroundDetail {
   description: string;          // 整体背景描述
 }
 
+/**
+ * Dyad symmetry (social / narrative):
+ * - unidirectional: only owner→other is evidenced (e.g. secret crush, one-sided hatred)
+ * - bidirectional: mutual same-kind bond (friendship, sworn brothers, marriage-as-pair)
+ * - asymmetric: both directions matter but types/feelings differ (A controls B; B resents A)
+ */
+export type RelationshipSymmetry =
+  | "unidirectional"
+  | "bidirectional"
+  | "asymmetric";
+
+export type RelationshipValence =
+  | "positive"
+  | "negative"
+  | "ambivalent"
+  | "instrumental"
+  | "neutral";
+
+export type RelationshipVisibility =
+  | "public"
+  | "private"
+  | "hidden"
+  | "mixed";
+
+/**
+ * Directed edge FROM the owning CharacterProfile TO characterName.
+ * Never store a mirrored copy with the same type unless the reverse is actually evidenced.
+ */
 export interface Relationship {
   characterId: string;
   characterName: string;
-  type: string;                 // friend/enemy/family/lover/rival/mentor-student/colleague/other
-  description: string;          // 从本角色视角看的关系描述
-  history: string;              // 认识过程/关键事件
-  dynamics: string;             // 权力动态（谁主导、谁被动、平等）
+  /** Type of this directed link (owner → other). See relationship-types.ts */
+  type: string;
+  /**
+   * How the dyad orients. Default for legacy data: bidirectional
+   * (old pipeline mirrored edges both ways).
+   */
+  symmetry?: RelationshipSymmetry;
+  /** When asymmetric (or explicit reverse), type of other → owner */
+  reverseType?: string;
+  /** Owner's affective stance toward the other */
+  valence?: RelationshipValence;
+  /** Whether the bond is open knowledge in the story world */
+  visibility?: RelationshipVisibility;
+  /** From owner POV: what this person is to me now */
+  description: string;
+  /** Shared or owner-biased history of the bond */
+  history: string;
+  /** Power / leverage / dependency from owner POV */
+  dynamics: string;
 }
 
 export interface CharacterProfile {
@@ -619,13 +662,14 @@ export interface AppConfig {
     };
     /**
      * OpenCode Go gateway — https://opencode.ai/docs/zh-cn/go/
-     * Models reuse deepseek.analysisModel / deepseek.writeModel (same env keys).
+     * Keys/models: LLM_API_KEY / LLM_ANALYSIS_MODEL / LLM_WRITE_MODEL (see config.ts).
      */
     opencodeGo: {
-      /** Defaults to DEEPSEEK_API_KEY when unset */
       apiKey: string;
       /** OpenAI-compatible base (`…/zen/go/v1`) */
       baseURL: string;
+      analysisModel: string;
+      writeModel: string;
     };
     maxTokens: number;
     temperature: number;

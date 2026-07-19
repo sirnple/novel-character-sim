@@ -3,6 +3,7 @@ import type { ChapterSummary, ForeshadowingEntry } from "@/core/codex/types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { isChinese } from "@/lib/utils";
 import { renderPrompt } from "@/core/prompts/renderer";
+import { formatRelationshipsForPrompt } from "@/core/character/format-relationships-for-prompt";
 
 // ============================================================
 // Outline Agent — 小说大纲生成器
@@ -139,17 +140,23 @@ export async function generateOutline(input: {
       const secret = c.drive?.secret || "";
       const speaking = c.speakingStyle?.description || "";
       const worldview = c.worldview || "";
-      const rels = (Array.isArray(c.relationships) ? c.relationships : [])
-        .filter((r) => r.characterName && characters.some((sc) => sc.name === r.characterName))
-        .map((r) => `${r.characterName}（${r.type || "关联"}，${r.dynamics || "不明"}）`)
-        .join("；");
+      const presentNames = characters.map((sc) => sc.name);
+      const relBlock = formatRelationshipsForPrompt(c, {
+        zh: true,
+        presentNames,
+        maxEdges: 5,
+        priority: "drama",
+        voice: "third_person",
+        withConstraints: true,
+        ownerName: c.name,
+      });
       return `【${c.name}】
   性格：${traits}。${c.personality.description}
   目标：${goal}。动机：${motivation}。
   恐惧：${fear}。弱点：${weakness}。
   ${bottomLine ? `底线：${bottomLine}。` : ""}${secret ? `秘密：${secret}。` : ""}
   说话风格：${speaking}。${worldview ? `世界观：${worldview}。` : ""}
-  ${rels ? `关系：${rels}` : ""}`;
+${relBlock ? `${relBlock}\n` : "  （与在场角色无已抽取的有向关系）\n"}`;
     })
     .join("\n\n");
 

@@ -377,10 +377,35 @@ ${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.descri
                   <div>
                     <h4 className="font-medium text-foreground/80">Relationships</h4>
                     <ul className="space-y-2 mt-1">
-                      {char.relationships.map((r, i) => (
+                      {char.relationships.map((r, i) => {
+                        const sym =
+                          r.symmetry === "bidirectional"
+                            ? "双向"
+                            : r.symmetry === "asymmetric"
+                              ? "不对称"
+                              : r.symmetry === "unidirectional"
+                                ? "单向→"
+                                : "";
+                        return (
                         <li key={i} className="text-muted-foreground">
+                          <span className="font-medium">{char.name}</span>
+                          <span className="text-fog mx-0.5">→</span>
                           <span className="font-medium">{r.characterName}</span>{" "}
                           <span className="text-xs bg-secondary px-1.5 py-0.5 rounded">{r.type}</span>
+                          {sym && (
+                            <span className="text-[10px] ml-1 text-amber-500/90">{sym}</span>
+                          )}
+                          {r.valence && (
+                            <span className="text-[10px] ml-1 text-fog">{r.valence}</span>
+                          )}
+                          {r.visibility && (
+                            <span className="text-[10px] ml-1 text-fog/70">{r.visibility}</span>
+                          )}
+                          {r.reverseType && r.symmetry === "asymmetric" && (
+                            <span className="text-[10px] ml-1 text-fog">
+                              回：{r.reverseType}
+                            </span>
+                          )}
                           <p className="text-xs mt-0.5">{r.description}</p>
                           {(r.history || r.dynamics) && (
                             <p className="text-xs text-muted-foreground/60 mt-0.5">
@@ -388,7 +413,8 @@ ${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.descri
                             </p>
                           )}
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                   </div>
                 )}

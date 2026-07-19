@@ -1,6 +1,7 @@
 import type { CharacterProfile, SceneDefinition, SimulationRound, SceneOutline } from "@/types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { isChinese } from "@/lib/utils";
+import { formatRelationshipsForPrompt } from "@/core/character/format-relationships-for-prompt";
 
 // ============================================================
 // Outline Writer — 编剧生成场景剧本大纲
@@ -73,15 +74,21 @@ export async function runOutlineWriter(
       const weakness = c.drive?.weakness || "";
       const speaking = c.speakingStyle?.description || "";
       const worldview = c.worldview || "";
-      const rels = (Array.isArray(c.relationships) ? c.relationships : [])
-        .filter((r) => characters.some((sc) => sc.name === r.characterName))
-        .map((r) => `${r.characterName}（${r.type}，${r.dynamics}）`)
-        .join("；");
+      const presentNames = characters.map((sc) => sc.name);
+      const relBlock = formatRelationshipsForPrompt(c, {
+        zh,
+        presentNames,
+        maxEdges: 5,
+        priority: "drama",
+        voice: "third_person",
+        withConstraints: true,
+        ownerName: c.name,
+      });
       return `【${c.name}】
   性格：${traits}。${c.personality.description}
   ${goal ? `目标：${goal}。` : ""}${weakness ? `弱点：${weakness}。` : ""}
   说话风格：${speaking}。${worldview ? `世界观：${worldview}。` : ""}
-  ${rels ? `与在场角色的关系：${rels}` : ""}`;
+${relBlock ? `${relBlock}\n` : (zh ? "  （与在场角色无已抽取的有向关系）\n" : "  (no directed relationships among cast)\n")}`;
     })
     .join("\n\n");
 

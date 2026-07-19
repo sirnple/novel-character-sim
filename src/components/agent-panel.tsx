@@ -3,12 +3,45 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Bot, Send, Loader2, Wrench, HelpCircle, Zap } from "lucide-react";
 import Markdown from "@/components/markdown";
 import { useNovel } from "@/lib/novel-context";
+import { notifyLibrariesRefresh } from "@/lib/library-events";
+import { isUserConfirmSave } from "@/lib/analysis-confirm";
 
-const AGENT_TYPES = new Set([
+const WRITE_AGENT_TYPES = new Set([
   "generate_outline", "write_prose", "review_outline",
   "review_character", "review_continuity", "review_foreshadowing",
   "review_style", "review_world", "review_pacing",
 ]);
+
+/** Analysis sub-agents via agent(agent_type=...) — verb-object ids + legacy aliases */
+const ANALYSIS_AGENT_TYPES = new Set([
+  "novel_analysis",
+  "analyze_form",
+  "analyze_story_world",
+  "analyze_character_list",
+  "extract_character_detail",
+  "extract_character_relationships",
+  "analyze_timeline",
+  "extract_style",
+  "extract_ideas",
+  // legacy aliases
+  "story_world",
+  "form_analysis",
+  "resolve_character_roster",
+  "character_roster",
+  "character_entity_resolve",
+  "character_detail",
+  "character_detail_agent",
+  "character_relationships",
+  "timeline_analysis",
+  "style_extract",
+  "style_extract_agent",
+  "idea_extract",
+  "idea_extract_agent",
+]);
+
+function isSubAgentToolName(name: string) {
+  return WRITE_AGENT_TYPES.has(name) || ANALYSIS_AGENT_TYPES.has(name);
+}
 
 /**
  * Reconstruct a valid OpenAI-format conversation from the local UI message
@@ -25,11 +58,16 @@ function buildOutgoingMessages(messages: AgentMessage[], userMsg: AgentMessage):
     if (m.role === "tool" && m.metadata?.toolCallId) {
       // Skip unanswered questions — user message carries the answer
       if (m.metadata.status === "awaiting_user") continue;
-      const fnName = AGENT_TYPES.has(m.metadata.tool || "") ? "agent" : (m.metadata.tool || "unknown");
+      // Sub-agent UI cards use agentType as tool name; rebuild as agent() for the API
+      const metaTool = m.metadata.tool || "unknown";
+      const isSub = isSubAgentToolName(metaTool);
+      const fnName = isSub ? "agent" : metaTool;
       const args =
         m.metadata.tool === "ask_question" && m.metadata.question
           ? JSON.stringify({ question: m.metadata.question, options: m.metadata.options || [] })
-          : "{}";
+          : isSub
+            ? JSON.stringify({ agent_type: metaTool, prompt: "(continued)" })
+            : "{}";
       const tc = { id: m.metadata.toolCallId, type: "function", function: { name: fnName, arguments: args } };
       if (lastAssistantIdx >= 0) {
         out[lastAssistantIdx].tool_calls = [...(out[lastAssistantIdx].tool_calls || []), tc];
@@ -94,6 +132,47 @@ const TOOL_LABELS: Record<string, string> = {
   save_prose: "保存正文",
   save_findings: "保存审查发现",
   clear_findings: "清空审查发现",
+  get_current_novel: "当前小说",
+  get_current_branch: "当前分支",
+  get_analysis_context: "分析上下文",
+  get_analysis_status: "分析状态",
+  run_form_analysis: "程序·章法一键(兼容)",
+  scan_chapter_catalog: "扫描章节目录",
+  build_form_draft: "建章法草稿",
+  enrich_form_draft: "LLM补全章法",
+  submit_form: "提交章法",
+  ensure_name_scan: "扫名建候选",
+  list_surface_candidates: "列出称呼候选",
+  lookup_surface: "查称呼上下文",
+  lookup_offset: "按位置读文",
+  submit_character_entities: "提交角色实体",
+  finish_novel_analysis: "完成分析",
+  list_text_units: "列出章节单元",
+  get_kept_roster: "角色名单摘要",
+  // Sub-agents — 动宾中文名
+  analyze_form: "分析章法",
+  analyze_story_world: "分析故事世界",
+  analyze_character_list: "分析角色列表",
+  extract_character_detail: "抽取角色详情",
+  extract_character_relationships: "抽取角色关系",
+  analyze_timeline: "分析时间线",
+  extract_style: "抽取文风",
+  extract_ideas: "抽取点子",
+  // legacy aliases
+  story_world: "分析故事世界",
+  form_analysis: "分析章法",
+  resolve_character_roster: "分析角色列表",
+  character_roster: "分析角色列表",
+  character_entity_resolve: "分析角色列表",
+  character_detail: "抽取角色详情",
+  character_detail_agent: "抽取角色详情",
+  character_relationships: "抽取角色关系",
+  timeline_analysis: "分析时间线",
+  style_extract: "抽取文风",
+  style_extract_agent: "抽取文风",
+  idea_extract: "抽取点子",
+  idea_extract_agent: "抽取点子",
+  agent: "调用子 Agent",
 };
 
 function toolLabel(name?: string) {
@@ -296,7 +375,11 @@ function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAg
                 <Loader2 className="w-2.5 h-2.5 animate-spin" />等待结果…
               </div>
             ) : result ? (
-              isFindingsTool(name) ? (
+              !(result.content || "").trim() ? (
+                <div className="text-xs text-amber-500/90">
+                  （返回正文为空 — 工具未写入 content，属异常）
+                </div>
+              ) : isFindingsTool(name) ? (
                 <div className="bg-emerald-950/15 rounded p-1.5">
                   <FindingsDisplay text={result.content} />
                 </div>
@@ -377,9 +460,30 @@ interface AgentPanelProps {
   branchId?: string;
   novelId?: string;
   onOutlineGenerated?: (outline: any) => void;
+  /**
+   * write = 续写主编（默认）；analysis = 全书分析主编（概览）
+   */
+  mode?: "write" | "analysis";
+  /** analysis 模式：忽略缓存重跑 */
+  forceRefresh?: boolean;
+  /** analysis 完成回调（finish 或用户结束） */
+  onAnalysisDone?: () => void;
 }
 
-export default function AgentPanel({ novelTitle, characters, novelText, continueFromOffset, continueFromLabel, branchId, novelId, onOutlineGenerated }: AgentPanelProps) {
+export default function AgentPanel({
+  novelTitle,
+  characters,
+  novelText,
+  continueFromOffset,
+  continueFromLabel,
+  branchId,
+  novelId,
+  onOutlineGenerated,
+  mode = "write",
+  forceRefresh = false,
+  onAnalysisDone,
+}: AgentPanelProps) {
+  const isAnalysis = mode === "analysis";
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [status, setStatus] = useState<"idle" | "generating">("idle");
   const [input, setInput] = useState("");
@@ -450,12 +554,14 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: buildOutgoingMessages(history, userMsg),
-          branchId,
+          branchId: branchId || "main",
           novelId,
           selectedStyleId: selectedStyleId ?? null,
           selectedIdeaIds: selectedIdeaIds || [],
           autoPickIdeas: autoPickIdeas !== false,
-          autoPassCheckpoints,
+          autoPassCheckpoints: isAnalysis ? false : autoPassCheckpoints,
+          mode: isAnalysis ? "analysis" : "write",
+          forceRefresh: isAnalysis ? forceRefresh : false,
         }),
         signal: abort.signal,
       });
@@ -726,8 +832,15 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     abortRef.current = null;
     setStatus("idle");
     refreshFsStatus();
+    // Analysis finished (or stopped): refresh overview meta + libraries
+    if (isAnalysis) {
+      try {
+        notifyLibrariesRefresh();
+      } catch { /* ignore */ }
+      onAnalysisDone?.();
+    }
     // Load final save_prose draft for reading pane (not stream junk)
-    if (novelId && branchId) {
+    if (novelId && branchId && !isAnalysis) {
       try {
         const dr = await fetch(
           `/api/agent/draft?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(branchId)}`,
@@ -740,7 +853,18 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         }
       } catch { /* ignore */ }
     }
-  }, [branchId, novelId, setNovel, selectedStyleId, selectedIdeaIds, autoPickIdeas, refreshFsStatus]);
+  }, [
+    branchId,
+    novelId,
+    setNovel,
+    selectedStyleId,
+    selectedIdeaIds,
+    autoPickIdeas,
+    refreshFsStatus,
+    isAnalysis,
+    forceRefresh,
+    onAnalysisDone,
+  ]);
 
   const handleSend = async (overrideText?: string, opts?: { autoPassCheckpoints?: boolean }) => {
     const text = (overrideText ?? input).trim();
@@ -768,11 +892,29 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
 
   /** 一键续写：全流程自动推进，审核卡点全部自动通过 */
   const handleOneClickContinue = async () => {
-    if (status === "generating" || !branchId || !novelId) return;
+    if (status === "generating" || !branchId || !novelId || isAnalysis) return;
     const text =
       "请对本分支进行【一键续写】：按标准流程完成 大纲→大纲审核→写正文→六维审查→接受续写写入分支。" +
       "所有审核卡点自动通过，不要停下来等我确认。完成后简要汇报。";
     await handleSend(text, { autoPassCheckpoints: true });
+  };
+
+  /** 一键全书分析：有已完成域时必须 ask_question，再按选择派工 */
+  const handleOneClickAnalyze = async () => {
+    if (status === "generating" || !novelId) return;
+    const text =
+      `请【续跑/完整分析】。` +
+      `先 get_current_novel + get_current_branch + get_analysis_status。` +
+      `若 status.done 非空（已有部分/全部域结果）：**必须先 ask_question**，options 含` +
+      `「只补缺失域（推荐）」「全部重新分析」「先结束，不改动」等，等我选择后再调度；禁止默默重跑已完成域。` +
+      (forceRefresh
+        ? `（界面勾选了强制刷新：可在选项中体现「全部重新分析」。）`
+        : ``) +
+      `我选只补缺失后：只对 pending 派 agent(agent_type)；角色列表用 analyze_character_list（不要说「指代消解」）。` +
+      `选全部重跑才 force。本轮域做完后必须 ask_question 问是否「确认保存」；` +
+      `用户确认后再 finish_novel_analysis(userConfirmed=true)。禁止自己写长文。`;
+    // onAnalysisDone runs at end of runChat when isAnalysis
+    await handleSend(text);
   };
 
   /** Answer an ask_question card: mark answered + send as user message */
@@ -799,6 +941,54 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
       timestamp: new Date().toISOString(),
     };
     setMessages([...history, userMsg]);
+
+    // Analysis: user confirmed save → commit workspace in code (don't rely on LLM finish)
+    if (isAnalysis && novelId && isUserConfirmSave(ans)) {
+      try {
+        const res = await fetch("/api/analysis/commit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            novelId,
+            branchId: branchId || "main",
+            userConfirmed: true,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        const nChars = typeof data.characters === "number" ? data.characters : 0;
+        const committed = Array.isArray(data.committed) ? data.committed : [];
+        const skipped = Array.isArray(data.skipped) ? data.skipped : [];
+        const ok = res.ok && (data.ok === true || committed.length > 0);
+        const charLine = committed.find((c: string) => String(c).startsWith("characters"));
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(36).slice(2),
+            role: "agent",
+            content: ok
+              ? `**已保存到本书**\n- 角色：${nChars} 人${charLine ? `（${charLine}）` : nChars === 0 ? " ⚠️ 工作区无角色草稿，请重跑角色列表/详情后再保存" : ""}\n- committed: ${committed.join(", ") || "无"}\n- skipped: ${skipped.join(", ") || "无"}`
+              : `**保存未完成**（角色 ${nChars}）\n${data.content || data.error || res.statusText}\nskipped: ${skipped.join(", ")}`,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        try {
+          notifyLibrariesRefresh();
+        } catch { /* ignore */ }
+        onAnalysisDone?.();
+      } catch (e) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(36).slice(2),
+            role: "agent",
+            content: `**保存失败**：${(e as Error).message}`,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      }
+      // Still continue chat so master can acknowledge; commit already done
+    }
+
     await runChat(history, userMsg);
   };
 
@@ -821,7 +1011,30 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
     ask_question: "向你提问",
     run_reviews: "六维审查（并行）",
     accept_continuation: "接受续写",
+    ...TOOL_LABELS,
+    analyze_form: "分析章法",
+    analyze_story_world: "分析故事世界",
+    analyze_character_list: "分析角色列表",
+    resolve_character_roster: "分析角色列表",
+    extract_character_detail: "抽取角色详情",
+    extract_character_relationships: "抽取角色关系",
+    analyze_timeline: "分析时间线",
+    extract_style: "抽取文风",
+    extract_ideas: "抽取点子",
   };
+
+  // External trigger: overview FAB → 一键分析
+  useEffect(() => {
+    if (!isAnalysis) return;
+    const onExt = (e: Event) => {
+      const d = (e as CustomEvent).detail || {};
+      if (d.novelId && novelId && d.novelId !== novelId) return;
+      void handleOneClickAnalyze();
+    };
+    window.addEventListener("ncs:start-analysis", onExt as EventListener);
+    return () => window.removeEventListener("ncs:start-analysis", onExt as EventListener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable listener; handleOneClickAnalyze closes over latest
+  }, [isAnalysis, novelId]);
 
   return (
     <div className="flex flex-col h-full bg-card">
@@ -829,13 +1042,26 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 shrink-0 gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <Bot className="w-3.5 h-3.5 text-primary shrink-0" />
-          <h3 className="text-sm font-semibold text-muted-foreground truncate">主编 Agent</h3>
+          <h3 className="text-sm font-semibold text-muted-foreground truncate">
+            {isAnalysis ? "分析 Agent" : "主编 Agent"}
+          </h3>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {status === "generating" ? (
             <span className="text-xs text-primary flex items-center gap-1">
               <Loader2 className="w-2.5 h-2.5 animate-spin" />工作中
             </span>
+          ) : isAnalysis ? (
+            <button
+              type="button"
+              onClick={() => handleOneClickAnalyze()}
+              disabled={!novelId}
+              title="章法→角色→故事/时间线/文风/点子"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Zap className="w-3 h-3" />
+              一键分析
+            </button>
           ) : (
             <button
               type="button"
@@ -856,18 +1082,37 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
         {messages.length === 0 && (
           <div className="text-center py-8 text-fog text-xs">
             <Bot className="w-6 h-6 mx-auto mb-2 opacity-30" />
-            我是你的创作助手。告诉我你想做什么——续写、修改大纲、检查 prose。
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={() => handleOneClickContinue()}
-                disabled={!branchId || !novelId || status === "generating"}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border border-amber-500/40 bg-amber-500/10 text-amber-200/90 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
-              >
-                <Zap className="w-3 h-3" />
-                一键续写（审核自动通过）
-              </button>
-            </div>
+            {isAnalysis ? (
+              <>
+                我是全书分析助手。组织章法、角色、故事、时间线、文风与点子。
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => handleOneClickAnalyze()}
+                    disabled={!novelId || status === "generating"}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 transition-colors"
+                  >
+                    <Zap className="w-3 h-3" />
+                    一键分析
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                我是你的创作助手。告诉我你想做什么——续写、修改大纲、检查 prose。
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => handleOneClickContinue()}
+                    disabled={!branchId || !novelId || status === "generating"}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border border-amber-500/40 bg-amber-500/10 text-amber-200/90 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
+                  >
+                    <Zap className="w-3 h-3" />
+                    一键续写（审核自动通过）
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -954,6 +1199,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
               );
             }
 
+            const isSubAgentCard = isSubAgentToolName(msg.metadata?.tool || "");
             return (
               <div key={msg.id} className={`${isDone && isReview && !hasFindings ? "py-1" : "bg-secondary/20 border border-border/50 rounded-lg p-2"}`}>
                 <div className="flex items-center gap-2">
@@ -961,9 +1207,14 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
                     <span className="text-xs text-green-600">✓ {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}</span>
                   ) : (
                     <>
-                      <Wrench className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">
+                      {isSubAgentCard ? (
+                        <Bot className="w-3 h-3 text-primary" />
+                      ) : (
+                        <Wrench className="w-3 h-3 text-muted-foreground" />
+                      )}
+                      <span className={`text-xs ${isSubAgentCard ? "text-primary/90 font-medium" : "text-muted-foreground"}`}>
                         {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}
+                        {isSubAgentCard ? " · 子 Agent" : ""}
                       </span>
                       <span className={`w-2 h-2 rounded-full ml-auto ${isRunning ? "bg-primary animate-pulse" : "bg-green-500"}`} />
                       <span className="text-xs text-fog">
@@ -1052,7 +1303,7 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
       </div>
 
       {/* Status only — accept via ask_question + master accept_continuation */}
-      {branchId && novelId && (fsStatus?.hasProseDraft || fsStatus?.hasRealization) && (
+      {!isAnalysis && branchId && novelId && (fsStatus?.hasProseDraft || fsStatus?.hasRealization) && (
         <div className="px-3 py-1.5 border-t border-border/60 bg-background/80 shrink-0 flex items-center justify-between gap-2 text-[10px] text-fog">
           <span>
             {fsStatus?.hasProseDraft ? `草稿 ${fsStatus.proseLength} 字` : "无草稿"}
@@ -1078,7 +1329,9 @@ export default function AgentPanel({ novelTitle, characters, novelText, continue
             placeholder={
               messages.some(m => m.metadata?.status === "awaiting_user")
                 ? "也可在上方问题卡片里选择或输入…"
-                : "告诉主编你想做什么..."
+                : isAnalysis
+                  ? "例如：只重跑角色 / 强制重分析…"
+                  : "告诉主编你想做什么..."
             }
             disabled={status === "generating"}
             className="flex-1 bg-secondary border border-border rounded px-3 py-1.5 text-xs text-foreground/90 outline-none focus:border-primary/50 disabled:opacity-50"

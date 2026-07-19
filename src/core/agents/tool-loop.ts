@@ -1,5 +1,5 @@
 import { getTool } from "./registry";
-import type { LLMProvider, LLMMessage, AssistantMessage, ToolSchema } from "@/types";
+import type { LLMProvider, LLMMessage, AssistantMessage, ToolMessage, ToolSchema } from "@/types";
 import type { AskUserRequest, ToolContext, TrailMessage } from "./types";
 import {
   askUserForCriticalMiss,
@@ -53,6 +53,8 @@ function previewToolBody(text: string): string {
 export interface ToolLoopOptions {
   maxTokens?: number;
   temperature?: number;
+  /** Max LLM↔tool rounds (default 15). Coref agents may need more lookups. */
+  maxSteps?: number;
 }
 
 export async function runToolLoop(
@@ -83,102 +85,33 @@ export async function runToolLoop(
     onTrail([...trail, { role: "assistant", content: text }]);
   };
 
-  let maxSteps = 15;
+  let maxSteps = options?.maxSteps ?? 15;
   let finalText = "";
   /** Longest assistant prose before a tool call — outline often lives here, not in final tool-free turn */
   let bestPreToolText = "";
   while (maxSteps-- > 0) {
-    let hasToolUse = false;
     let stepText = "";
-    let preToolText = "";
+    // Collect full model turn first: one assistant.tool_calls + role:tool results.
+    // OpenCode Go / DeepSeek V4 returns 400 on Anthropic sequential tool_use/tool_result pairs.
+    const pendingTools: Array<{ toolId: string; toolName: string; args: Record<string, any> }> = [];
     const eventStream = llm.chatWithTools(conversation, tools, { temperature, maxTokens });
 
     for await (const event of eventStream) {
       if (event.type === "text_delta") {
         stepText += event.text;
-        if (!hasToolUse) preToolText = stepText;
         // Stream current step only (not cumulative across tool rounds)
         if (onChunk) onChunk(stepText);
         emitProvisional(stepText);
       } else if (event.type === "tool_use") {
-        hasToolUse = true;
-        const toolName = event.name;
-        const toolId = event.id;
-        const args = event.args as Record<string, any>;
-
-        if (preToolText) {
-          if (preToolText.length > bestPreToolText.length) {
-            bestPreToolText = preToolText;
-          }
-          conversation.push({ role: "assistant", content: preToolText } as AssistantMessage);
-          pushTrail({ role: "assistant", content: preToolText });
-          preToolText = "";
-        }
-
-        conversation.push({
-          role: "assistant",
-          content: [{ type: "tool_use", id: toolId, name: toolName, input: args }],
-        } as AssistantMessage);
-        pushTrail({
-          role: "tool_call",
-          toolName,
-          content: formatToolArgs(args) || "(无参数)",
+        pendingTools.push({
+          toolId: event.id,
+          toolName: event.name,
+          args: (event.args || {}) as Record<string, any>,
         });
-
-        const toolDef = getTool(toolName);
-        let resultContent = "工具未注册或返回空";
-        if (toolDef) {
-          try {
-            // Always inject route-level ids so tools never write under undefined::*
-            const r = await toolDef.execute(
-              {
-                ...args,
-                novelId: ctx.novelId || args.novelId,
-                branchId: ctx.branchId || args.branchId || "main",
-              },
-              {
-                ...ctx,
-                novelId: ctx.novelId || (args.novelId as string) || "",
-                branchId: ctx.branchId || (args.branchId as string) || "main",
-                userId: ctx.userId,
-              },
-              llm,
-            );
-            resultContent = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
-            // 正文/前文类工具需要足够长的窗口，避免审查/改写只看到截断片段
-            const limit =
-              toolName === "get_prose" ? 80000
-              : toolName === "get_branch_text" ? 50000
-              : toolName === "get_outline" ? 30000
-              : 10000;
-            resultContent = resultContent.slice(0, limit);
-          } catch (e) {
-            resultContent = "工具执行失败: " + (e as Error).message;
-          }
-        }
-        conversation.push({
-          role: "user",
-          content: [{ type: "tool_result", tool_use_id: toolId, content: resultContent }],
-        });
-        pushTrail({
-          role: "tool_result",
-          toolName,
-          content: previewToolBody(resultContent),
-        });
-
-        // Critical get miss → stop sub-agent and ask user directly (not via master)
-        if (isCriticalGetTool(toolName) && isCriticalMissContent(resultContent)) {
-          const askUser = askUserForCriticalMiss(toolName, resultContent);
-          return {
-            finalText: resultContent,
-            trail,
-            askUser,
-          };
-        }
       }
     }
 
-    if (!hasToolUse) {
+    if (pendingTools.length === 0) {
       // Deliverable = this final answer turn only
       finalText = stepText;
       if (stepText) {
@@ -186,6 +119,95 @@ export async function runToolLoop(
         pushTrail({ role: "assistant", content: stepText });
       }
       break;
+    }
+
+    const preToolText = stepText.trim();
+    if (preToolText.length > bestPreToolText.length) {
+      bestPreToolText = preToolText;
+    }
+    if (preToolText) {
+      pushTrail({ role: "assistant", content: preToolText });
+    }
+
+    conversation.push({
+      role: "assistant",
+      content: preToolText || null,
+      tool_calls: pendingTools.map(({ toolId, toolName, args }) => ({
+        id: toolId,
+        type: "function" as const,
+        function: { name: toolName, arguments: JSON.stringify(args || {}) },
+      })),
+    } as AssistantMessage);
+
+    let askUserFromCritical: ReturnType<typeof askUserForCriticalMiss> | null = null;
+    let criticalMissText = "";
+
+    for (const { toolId, toolName, args } of pendingTools) {
+      pushTrail({
+        role: "tool_call",
+        toolName,
+        content: formatToolArgs(args) || "(无参数)",
+      });
+
+      const toolDef = getTool(toolName);
+      let resultContent = "工具未注册或返回空";
+      if (toolDef) {
+        try {
+          // Always inject route-level ids so tools never write under undefined::*
+          const r = await toolDef.execute(
+            {
+              ...args,
+              novelId: ctx.novelId || args.novelId,
+              branchId: ctx.branchId || args.branchId || "main",
+            },
+            {
+              ...ctx,
+              novelId: ctx.novelId || (args.novelId as string) || "",
+              branchId: ctx.branchId || (args.branchId as string) || "main",
+              userId: ctx.userId,
+            },
+            llm,
+          );
+          resultContent = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
+          // 正文/前文类工具需要足够长的窗口，避免审查/改写只看到截断片段
+          const limit =
+            toolName === "get_prose" ? 80000
+            : toolName === "get_branch_text" ? 50000
+            : toolName === "get_outline" ? 30000
+            : toolName === "list_surface_candidates" ? 40000
+            : toolName === "lookup_surface" || toolName === "lookup_offset" ? 20000
+            : toolName === "submit_character_entities" ? 8000
+            : 10000;
+          resultContent = resultContent.slice(0, limit);
+        } catch (e) {
+          resultContent = "工具执行失败: " + (e as Error).message;
+        }
+      }
+
+      conversation.push({
+        role: "tool",
+        content: resultContent,
+        tool_call_id: toolId,
+      } as ToolMessage);
+      pushTrail({
+        role: "tool_result",
+        toolName,
+        content: previewToolBody(resultContent),
+      });
+
+      // Critical get miss → stop after finishing this batch's tool results
+      if (!askUserFromCritical && isCriticalGetTool(toolName) && isCriticalMissContent(resultContent)) {
+        askUserFromCritical = askUserForCriticalMiss(toolName, resultContent);
+        criticalMissText = resultContent;
+      }
+    }
+
+    if (askUserFromCritical) {
+      return {
+        finalText: criticalMissText,
+        trail,
+        askUser: askUserFromCritical,
+      };
     }
   }
 

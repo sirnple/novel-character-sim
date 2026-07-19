@@ -6,6 +6,7 @@ import type { WritersCodex, ChapterSummary, CharacterStateSnapshot, Foreshadowin
 import type { CharacterProfile, SceneDefinition, StoryInfo, ChapterTimeline, WritingStyle, CharacterChapterState } from "@/types";
 import { extractCharacterQuotes } from "./voice-extractor";
 import { computeStyleFingerprint } from "./style-profiler";
+import { buildRelationshipStateMap as buildRelationshipStateMapFmt } from "@/core/character/format-relationships-for-prompt";
 
 export interface BuildCodexInput {
   characters: CharacterProfile[];
@@ -121,11 +122,7 @@ export function buildCodex(input: BuildCodexInput): WritersCodex {
 }
 
 function buildRelationshipStateMap(profile: CharacterProfile): Record<string, string> {
-  const map: Record<string, string> = {};
-  for (const rel of profile.relationships || []) {
-    map[rel.characterName] = `${rel.type} — ${rel.dynamics}`;
-  }
-  return map;
+  return buildRelationshipStateMapFmt(profile, true);
 }
 
 function buildSceneOutline(scene: SceneDefinition, characters: CharacterProfile[]): string {

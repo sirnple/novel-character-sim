@@ -1,5 +1,5 @@
 import type { LLMProvider, LLMUsageRole } from "@/types";
-import { getAppConfig } from "@/lib/config";
+import { getAppConfig, llmConfigHint } from "@/lib/config";
 import { ClaudeProvider } from "./claude";
 import { OpenAIProvider } from "./openai";
 import { OpencodeGoProvider } from "./opencode-go";
@@ -8,14 +8,26 @@ const cached = new Map<string, LLMProvider>();
 
 function resolveModel(role: LLMUsageRole = "write"): string {
   const config = getAppConfig();
-  const { provider, claude, openai, deepseek } = config.llm;
+  const { provider, claude, openai, deepseek, opencodeGo } = config.llm;
   if (provider === "claude") return claude.model;
   if (provider === "openai") return openai.model;
-  // deepseek + opencode-go: same DEEPSEEK_* analysis / write model env keys
+  if (provider === "opencode-go") {
+    if (role === "analysis") {
+      return opencodeGo.analysisModel || deepseek.analysisModel || "deepseek-v4-flash";
+    }
+    return opencodeGo.writeModel || deepseek.writeModel || "deepseek-v4-pro";
+  }
+  // deepseek direct
   if (role === "analysis") {
     return deepseek.analysisModel || deepseek.model || "deepseek-v4-flash";
   }
   return deepseek.writeModel || deepseek.model || "deepseek-v4-pro";
+}
+
+function missingKeyError(provider: string): Error {
+  return new Error(
+    `LLM API key not configured for provider=${provider}. Set ${llmConfigHint(provider as any)} in .env.local (prefer LLM_API_KEY).`,
+  );
 }
 
 /**
@@ -25,6 +37,8 @@ export function createLLMProvider(role: LLMUsageRole = "write"): LLMProvider {
   const config = getAppConfig();
   const { provider, claude, openai, deepseek, opencodeGo } = config.llm;
   const model = resolveModel(role);
+  // Include key fingerprint length so rotating keys without restart still needs resetProvider;
+  // cache key is provider+role+model only (key read each time from env via getAppConfig).
   const cacheKey = `${provider}:${role}:${model}`;
 
   const hit = cached.get(cacheKey);
@@ -34,40 +48,29 @@ export function createLLMProvider(role: LLMUsageRole = "write"): LLMProvider {
 
   switch (provider) {
     case "claude":
-      if (!claude.apiKey || claude.apiKey === "your-anthropic-api-key-here") {
-        throw new Error(
-          "ANTHROPIC_API_KEY not configured. Please set it in .env.local",
-        );
+      if (!claude.apiKey || claude.apiKey.includes("your-")) {
+        throw missingKeyError(provider);
       }
       instance = new ClaudeProvider(claude.apiKey, model);
       break;
 
     case "openai":
-      if (!openai.apiKey || openai.apiKey === "your-openai-api-key-here") {
-        throw new Error(
-          "OPENAI_API_KEY not configured. Please set it in .env.local",
-        );
+      if (!openai.apiKey || openai.apiKey.includes("your-")) {
+        throw missingKeyError(provider);
       }
       instance = new OpenAIProvider(openai.apiKey, model);
       break;
 
     case "deepseek":
-      if (!deepseek.apiKey || deepseek.apiKey === "your-deepseek-api-key-here") {
-        throw new Error(
-          "DEEPSEEK_API_KEY not configured. Please set it in .env.local",
-        );
+      if (!deepseek.apiKey || deepseek.apiKey.includes("your-")) {
+        throw missingKeyError(provider);
       }
       instance = new OpenAIProvider(deepseek.apiKey, model, deepseek.baseURL);
       break;
 
     case "opencode-go":
-      if (
-        !opencodeGo.apiKey ||
-        opencodeGo.apiKey === "your-deepseek-api-key-here"
-      ) {
-        throw new Error(
-          "OPENCODE_API_KEY or DEEPSEEK_API_KEY not configured for opencode-go. Get a key from https://opencode.ai/auth",
-        );
+      if (!opencodeGo.apiKey || opencodeGo.apiKey.includes("your-")) {
+        throw missingKeyError(provider);
       }
       instance = new OpencodeGoProvider(
         opencodeGo.apiKey,
@@ -80,7 +83,15 @@ export function createLLMProvider(role: LLMUsageRole = "write"): LLMProvider {
       throw new Error(`Unknown LLM provider: ${provider}`);
   }
 
-  console.log(`[LLM] provider=${provider} role=${role} model=${model}`);
+  const keySrc =
+    provider === "opencode-go"
+      ? `keyLen=${opencodeGo.apiKey.length}`
+      : provider === "deepseek"
+        ? `keyLen=${deepseek.apiKey.length}`
+        : `keyLen=${(provider === "claude" ? claude.apiKey : openai.apiKey).length}`;
+  console.log(
+    `[LLM] provider=${provider} role=${role} model=${model} ${keySrc}`,
+  );
   cached.set(cacheKey, instance);
   return instance;
 }

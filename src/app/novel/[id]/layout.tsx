@@ -3,10 +3,8 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { useNovel } from "@/lib/novel-context";
-import { Play, PanelRight, X } from "lucide-react";
+import { Play, PanelRight, X, Sparkles } from "lucide-react";
 import dynamic from "next/dynamic";
-import AnalyzeFab from "@/components/analyze-fab";
-
 const AgentPanel = dynamic(() => import("@/components/agent-panel"), { ssr: false });
 
 const LG_MQ = "(min-width: 1024px)";
@@ -18,55 +16,49 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
     novelTitle, setNovel, setBranches,
     sessionContinueOffset, sessionContinueLabel,
     activeBranchId, novelId,
-    characters, storyInfo,
   } = useNovel();
   const [showRightPanel, setShowRightPanel] = useState(false);
   const [panelWidth, setPanelWidth] = useState(480);
   const [dragging, setDragging] = useState(false);
   /** Desktop rail vs mobile sheet — single AgentPanel mount either way */
   const [isLg, setIsLg] = useState(false);
-  const [hasCatalog, setHasCatalog] = useState(false);
+  const [analysisForceRefresh, setAnalysisForceRefresh] = useState(false);
 
   const onWritePage = pathname?.endsWith("/write") ?? false;
   const base = `/novel/${id}`;
   const onOverviewPage =
     !!pathname && (pathname === base || pathname === `${base}/`);
-  // Agent only after user picked a writing target (branch / main / free)
-  const agentAvailable = onWritePage && !!activeBranchId;
-  // URL id is source of truth for FAB (survives context races when switching books)
-  const routeNovelId = id || novelId || "";
-  const needsAnalysis =
-    !hasCatalog || characters.length === 0 || !storyInfo?.plotSummary;
-
+  // Write: agent after branch selected. Overview: analysis agent always available.
+  const agentMode: "write" | "analysis" | null = onWritePage
+    ? activeBranchId
+      ? "write"
+      : null
+    : onOverviewPage
+      ? "analysis"
+      : null;
+  const agentAvailable = agentMode !== null;
+  const agentBranchId =
+    agentMode === "write" ? activeBranchId || "main" : "main";
   const reloadNovelMeta = useCallback(() => {
     if (!id) return;
     fetch(`/api/novels?id=${encodeURIComponent(id)}&meta=1`)
       .then((r) => r.json())
       .then((data) => {
-        if (data.title) {
-          setNovel({
-            novelId: id,
-            novelTitle: data.title,
-            novelText: "",
-            novelLength: data.totalLength || 0,
-            characters: data.characters || [],
-            storyInfo: data.storyInfo || null,
-            timeline: data.timeline || null,
-            lastChapterStates: data.lastChapterStates || [],
-          });
-        }
+        // Always apply meta when novel exists (title may be empty; still refresh chars/story)
+        if (data.error) return;
+        setNovel({
+          novelId: id,
+          novelTitle: data.title || id,
+          novelText: "",
+          novelLength: data.totalLength || 0,
+          characters: data.characters || [],
+          storyInfo: data.storyInfo || null,
+          timeline: data.timeline || null,
+          lastChapterStates: data.lastChapterStates || [],
+        });
         if (data.branches) setBranches(data.branches);
       })
       .catch(() => {});
-    fetch(
-      `/api/chapter-meta?novelId=${encodeURIComponent(id)}&branchId=main`,
-    )
-      .then((r) => r.json())
-      .then((d) => {
-        const n = Array.isArray(d.meta?.chapters) ? d.meta.chapters.length : 0;
-        setHasCatalog(n > 0);
-      })
-      .catch(() => setHasCatalog(false));
   }, [id, setNovel, setBranches]);
 
   useEffect(() => {
@@ -99,14 +91,14 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
     reloadNovelMeta();
   }, [reloadNovelMeta]);
 
-  // Desktop: auto-open agent when branch selected. Mobile: do not auto-open (keeps editor + sub-nav usable).
+  // Desktop: auto-open agent when available. Mobile: do not auto-open.
   useEffect(() => {
     if (!agentAvailable) {
       setShowRightPanel(false);
       return;
     }
     if (isLg) setShowRightPanel(true);
-  }, [agentAvailable, isLg]);
+  }, [agentAvailable, isLg, agentMode]);
 
   const nav = [
     { href: base, label: "概览", match: pathname === base },
@@ -136,7 +128,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
             className={`ml-auto p-2 rounded transition-colors shrink-0 ${
               showRightPanel ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground/90"
             }`}
-            title="助手面板"
+            title={agentMode === "analysis" ? "分析助手" : "助手面板"}
             aria-label="切换助手面板"
           >
             <PanelRight className="w-4 h-4" />
@@ -164,11 +156,6 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
                 }`}
               />
             )}
-            {/*
-              Single AgentPanel mount:
-              - lg: permanent side rail
-              - <lg: absolute sheet covering only main (sub-nav stays outside)
-            */}
             <aside
               style={isLg ? { width: panelWidth } : undefined}
               className={
@@ -178,25 +165,60 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
               }
             >
               <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 border-b border-border/60 shrink-0">
-                <span className="text-sm font-semibold text-muted-foreground">助手</span>
-                <button
-                  type="button"
-                  onClick={() => setShowRightPanel(false)}
-                  className="p-2 rounded text-muted-foreground hover:text-foreground/90"
-                  aria-label="关闭助手"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <span className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
+                  {agentMode === "analysis" ? (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5 text-primary" />
+                      分析助手
+                    </>
+                  ) : (
+                    "助手"
+                  )}
+                </span>
+                <div className="flex items-center gap-2">
+                  {agentMode === "analysis" && (
+                    <label className="flex items-center gap-1 text-[10px] text-fog cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={analysisForceRefresh}
+                        onChange={(e) => setAnalysisForceRefresh(e.target.checked)}
+                        className="accent-primary scale-90"
+                      />
+                      忽略缓存
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowRightPanel(false)}
+                    className="p-2 rounded text-muted-foreground hover:text-foreground/90"
+                    aria-label="关闭助手"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
                 <AgentPanel
+                  key={`${agentMode}-${id}`}
                   novelTitle={novelTitle}
                   characters={[]}
                   novelText=""
                   continueFromOffset={sessionContinueOffset}
                   continueFromLabel={sessionContinueLabel}
-                  branchId={activeBranchId}
+                  branchId={agentBranchId}
                   novelId={novelId || id}
+                  mode={agentMode === "analysis" ? "analysis" : "write"}
+                  forceRefresh={analysisForceRefresh}
+                  onAnalysisDone={() => {
+                    reloadNovelMeta();
+                    // Overview cards + sidebar libraries listen for this
+                    window.dispatchEvent(new Event("libraries:refresh"));
+                    window.setTimeout(() => {
+                      reloadNovelMeta();
+                      window.dispatchEvent(new Event("libraries:refresh"));
+                    }, 2_000);
+                    window.setTimeout(() => reloadNovelMeta(), 8_000);
+                  }}
                 />
               </div>
             </aside>
@@ -204,21 +226,6 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
         )}
       </div>
 
-      {/* Analyze FAB only on 概览 — not write or other sub-routes */}
-      {onOverviewPage && (
-        <AnalyzeFab
-          novelId={routeNovelId}
-          urgent={needsAnalysis}
-          onDone={() => {
-            reloadNovelMeta();
-            // Timeline job usually still running after extract HTTP returns —
-            // pull meta again so overview chips/cards update without F5.
-            window.setTimeout(() => reloadNovelMeta(), 5_000);
-            window.setTimeout(() => reloadNovelMeta(), 15_000);
-            window.setTimeout(() => reloadNovelMeta(), 45_000);
-          }}
-        />
-      )}
     </div>
   );
 }

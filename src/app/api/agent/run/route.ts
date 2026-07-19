@@ -3,6 +3,7 @@ import { createLLMProvider } from "@/core/llm/factory";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
 import { getAgent } from "@/core/agents/agent-registry";
 import { initRegistry } from "@/core/agents/init";
+import { resolveAnalysisAgentType } from "@/core/agents/analysis-allowlist";
 import { runWithTokenContext } from "@/lib/token-usage-context";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,8 @@ export async function POST(request: NextRequest) {
     return new Response(JSON.stringify({ error: "agent_type and prompt are required" }), { status: 400, headers: { "Content-Type": "application/json" } });
   }
 
-  const agentDef = getAgent(agent_type);
+  const resolvedType = resolveAnalysisAgentType(String(agent_type));
+  const agentDef = getAgent(resolvedType) || getAgent(String(agent_type));
   if (!agentDef) {
     return new Response(JSON.stringify({ error: `Unknown agent: ${agent_type}` }), { status: 400, headers: { "Content-Type": "application/json" } });
   }
@@ -39,7 +41,7 @@ export async function POST(request: NextRequest) {
           userId: context?.userId || userId,
           novelId,
           branchId,
-          agentId: agent_type,
+          agentId: resolvedType,
           category: "agent",
         },
         async () => {
@@ -48,7 +50,7 @@ export async function POST(request: NextRequest) {
           };
 
           try {
-            send({ type: "tool_call", tool: agent_type, status: "running", toolCallId });
+            send({ type: "tool_call", tool: resolvedType, status: "running", toolCallId });
 
             const result = await agentDef.execute(
               {
@@ -62,10 +64,10 @@ export async function POST(request: NextRequest) {
               },
               llm,
               (text) => send({ type: "tool_chunk", toolCallId, content: text }),
-              (messages) => send({ type: "tool_trail", toolCallId, messages, tool: agent_type }),
+              (messages) => send({ type: "tool_trail", toolCallId, messages, tool: resolvedType }),
             );
 
-            send({ type: "tool_call", tool: agent_type, status: "done", toolCallId, result: result.content.slice(0, 5000), messages: result.messages });
+            send({ type: "tool_call", tool: resolvedType, status: "done", toolCallId, result: result.content.slice(0, 5000), messages: result.messages });
           } catch (e) {
             send({ type: "error", message: (e as Error).message });
           }

@@ -60,14 +60,13 @@ export interface FormAnalyzeResult {
 }
 
 /**
- * Build form profile + chapter catalog from full text.
- * LLM reviews catalog with: coherence → suspicious names → local text windows.
+ * Program-only form draft: chapter catalog scan + heuristics (no LLM).
+ * Used by analyze_form agent tools (step-by-step).
  */
-export async function analyzeNovelForm(
+export function buildFormDraftFromText(
   novelId: string,
   text: string,
-  llm?: LLMProvider,
-): Promise<FormAnalyzeResult> {
+): FormAnalyzeResult {
   const catalog = extractChapterCatalog(text);
   let chaptering = inferChapteringFromCatalog(text, catalog);
   const hints = catalogQualityHints(catalog, text.length);
@@ -82,7 +81,7 @@ export async function analyzeNovelForm(
   else if (text.length < 15_000) formType = "short_story";
   else if (catalog.length === 0 && text.length > 20_000) formType = "essay_prose";
 
-  let profile = emptyFormProfile(novelId);
+  const profile = emptyFormProfile(novelId);
   profile.formType = formType;
   profile.chaptering = chaptering;
   profile.unitHierarchy = {
@@ -99,14 +98,30 @@ export async function analyzeNovelForm(
     : [
         "本书按保守策略视为弱分章/不分章：除非用户要求，不要添加「第N章」标题。",
       ];
+  profile.updatedAt = new Date().toISOString();
 
-  let finalCatalog = catalog;
+  return {
+    profile,
+    catalog,
+    catalogHints: hints,
+  };
+}
+
+/**
+ * Full form analysis (program + optional LLM). Prefer agent tools for interactive path.
+ */
+export async function analyzeNovelForm(
+  novelId: string,
+  text: string,
+  llm?: LLMProvider,
+): Promise<FormAnalyzeResult> {
+  let { profile, catalog, catalogHints: hints } = buildFormDraftFromText(novelId, text);
 
   if (llm) {
     try {
       const enriched = await enrichFormWithLlm(profile, text, catalog, hints, llm);
       profile = enriched.profile;
-      finalCatalog = enriched.catalog;
+      catalog = enriched.catalog;
     } catch (e) {
       console.warn("[form] LLM enrich failed:", (e as Error).message);
     }
@@ -115,9 +130,20 @@ export async function analyzeNovelForm(
   profile.updatedAt = new Date().toISOString();
   return {
     profile,
-    catalog: finalCatalog,
-    catalogHints: catalogQualityHints(finalCatalog, text.length),
+    catalog,
+    catalogHints: catalogQualityHints(catalog, text.length),
   };
+}
+
+/** LLM catalog review + narrative fields (exported for form agent tool). */
+export async function enrichFormDraftWithLlm(
+  base: NovelFormProfile,
+  text: string,
+  catalog: ChapterCatalogEntry[],
+  hints: string[],
+  llm: LLMProvider,
+): Promise<{ profile: NovelFormProfile; catalog: ChapterCatalogEntry[] }> {
+  return enrichFormWithLlm(base, text, catalog, hints, llm);
 }
 
 /* ── catalog validation helpers (program-side prep for LLM) ─────────────── */

@@ -1,5 +1,5 @@
 /**
- * Frequency threshold for character name aggregation (not top-N).
+ * Frequency threshold + entity counting after coref (pipeline A).
  */
 import { assert, suite, test } from "../lib/test-harness";
 import {
@@ -9,8 +9,8 @@ import {
   type UnitNameHit,
 } from "../../src/core/extractor/character-name-aggregate";
 import { buildNameScanUnits } from "../../src/core/extractor/character-name-units";
-import { runNameFrequencyPipeline } from "../../src/core/extractor/character-name-pipeline";
-import { softClusterAggregates } from "../../src/core/extractor/character-name-cluster";
+import { buildSurfaceCatalog } from "../../src/core/extractor/character-surface-catalog";
+import { countResolvedEntities } from "../../src/core/extractor/character-entity-frequency";
 
 export function runCharacterNameFrequencyTests(): void {
   suite("character-name-frequency", () => {
@@ -109,47 +109,82 @@ export function runCharacterNameFrequencyTests(): void {
       assert.ok(units[0].text.length > 0);
     });
 
-    test("soft cluster merges 洛雪棠 + 雪棠", () => {
-      const surfaces = [
+    test("entity count sums surfaces after coref (孙悟空 + 齐天大圣)", () => {
+      const fullText =
+        "话说孙悟空大闹天宫。齐天大圣又来了。猪八戒天蓬元帅来也。悟空打了妖精。";
+      const mid = fullText.indexOf("猪八戒");
+      const units = [
         {
-          name: "洛雪棠",
-          mentions: 40,
-          unitHits: 20,
-          aliases: ["雪棠"],
-          firstUnit: 0,
-          lastUnit: 19,
+          index: 0,
+          label: "第1回",
+          start: 0,
+          end: mid,
+          text: fullText.slice(0, mid),
         },
         {
-          name: "雪棠",
-          mentions: 30,
-          unitHits: 15,
-          aliases: [],
-          firstUnit: 1,
-          lastUnit: 18,
+          index: 1,
+          label: "第2回",
+          start: mid,
+          end: fullText.length,
+          text: fullText.slice(mid),
         },
       ];
-      const clusters = softClusterAggregates(surfaces);
-      assert.ok(clusters.length === 1, `got ${clusters.length}`);
-      assert.equal(clusters[0].canonical, "洛雪棠");
-      assert.ok(clusters[0].mentions >= 70);
+      const unitHits: UnitNameHit[][] = [
+        [
+          { name: "孙悟空", aliases: ["齐天大圣"], count: 1 },
+          { name: "悟空", count: 1 },
+        ],
+        [
+          { name: "猪八戒", aliases: ["天蓬元帅"], count: 1 },
+          { name: "悟空", count: 1 },
+        ],
+      ];
+      const catalog = buildSurfaceCatalog(unitHits, units, fullText);
+      const counted = countResolvedEntities(
+        [
+          {
+            name: "孙悟空",
+            aliases: ["齐天大圣", "悟空"],
+            surfaces: ["孙悟空", "齐天大圣", "悟空"],
+          },
+          {
+            name: "猪八戒",
+            aliases: ["天蓬元帅"],
+            surfaces: ["猪八戒", "天蓬元帅"],
+          },
+        ],
+        catalog,
+      );
+      const swk = counted.find((c) => c.name === "孙悟空");
+      assert.ok(swk, "missing 孙悟空");
+      assert.ok((swk!.unitHits || 0) >= 2, `unitHits=${swk!.unitHits}`);
+      assert.ok((swk!.mentions || 0) >= 2, `mentions=${swk!.mentions}`);
+      assert.ok(swk!.aliases.includes("齐天大圣") || swk!.aliases.includes("悟空"));
     });
 
-    test("pipeline scheme C keeps frequent clusters", () => {
+    test("entity frequency gate keeps frequent people only", () => {
       const units: UnitNameHit[][] = [];
       for (let u = 0; u < 10; u++) {
         units.push([
-          { name: "洛雪棠", count: 1 },
-          { name: "李动", count: 1 },
+          { name: "孙悟空", count: 1 },
+          { name: "猪八戒", count: 1 },
           ...(u === 0 ? [{ name: "路人甲", count: 1 }] : []),
         ]);
       }
-      const r = runNameFrequencyPipeline(units, {
+      const agg = aggregateUnitHits(units);
+      // Simulate post-coref entities (one row per person)
+      const asEntities = agg.map((a) => ({
+        ...a,
+        unitIndices: undefined as number[] | undefined,
+      }));
+      const r = filterByMentionFrequency(asEntities, {
         textLength: 200_000,
         unitCount: 10,
       });
       const names = r.kept.map((k) => k.name);
-      assert.ok(names.includes("洛雪棠") || names.includes("李动"), names.join(","));
-      assert.ok(!names.includes("路人甲") || r.kept.find((k) => k.name === "路人甲")!.unitHits > 1);
+      assert.ok(names.includes("孙悟空") || names.includes("猪八戒"), names.join(","));
+      const passerby = r.kept.find((k) => k.name === "路人甲");
+      assert.ok(!passerby || passerby.unitHits > 1);
     });
   });
 }

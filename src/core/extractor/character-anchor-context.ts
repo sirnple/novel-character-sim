@@ -5,7 +5,6 @@
 
 import type { TextUnit } from "./character-name-units";
 import type { NameAggregate } from "./character-name-aggregate";
-import type { NameCluster } from "./character-name-cluster";
 
 export interface CharacterAnchor {
   /** Preferred roster / profile name */
@@ -24,37 +23,24 @@ function norm(s: string): string {
 }
 
 /** Build lookup: any surface / alias → anchor (shared object). */
-export function buildAnchorIndex(
-  clusters: NameCluster[] | NameAggregate[],
-): {
+export function buildAnchorIndex(aggregates: NameAggregate[]): {
   bySurface: Map<string, CharacterAnchor>;
   anchors: CharacterAnchor[];
 } {
   const bySurface = new Map<string, CharacterAnchor>();
   const anchors: CharacterAnchor[] = [];
 
-  for (const c of clusters) {
-    const isCluster = "canonical" in c && Array.isArray((c as NameCluster).surfaces);
-    const canonical = isCluster
-      ? (c as NameCluster).canonical
-      : (c as NameAggregate).name;
-    const surfaces = isCluster
-      ? [...(c as NameCluster).surfaces]
-      : [canonical, ...((c as NameAggregate).aliases || [])];
-    const aliases = isCluster
-      ? (c as NameCluster).aliases
-      : (c as NameAggregate).aliases || [];
-    let unitIndices =
-      (isCluster
-        ? (c as NameCluster).unitIndices
-        : (c as NameAggregate).unitIndices) || [];
+  for (const c of aggregates) {
+    const canonical = c.name;
+    const surfaces = [canonical, ...(c.aliases || [])];
+    const aliases = c.aliases || [];
+    let unitIndices = c.unitIndices || [];
     if (!unitIndices.length) {
-      const a = c as NameAggregate;
-      if (typeof a.firstUnit === "number" && typeof a.lastUnit === "number") {
+      if (typeof c.firstUnit === "number" && typeof c.lastUnit === "number") {
         unitIndices =
-          a.firstUnit === a.lastUnit
-            ? [a.firstUnit]
-            : [a.firstUnit, a.lastUnit];
+          c.firstUnit === c.lastUnit
+            ? [c.firstUnit]
+            : [c.firstUnit, c.lastUnit];
       }
     }
 
@@ -140,15 +126,30 @@ export function pickUnitIndicesForContext(
 
 /**
  * Concatenate selected unit texts with labels, under maxChars budget.
+ * When `preferIndices` is set, those units are taken first (e.g. co-occurrence).
  */
 export function buildContextFromUnits(
   units: TextUnit[],
   unitIndices: number[],
-  opts?: { maxChars?: number; maxUnits?: number },
+  opts?: {
+    maxChars?: number;
+    maxUnits?: number;
+    /** Prioritize these unit indices before sampling the rest */
+    preferIndices?: number[];
+  },
 ): string {
   const maxChars = opts?.maxChars ?? 18_000;
   const maxUnits = opts?.maxUnits ?? 8;
-  const picked = pickUnitIndicesForContext(unitIndices, maxUnits);
+  const prefer = new Set(opts?.preferIndices || []);
+  const pool = Array.from(new Set(unitIndices)).sort((a, b) => a - b);
+  const preferred = pool.filter((u) => prefer.has(u));
+  const rest = pool.filter((u) => !prefer.has(u));
+  // Prefer co-occur / high-value units, then fill with spaced sample of the rest
+  const ordered = [
+    ...preferred,
+    ...pickUnitIndicesForContext(rest, Math.max(0, maxUnits - preferred.length)),
+  ];
+  const picked = pickUnitIndicesForContext(ordered, maxUnits);
   const parts: string[] = [];
   let used = 0;
 
@@ -171,6 +172,45 @@ export function buildContextFromUnits(
   return parts.join("\n\n---\n\n");
 }
 
+/** Unit indices where both anchors appear (co-occurrence). */
+export function sharedUnitIndices(
+  a: CharacterAnchor,
+  b: CharacterAnchor,
+): number[] {
+  const setB = new Set(b.unitIndices || []);
+  return (a.unitIndices || []).filter((u) => setB.has(u)).sort((x, y) => x - y);
+}
+
+/**
+ * Context for relationship extract: prioritize units where focus co-occurs
+ * with any candidate, then fill with focus-only anchors.
+ */
+export function buildRelationshipContext(
+  focus: CharacterAnchor,
+  candidates: CharacterAnchor[],
+  units: TextUnit[],
+  opts?: { maxChars?: number; maxUnits?: number },
+): string {
+  const maxChars = opts?.maxChars ?? 28_000;
+  const maxUnits = opts?.maxUnits ?? 14;
+  const co: number[] = [];
+  const seen = new Set<number>();
+  for (const c of candidates) {
+    for (const u of sharedUnitIndices(focus, c)) {
+      if (!seen.has(u)) {
+        seen.add(u);
+        co.push(u);
+      }
+    }
+  }
+  co.sort((a, b) => a - b);
+  return buildContextFromUnits(units, focus.unitIndices, {
+    maxChars,
+    maxUnits,
+    preferIndices: co,
+  });
+}
+
 /** Names that co-occur in at least one unit with focus (excluding self surfaces). */
 export function cooccurringNames(
   focus: CharacterAnchor,
@@ -178,7 +218,7 @@ export function cooccurringNames(
   bySurface: Map<string, CharacterAnchor>,
   opts?: { maxCandidates?: number },
 ): string[] {
-  const maxCandidates = opts?.maxCandidates ?? 15;
+  const maxCandidates = opts?.maxCandidates ?? 30;
   const focusUnits = new Set(focus.unitIndices);
   const focusSurfaces = new Set(
     [focus.canonical, ...focus.surfaces, ...focus.aliases].map(norm),
@@ -343,8 +383,8 @@ export function selectDetailTargets<T extends NamedWithRole>(
 }
 
 /**
- * Relationship multi-round focus: slightly lower bar than detail
- * (still frequency-driven; not a fixed 12).
+ * Relationship multi-round focus: wider net than detail so the graph is denser
+ * (still frequency-driven; not a fixed top-N).
  */
 export function selectRelationshipFocus<T extends NamedWithRole>(
   roster: T[],
@@ -352,7 +392,7 @@ export function selectRelationshipFocus<T extends NamedWithRole>(
   opts?: Partial<ImportanceSelectOpts>,
 ): T[] {
   return selectByImportance(roster, bySurface, {
-    relativeOfMax: opts?.relativeOfMax ?? 0.1,
+    relativeOfMax: opts?.relativeOfMax ?? 0.06,
     minMentions: opts?.minMentions ?? 2,
     hardCap: opts?.hardCap,
   });
