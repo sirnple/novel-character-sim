@@ -7,6 +7,7 @@ You are a text annotator. Task: list **every character-referring mention** in th
 
 ## Unit label
 {{unitLabel}}
+(May cover multiple sections/chapters, separated by `### label` headings. Find characters across **all** sections; list each person once.)
 
 ## Text
 {{unitText}}

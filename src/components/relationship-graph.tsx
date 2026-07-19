@@ -438,10 +438,276 @@ function buildGraph(characters: CharacterProfile[]): {
   return { nodes, edges };
 }
 
+/** Undirected link type from center to neighbor (for radial clustering). */
+function linkTypeToCenter(
+  centerId: string,
+  otherId: string,
+  edges: SimEdge[],
+): string {
+  for (const e of edges) {
+    if (
+      (e.source === centerId && e.target === otherId) ||
+      (e.target === centerId && e.source === otherId)
+    ) {
+      return e.label || normalizeType(e.type) || "关系";
+    }
+  }
+  return "关系";
+}
+
+/** Connected components within a set of node ids (edges between them only). */
+function connectedComponents(
+  ids: string[],
+  edges: SimEdge[],
+): string[][] {
+  if (ids.length === 0) return [];
+  const set = new Set(ids);
+  const adj = new Map<string, string[]>();
+  for (const id of ids) adj.set(id, []);
+  for (const e of edges) {
+    if (!set.has(e.source) || !set.has(e.target)) continue;
+    adj.get(e.source)!.push(e.target);
+    adj.get(e.target)!.push(e.source);
+  }
+  const seen = new Set<string>();
+  const comps: string[][] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    const stack = [id];
+    const comp: string[] = [];
+    seen.add(id);
+    while (stack.length) {
+      const u = stack.pop()!;
+      comp.push(u);
+      for (const v of adj.get(u) || []) {
+        if (seen.has(v)) continue;
+        seen.add(v);
+        stack.push(v);
+      }
+    }
+    comps.push(comp);
+  }
+  return comps;
+}
+
+type RadialCluster = {
+  /** Relation type to center (neighbors) or attachment type */
+  key: string;
+  ids: string[];
+};
+
 /**
- * Force layout tuned to canvas pixel space so we do not need a crushing fit-scale.
- * Linked pairs stay closer than non-linked; min gap keeps edges out from under nodes.
+ * Cluster 1-hop neighbors: by edge type to center, then split by mutual connectivity.
  */
+function clusterNeighborsAroundCenter(
+  neighborIds: string[],
+  centerId: string,
+  edges: SimEdge[],
+): RadialCluster[] {
+  const byType = new Map<string, string[]>();
+  for (const id of neighborIds) {
+    const t = linkTypeToCenter(centerId, id, edges);
+    if (!byType.has(t)) byType.set(t, []);
+    byType.get(t)!.push(id);
+  }
+  const clusters: RadialCluster[] = [];
+  for (const [key, ids] of Array.from(byType.entries())) {
+    const comps = connectedComponents(ids, edges);
+    if (comps.length <= 1) {
+      clusters.push({ key, ids });
+    } else {
+      comps
+        .sort((a, b) => b.length - a.length)
+        .forEach((comp, i) => {
+          clusters.push({
+            key: comps.length > 1 ? `${key}·${i + 1}` : key,
+            ids: comp,
+          });
+        });
+    }
+  }
+  // Larger clusters first → bigger angular sectors
+  clusters.sort((a, b) => b.ids.length - a.ids.length || a.key.localeCompare(b.key, "zh"));
+  return clusters;
+}
+
+/**
+ * Radial + cluster layout:
+ * - centerId at canvas center
+ * - 1-hop neighbors clustered by relation type (+ mutual links), each cluster a sector
+ * - 2-hop / rest: attach to preferred neighbor cluster sector (mid ring), else outer ring
+ */
+function runRadialFromCenter(
+  nodes: SimNode[],
+  edges: SimEdge[],
+  width: number,
+  height: number,
+  centerId: string,
+) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const n = nodes.length;
+  if (n === 0) return;
+  if (n === 1) {
+    nodes[0].x = cx;
+    nodes[0].y = cy;
+    return;
+  }
+
+  const nodeById = new Map(nodes.map((nd) => [nd.id, nd]));
+  const center = nodeById.get(centerId);
+  if (!center) {
+    runForce(nodes, edges, width, height);
+    return;
+  }
+
+  const neighborIdSet = new Set<string>();
+  for (const e of edges) {
+    if (e.source === centerId) neighborIdSet.add(e.target);
+    if (e.target === centerId) neighborIdSet.add(e.source);
+  }
+  const neighborIds = Array.from(neighborIdSet);
+  const clusters = clusterNeighborsAroundCenter(neighborIds, centerId, edges);
+
+  const short = Math.min(width, height);
+  const rHub = Math.max(88, short * 0.26);
+  const rMid = Math.max(rHub + 56, short * 0.38);
+  const rFar = Math.max(rMid + 48, short * 0.48);
+
+  const placeAt = (nd: SimNode, angle: number, r: number) => {
+    nd.x = cx + Math.cos(angle) * r;
+    nd.y = cy + Math.sin(angle) * r;
+    nd.vx = 0;
+    nd.vy = 0;
+  };
+
+  center.x = cx;
+  center.y = cy;
+  center.vx = 0;
+  center.vy = 0;
+
+  // Angular budget per cluster (proportional to size, min wedge)
+  const totalN = Math.max(
+    1,
+    clusters.reduce((s, c) => s + c.ids.length, 0),
+  );
+  const gap = 0.12; // rad between clusters
+  const usable = Math.max(0.5, 2 * Math.PI - gap * Math.max(clusters.length, 1));
+  let angleCursor = -Math.PI / 2;
+
+  /** Map neighbor id → sector mid angle (for attaching outer nodes) */
+  const neighborAngle = new Map<string, number>();
+  const clusterMidAngle: number[] = [];
+
+  for (const cluster of clusters) {
+    const share = cluster.ids.length / totalN;
+    const wedge = Math.max(0.35, usable * share);
+    const start = angleCursor;
+    const end = angleCursor + wedge;
+
+    // Sort within cluster: higher degree closer to sector center line
+    const members = cluster.ids
+      .map((id) => nodeById.get(id)!)
+      .filter(Boolean)
+      .sort(
+        (a, b) =>
+          b.degree - a.degree || a.name.localeCompare(b.name, "zh"),
+      );
+
+    const mid = (start + end) / 2;
+    clusterMidAngle.push(mid);
+
+    members.forEach((nd, i) => {
+      const t =
+        members.length === 1 ? 0.5 : i / Math.max(members.length - 1, 1);
+      // Fan within sector; slight radial stagger so dense clusters don't stack
+      const a = start + 0.12 * wedge + t * (wedge * 0.76);
+      const rJitter =
+        rHub + (i % 3) * Math.min(18, 40 / Math.max(members.length, 1));
+      placeAt(nd, a, rJitter);
+      neighborAngle.set(nd.id, a);
+    });
+
+    angleCursor = end + gap;
+  }
+
+  // Non-neighbors: pull toward cluster they connect to most; else outer ring
+  const others = nodes.filter(
+    (nd) => nd.id !== centerId && !neighborIdSet.has(nd.id),
+  );
+
+  type Attach = { node: SimNode; angle: number; score: number };
+  const attached: Attach[] = [];
+  const floating: SimNode[] = [];
+
+  for (const nd of others) {
+    let bestAngle = 0;
+    let bestScore = 0;
+    for (const e of edges) {
+      let other = "";
+      if (e.source === nd.id) other = e.target;
+      else if (e.target === nd.id) other = e.source;
+      else continue;
+      if (!neighborAngle.has(other)) continue;
+      const score = 1 + (nd.degree > 0 ? 0.1 : 0);
+      if (score > bestScore) {
+        bestScore = score;
+        bestAngle = neighborAngle.get(other)!;
+      }
+    }
+    if (bestScore > 0) attached.push({ node: nd, angle: bestAngle, score: bestScore });
+    else floating.push(nd);
+  }
+
+  // Group attached by nearest cluster mid-angle (bucket) for local clustering on mid ring
+  attached.sort((a, b) => a.angle - b.angle);
+  const attachBuckets = new Map<number, Attach[]>();
+  for (const a of attached) {
+    let bestI = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < clusterMidAngle.length; i++) {
+      let d = Math.abs(a.angle - clusterMidAngle[i]);
+      if (d > Math.PI) d = 2 * Math.PI - d;
+      if (d < bestD) {
+        bestD = d;
+        bestI = i;
+      }
+    }
+    const key = bestI;
+    if (!attachBuckets.has(key)) attachBuckets.set(key, []);
+    // use cluster mid for stable sector
+    a.angle = clusterMidAngle[key] ?? a.angle;
+    attachBuckets.get(key)!.push(a);
+  }
+
+  for (const [, bucket] of Array.from(attachBuckets.entries())) {
+    bucket.sort(
+      (a, b) =>
+        b.node.degree - a.node.degree ||
+        a.node.name.localeCompare(b.node.name, "zh"),
+    );
+    const mid = bucket[0]?.angle ?? 0;
+    const spread = Math.min(0.9, 0.2 + bucket.length * 0.08);
+    bucket.forEach((item, i) => {
+      const t =
+        bucket.length === 1 ? 0.5 : i / Math.max(bucket.length - 1, 1);
+      const a = mid - spread / 2 + t * spread;
+      const r = rMid + (i % 2) * 14;
+      placeAt(item.node, a, r);
+    });
+  }
+
+  floating
+    .sort(
+      (a, b) => b.degree - a.degree || a.name.localeCompare(b.name, "zh"),
+    )
+    .forEach((nd, i) => {
+      const angle =
+        (2 * Math.PI * i) / Math.max(floating.length, 1) - Math.PI / 2 + 0.2;
+      placeAt(nd, angle, rFar);
+    });
+}
+
 function runForce(
   nodes: SimNode[],
   edges: SimEdge[],
@@ -711,6 +977,8 @@ export default function RelationshipGraph({
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** force = global force layout; radial = selected (or hub) at center, related on ring */
+  const [layoutMode, setLayoutMode] = useState<"force" | "radial">("force");
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
   const [layoutTick, setLayoutTick] = useState(0);
   const zoomRef = useRef(zoom);
@@ -789,8 +1057,12 @@ export default function RelationshipGraph({
       ":" +
       (fullscreen ? "fs" : "in") +
       ":" +
+      layoutMode +
+      ":" +
+      (layoutMode === "radial" ? selectedId || "hub" : "-") +
+      ":" +
       layoutTick,
-    [localChars, allEdges, fullscreen, layoutTick],
+    [localChars, allEdges, fullscreen, layoutTick, layoutMode, selectedId],
   );
 
   const [nodes, setNodes] = useState<SimNode[]>([]);
@@ -834,7 +1106,16 @@ export default function RelationshipGraph({
       return;
     }
     const copy: SimNode[] = seedNodes.map((n) => ({ ...n }));
-    runForce(copy, allEdges, size.w, size.h);
+    if (layoutMode === "radial") {
+      const hubId =
+        selectedId && copy.some((n) => n.id === selectedId)
+          ? selectedId
+          : [...copy].sort((a, b) => b.degree - a.degree)[0]?.id;
+      if (hubId) runRadialFromCenter(copy, allEdges, size.w, size.h, hubId);
+      else runForce(copy, allEdges, size.w, size.h);
+    } else {
+      runForce(copy, allEdges, size.w, size.h);
+    }
     setNodes(copy);
     setZoom(1);
     setPan({ x: 0, y: 0 });
@@ -864,6 +1145,15 @@ export default function RelationshipGraph({
   }, [typeFilter, matchedEdges]);
 
   const selected = nodes.find((n) => n.id === selectedId) || null;
+  const selectedNeighborIds = useMemo(() => {
+    if (!selectedId) return null;
+    const s = new Set<string>([selectedId]);
+    for (const e of allEdges) {
+      if (e.source === selectedId) s.add(e.target);
+      if (e.target === selectedId) s.add(e.source);
+    }
+    return s;
+  }, [selectedId, allEdges]);
   const selectedEdges = useMemo(() => {
     if (!selected) return [];
     const linked = allEdges.filter(
@@ -912,8 +1202,10 @@ export default function RelationshipGraph({
   }, []);
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest("[data-ui]")) return;
-    const nodeEl = (e.target as HTMLElement).closest("[data-node]");
+    // Prefer Element.closest (works for SVG + HTML)
+    const t = e.target as Element | null;
+    if (t?.closest?.("[data-ui]")) return;
+    const nodeEl = t?.closest?.("[data-node]");
     if (nodeEl) {
       const id = nodeEl.getAttribute("data-node-id");
       if (id) {
@@ -941,7 +1233,8 @@ export default function RelationshipGraph({
     if (!d.mode) return;
     const dx = e.clientX - d.lastX;
     const dy = e.clientY - d.lastY;
-    if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true;
+    // Slightly higher threshold — trackpads fire micro-moves and used to skip select
+    if (Math.abs(dx) + Math.abs(dy) > 4) d.moved = true;
     d.lastX = e.clientX;
     d.lastY = e.clientY;
     if (d.mode === "pan") {
@@ -960,8 +1253,26 @@ export default function RelationshipGraph({
     }
   };
   const onPointerUp = () => {
-    dragRef.current.mode = null;
-    dragRef.current.nodeId = undefined;
+    const d = dragRef.current;
+    const mode = d.mode;
+    const nodeId = d.nodeId;
+    const moved = d.moved;
+    d.mode = null;
+    d.nodeId = undefined;
+    d.moved = false;
+
+    // Select on pointerup (reliable with pointer capture; click often misses SVG <g>)
+    if (mode === "node" && nodeId && !moved) {
+      setSelectedId((prev) => {
+        const next = prev === nodeId ? null : nodeId;
+        return next;
+      });
+      return;
+    }
+    // Click empty canvas → clear selection
+    if (mode === "pan" && !moved) {
+      setSelectedId(null);
+    }
   };
 
   useEffect(() => {
@@ -986,6 +1297,17 @@ export default function RelationshipGraph({
   const relayout = () => {
     setLayoutTick((t) => t + 1);
   };
+
+  const selectNode = useCallback((id: string | null) => {
+    setSelectedId(id);
+  }, []);
+
+  /** Focus layout: center on this character (switches to radial) */
+  const focusRadialOn = useCallback((id: string) => {
+    setSelectedId(id);
+    setLayoutMode("radial");
+    setLayoutTick((t) => t + 1);
+  }, []);
 
   const openEditEdge = (e: SimEdge) => {
     setEditing(true);
@@ -1160,6 +1482,42 @@ export default function RelationshipGraph({
           </>
         )}
         <div className="flex items-center gap-0.5 rounded-xl bg-secondary/60 border border-border/40 p-0.5">
+          <button
+            type="button"
+            data-ui
+            className={`px-2 py-1.5 text-[11px] rounded-lg transition-colors ${
+              layoutMode === "force"
+                ? "bg-panel-elevated text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            title="力导向全局排布"
+            onClick={() => {
+              setLayoutMode("force");
+              setLayoutTick((t) => t + 1);
+            }}
+          >
+            全局
+          </button>
+          <button
+            type="button"
+            data-ui
+            className={`px-2 py-1.5 text-[11px] rounded-lg transition-colors ${
+              layoutMode === "radial"
+                ? "bg-panel-elevated text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            title={
+              selectedId
+                ? "以选中为中心；相关按关系类型聚类扇区排布"
+                : "以选中/高连接角色为中心，关系聚类辐射"
+            }
+            onClick={() => {
+              setLayoutMode("radial");
+              setLayoutTick((t) => t + 1);
+            }}
+          >
+            辐射
+          </button>
           <button
             type="button"
             data-ui
@@ -1375,6 +1733,14 @@ export default function RelationshipGraph({
           </span>
         </div>
       )}
+      {selectedId && (
+        <div className="absolute left-3 top-3 z-20 pointer-events-none max-w-[min(100%-12rem,14rem)]">
+          <span className="inline-block text-[11px] px-2.5 py-1 rounded-full bg-card/90 border border-primary/35 text-primary shadow">
+            已选中 · 相关高亮
+            {layoutMode === "radial" ? " · 辐射中心" : ""}
+          </span>
+        </div>
+      )}
 
       <svg
         width={Math.max(size.w, 1)}
@@ -1549,13 +1915,7 @@ export default function RelationshipGraph({
             const typeDim =
               !!nodesInFilter && !nodesInFilter.has(n.id);
             const selDim =
-              !!selectedId &&
-              selectedId !== n.id &&
-              !allEdges.some(
-                (e) =>
-                  (e.source === selectedId && e.target === n.id) ||
-                  (e.target === selectedId && e.source === n.id),
-              );
+              !!selectedNeighborIds && !selectedNeighborIds.has(n.id);
             const dim = typeDim || selDim;
             const initial = n.name.trim().charAt(0) || "?";
             const maxName = showFullNames
@@ -1572,18 +1932,19 @@ export default function RelationshipGraph({
             return (
               <g
                 key={n.id}
-                data-node
+                data-node="1"
                 data-node-id={n.id}
                 transform={`translate(${n.x},${n.y})`}
                 opacity={dim ? 0.22 : 1}
-                className="cursor-grab active:cursor-grabbing"
-                onClick={(ev) => {
+                className="cursor-pointer"
+                style={{ pointerEvents: "all" }}
+                onDoubleClick={(ev) => {
                   ev.stopPropagation();
-                  // ignore click if we just dragged the node
-                  if (dragRef.current.moved) return;
-                  setSelectedId((id) => (id === n.id ? null : n.id));
+                  focusRadialOn(n.id);
                 }}
               >
+                {/* Invisible larger hit target for easier click */}
+                <circle r={Math.max(r + 14, 28)} fill="transparent" />
                 <circle
                   r={r + 8}
                   fill={
@@ -1591,6 +1952,7 @@ export default function RelationshipGraph({
                       ? "hsla(30, 8%, 40%, 0.1)"
                       : `hsla(${hue}, 55%, 48%, ${isSel ? 0.28 : 0.12})`
                   }
+                  style={{ pointerEvents: "none" }}
                 />
                 <circle
                   r={r}
@@ -1603,6 +1965,7 @@ export default function RelationshipGraph({
                         : "hsla(40, 30%, 90%, 0.35)"
                   }
                   strokeWidth={(isSel ? 2.5 : 1.25) * strokeScale}
+                  style={{ pointerEvents: "none" }}
                 />
                 {showNodeInitials && (
                   <text
@@ -1654,27 +2017,91 @@ export default function RelationshipGraph({
         </g>
       </svg>
 
-      {/* Selected detail */}
+      {/* Selected detail: profile + links; non-related nodes/edges dimmed */}
       {selected && !draft && (
         <div
           data-ui
-          className="absolute right-3 top-3 bottom-3 z-10 w-[min(100%-1.5rem,16rem)] pointer-events-auto"
+          className="absolute right-3 top-3 bottom-3 z-10 w-[min(100%-1.5rem,17rem)] pointer-events-auto"
         >
-          <div className="h-full rounded-xl border border-border/60 bg-card/95 backdrop-blur-md shadow-xl flex flex-col overflow-hidden">
-            <div className="px-3.5 py-3 border-b border-border/50 shrink-0">
-              <p className="text-[10px] uppercase tracking-wider text-fog mb-0.5">
-                选中角色
-              </p>
-              <h3 className="text-sm font-semibold text-foreground truncate">
-                {selected.name}
-              </h3>
-              <p className="text-[11px] text-fog mt-0.5">
-                {typeFilter
-                  ? `高亮 ${selectedEdges.filter(edgeMatchesFilter).length} / 共 ${selectedEdges.length} 条`
-                  : `${selectedEdges.length} 条关系`}
-              </p>
+          <div className="h-full rounded-xl border border-primary/30 bg-card/95 backdrop-blur-md shadow-xl flex flex-col overflow-hidden">
+            <div className="px-3.5 py-3 border-b border-border/50 shrink-0 space-y-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-fog mb-0.5">
+                  选中角色
+                </p>
+                <h3 className="text-sm font-semibold text-foreground truncate">
+                  {selected.name}
+                </h3>
+                {(selected.char.aliases?.length ?? 0) > 0 && (
+                  <p className="text-[11px] text-fog truncate mt-0.5">
+                    别名 {(selected.char.aliases || []).slice(0, 4).join(" / ")}
+                  </p>
+                )}
+                <p className="text-[11px] text-fog mt-0.5">
+                  {typeFilter
+                    ? `关系 ${selectedEdges.filter(edgeMatchesFilter).length} / ${selectedEdges.length}`
+                    : `${selectedEdges.length} 条关系 · 相关已高亮`}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="w-full text-[11px] px-2 py-1.5 rounded-lg border border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
+                onClick={() => focusRadialOn(selected.id)}
+              >
+                以 TA 为中心 · 关系聚类辐射
+              </button>
             </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-2 space-y-2 min-h-0">
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-2 space-y-3 min-h-0">
+              {/* Profile summary */}
+              {(selected.char.appearance?.summary ||
+                selected.char.personality?.description ||
+                (selected.char.personality?.traits?.length ?? 0) > 0 ||
+                selected.char.drive?.goal) && (
+                <div className="space-y-2 pb-2 border-b border-border/40">
+                  <p className="text-[10px] uppercase tracking-wider text-fog">
+                    角色详情
+                  </p>
+                  {selected.char.appearance?.summary ? (
+                    <div>
+                      <p className="text-[10px] text-fog mb-0.5">外貌</p>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-4">
+                        {selected.char.appearance.summary}
+                      </p>
+                    </div>
+                  ) : null}
+                  {selected.char.personality?.description ? (
+                    <div>
+                      <p className="text-[10px] text-fog mb-0.5">性格</p>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-4">
+                        {selected.char.personality.description}
+                      </p>
+                    </div>
+                  ) : null}
+                  {(selected.char.personality?.traits?.length ?? 0) > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {selected.char.personality!.traits!.slice(0, 8).map((t) => (
+                        <span
+                          key={t}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-secondary border border-border/40 text-fog"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {selected.char.drive?.goal ? (
+                    <div>
+                      <p className="text-[10px] text-fog mb-0.5">目标</p>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-3">
+                        {selected.char.drive.goal}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+              <p className="text-[10px] uppercase tracking-wider text-fog">
+                关系
+              </p>
               {selectedEdges.length === 0 ? (
                 <p className="text-xs text-fog py-2">暂无连边</p>
               ) : (
@@ -1757,7 +2184,7 @@ export default function RelationshipGraph({
             <button
               type="button"
               className="shrink-0 text-xs text-fog hover:text-foreground py-2 border-t border-border/40"
-              onClick={() => setSelectedId(null)}
+              onClick={() => selectNode(null)}
             >
               取消选中
             </button>

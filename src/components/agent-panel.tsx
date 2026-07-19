@@ -348,16 +348,91 @@ function groupTranscript(messages: SubAgentMessage[]): TranscriptItem[] {
   return items;
 }
 
+/** Parse live tool progress lines: 【进度】扫描角色指称 12/48（25%）· 第12章 */
+function parseToolProgress(text?: string): {
+  label: string;
+  done: number;
+  total: number;
+  pct: number;
+  detail: string;
+} | null {
+  if (!text) return null;
+  const m = text.match(
+    /【进度】([^\s]+)?\s*(\d+)\s*\/\s*(\d+)(?:（(\d+)%）)?(?:\s*·\s*(.+))?/,
+  );
+  if (!m) {
+    // also accept plain: 扫描角色指称 12/48
+    const m2 = text.match(/(扫描角色指称)\s+(\d+)\s*\/\s*(\d+)/);
+    if (!m2) return null;
+    const done = parseInt(m2[2], 10);
+    const total = parseInt(m2[3], 10) || 1;
+    return {
+      label: m2[1],
+      done,
+      total,
+      pct: Math.round((done / total) * 100),
+      detail: "",
+    };
+  }
+  const done = parseInt(m[2], 10);
+  const total = Math.max(1, parseInt(m[3], 10) || 1);
+  const pct = m[4] != null ? parseInt(m[4], 10) : Math.round((done / total) * 100);
+  return {
+    label: (m[1] || "进度").trim(),
+    done,
+    total,
+    pct,
+    detail: (m[5] || "").trim(),
+  };
+}
+
+function ToolProgressBar({
+  progress,
+}: {
+  progress: { label: string; done: number; total: number; pct: number; detail: string };
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="text-xs text-primary/90 flex items-center gap-1.5 flex-wrap">
+        <Loader2 className="w-2.5 h-2.5 animate-spin shrink-0" />
+        <span>
+          {progress.label} {progress.done}/{progress.total}（{progress.pct}%）
+        </span>
+        {progress.detail ? (
+          <span className="text-muted-foreground truncate max-w-[14rem]">
+            · {progress.detail}
+          </span>
+        ) : null}
+      </div>
+      <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+        <div
+          className="h-full rounded-full bg-primary/80 transition-[width] duration-300 ease-out"
+          style={{ width: `${Math.min(100, Math.max(0, progress.pct))}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 /** One collapsed card: tool name · args (if any) · result preview */
 function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAgentMessage }) {
   const name = call?.toolName || result?.toolName;
-  const noArgs = !call?.content || call.content === "(无参数)" || call.content === "{}";
+  const callBody = call?.content || "";
+  const progress = parseToolProgress(callBody);
+  const argsOnly = callBody
+    .split(/\n\n【进度】/)[0]
+    ?.replace(/\n\n扫描角色指称\s+\d+\/\d+[\s\S]*$/, "")
+    .trim();
+  const noArgs = !argsOnly || argsOnly === "(无参数)" || argsOnly === "{}";
   const pending = !!call && !result;
   const resultLen = result?.content?.length ?? 0;
 
   return (
     <div className="flex justify-start">
-      <details className="max-w-[95%] w-full rounded-lg border border-border/50 bg-neutral-900/40 group">
+      <details
+        className="max-w-[95%] w-full rounded-lg border border-border/50 bg-neutral-900/40 group"
+        open={pending && !!progress}
+      >
         <summary className="cursor-pointer list-none px-2.5 py-1.5 text-xs flex items-center gap-1.5 select-none text-foreground/90">
           <span className="text-fog group-open:rotate-90 transition-transform inline-block">▸</span>
           <Wrench className="w-3 h-3 shrink-0 text-sky-500" />
@@ -368,15 +443,21 @@ function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAg
           {name && TOOL_LABELS[name] && (
             <span className="text-fog text-xs">{name}</span>
           )}
-          <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1.5">
+          <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
             {pending ? (
-              <span className="text-primary/80 flex items-center gap-1">
-                <Loader2 className="w-2.5 h-2.5 animate-spin" />执行中
-              </span>
+              progress ? (
+                <span className="text-primary/90 truncate max-w-[10rem]">
+                  {progress.done}/{progress.total} · {progress.pct}%
+                </span>
+              ) : (
+                <span className="text-primary/80 flex items-center gap-1">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />执行中
+                </span>
+              )
             ) : (
               <span className="text-emerald-600/80">{resultLen} 字</span>
             )}
-            <span className="text-fog">展开</span>
+            <span className="text-fog shrink-0">展开</span>
           </span>
         </summary>
         <div className="px-2.5 pb-2 space-y-2 border-t border-border/50 pt-2">
@@ -387,7 +468,7 @@ function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAg
                 <div className="text-xs text-fog">（无参数）</div>
               ) : (
                 <PrettyBody
-                  text={call.content}
+                  text={argsOnly}
                   className="text-xs text-sky-200/70  font-mono whitespace-pre-wrap break-all max-h-[160px] overflow-y-auto overscroll-contain custom-scrollbar bg-sky-950/20 rounded p-1.5"
                 />
               )}
@@ -396,9 +477,13 @@ function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAg
           <div>
             <div className="text-xs text-emerald-600/90 mb-0.5">返回</div>
             {pending ? (
-              <div className="text-xs text-fog flex items-center gap-1">
-                <Loader2 className="w-2.5 h-2.5 animate-spin" />等待结果…
-              </div>
+              progress ? (
+                <ToolProgressBar progress={progress} />
+              ) : (
+                <div className="text-xs text-fog flex items-center gap-1">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />等待结果…
+                </div>
+              )
             ) : result ? (
               !(result.content || "").trim() ? (
                 <div className="text-xs text-amber-500/90">
@@ -946,14 +1031,8 @@ export default function AgentPanel({
     const text =
       `请【续跑/完整分析】。` +
       `先 get_current_novel + get_current_branch + get_analysis_status。` +
-      `若 status.done 非空（已有部分/全部域结果）：**必须先 ask_question**，options 含` +
-      `「只补缺失域（推荐）」「全部重新分析」「先结束，不改动」等，等我选择后再调度；禁止默默重跑已完成域。` +
-      (forceRefresh
-        ? `（界面勾选了强制刷新：可在选项中体现「全部重新分析」。）`
-        : ``) +
-      `我选只补缺失后：只对 pending 派 agent(agent_type)；角色列表用 analyze_character_list（不要说「指代消解」）。` +
-      `选全部重跑才 force。本轮域做完后必须 ask_question 问是否「确认保存」；` +
-      `用户确认后再 finish_novel_analysis(userConfirmed=true)。禁止自己写长文。`;
+      `范围不清时 ask_question：选项必须无歧义（禁止「全部重新分析」这种说不清范围的）；` +
+      `角色拆名单/详情/关系；中文写清将运行什么；各域已齐勿问确认保存。禁止自己写长文。`;
     // onAnalysisDone runs at end of runChat when isAnalysis
     await handleSend(text);
   };
@@ -1267,16 +1346,27 @@ export default function AgentPanel({
                       </span>
                       <span className={`w-2 h-2 rounded-full ml-auto ${isRunning ? "bg-primary animate-pulse" : "bg-green-500"}`} />
                       <span className="text-xs text-fog">
-                        {isRunning ? "执行中" : "完成"}
+                        {isRunning
+                          ? (() => {
+                              const p = parseToolProgress(msg.content);
+                              return p ? `${p.done}/${p.total}` : "执行中";
+                            })()
+                          : "完成"}
                       </span>
                     </>
                   )}
                 </div>
+                {/* Live tool progress (scan_character_mentions etc.) — from tool_chunk */}
+                {isRunning && parseToolProgress(msg.content) && (
+                  <div className="mt-1.5 px-1">
+                    <ToolProgressBar progress={parseToolProgress(msg.content)!} />
+                  </div>
+                )}
                 {/* Live + done chat transcript (streamed via tool_trail; tool_chunk merges into last assistant) */}
                 {(() => {
                   const base = msg.metadata?.subMessages || [];
                   let live = base;
-                  if (isRunning && msg.content) {
+                  if (isRunning && msg.content && !parseToolProgress(msg.content)) {
                     const last = base[base.length - 1];
                     if (last?.role === "assistant") {
                       // Replace provisional / partial assistant with latest stream chunk
@@ -1288,13 +1378,14 @@ export default function AgentPanel({
                     }
                   }
                   if (live.length === 0) {
-                    if (isRunning) {
+                    if (isRunning && !parseToolProgress(msg.content)) {
                       return (
                         <div className="mt-1.5 text-xs text-fog flex items-center gap-1">
                           <Loader2 className="w-2.5 h-2.5 animate-spin" />等待对话…
                         </div>
                       );
                     }
+                    if (isRunning) return null;
                     return null;
                   }
                   // Compact review pass with no findings: keep one-line header only when done

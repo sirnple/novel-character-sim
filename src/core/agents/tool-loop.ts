@@ -55,6 +55,11 @@ export interface ToolLoopOptions {
   temperature?: number;
   /** Max LLM↔tool rounds (default 15). Coref agents may need more lookups. */
   maxSteps?: number;
+  /**
+   * When a tool streams progress via onChunk (e.g. scan_character_mentions),
+   * also refresh the live trail so the UI can show progress on the tool card.
+   */
+  streamToolProgressToTrail?: boolean;
 }
 
 export async function runToolLoop(
@@ -143,16 +148,38 @@ export async function runToolLoop(
     let criticalMissText = "";
 
     for (const { toolId, toolName, args } of pendingTools) {
+      const argsPreview = formatToolArgs(args) || "(无参数)";
       pushTrail({
         role: "tool_call",
         toolName,
-        content: formatToolArgs(args) || "(无参数)",
+        content: argsPreview,
       });
 
       const toolDef = getTool(toolName);
       let resultContent = "工具未注册或返回空";
       if (toolDef) {
         try {
+          const toolOnChunk = (text: string) => {
+            // Parent sub-agent card summary (SSE tool_chunk)
+            onChunk?.(text);
+            // Live trail: attach progress under current tool_call for nested UI
+            if (options?.streamToolProgressToTrail !== false && text) {
+              const next = trail.slice();
+              for (let i = next.length - 1; i >= 0; i--) {
+                if (next[i].role === "tool_call" && next[i].toolName === toolName) {
+                  next[i] = {
+                    ...next[i],
+                    content: `${argsPreview}\n\n${text}`,
+                  };
+                  onTrail?.(next);
+                  // keep trail in sync for subsequent pushTrail
+                  trail.length = 0;
+                  trail.push(...next);
+                  break;
+                }
+              }
+            }
+          };
           // Always inject route-level ids so tools never write under undefined::*
           const r = await toolDef.execute(
             {
@@ -167,6 +194,7 @@ export async function runToolLoop(
               userId: ctx.userId,
             },
             llm,
+            toolOnChunk,
           );
           resultContent = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
           // 正文/前文类工具需要足够长的窗口，避免审查/改写只看到截断片段

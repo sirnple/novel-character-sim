@@ -118,6 +118,7 @@ async function seedCharacterCatalogViaLlm(
   text: string,
   units: ReturnType<typeof buildNameScanUnits>,
   llm: LLMProvider,
+  onProgress?: (done: number, total: number, label: string) => void,
 ): Promise<{ surfaceCount: number; unitCount: number }> {
   let unitsLocal = units.length ? units : buildNameScanUnits(text);
   if (!unitsLocal.length) {
@@ -134,6 +135,7 @@ async function seedCharacterCatalogViaLlm(
   const { units: scannedUnits, unitHits } = await scanUnitHitsWithLlm(llm, text, {
     units: unitsLocal,
     zh: isChinese(text),
+    onProgress,
   });
   const catalog = buildSurfaceCatalog(unitHits, scannedUnits, text);
   beginCharacterExtractWorkspace(userId, novelId, branchId, {
@@ -763,7 +765,7 @@ export const analysisDomainTools: ToolDefinition[] = [
       },
       required: [],
     },
-    execute: async (args, ctx, llm) => {
+    execute: async (args, ctx, llm, onChunk) => {
       const { userId, novelId, branchId } = ids(ctx);
       const text = loadText(userId, novelId, branchId);
       if (!text.trim()) {
@@ -834,6 +836,7 @@ export const analysisDomainTools: ToolDefinition[] = [
         patchNovelAnalysisWorkspace(userId, novelId, branchId, { units });
       }
       try {
+        let lastEmit = 0;
         const { surfaceCount, unitCount } = await seedCharacterCatalogViaLlm(
           userId,
           novelId,
@@ -841,6 +844,16 @@ export const analysisDomainTools: ToolDefinition[] = [
           text,
           units,
           llm,
+          (done, total, label) => {
+            const now = Date.now();
+            // Throttle UI/SSE (~4/s); always emit first & last
+            if (done < total && now - lastEmit < 250) return;
+            lastEmit = now;
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+            onChunk?.(
+              `【进度】扫描角色指称 ${done}/${total}（${pct}%）· ${label}`,
+            );
+          },
         );
         const after = getCharacterExtractWorkspace(userId, novelId, branchId);
         return {
@@ -1362,10 +1375,10 @@ export const analysisMasterTools: ToolDefinition[] = [
         if (!style) nextActions.push('agent(agent_type="extract_style")');
         if (!ideas) nextActions.push('agent(agent_type="extract_ideas")');
       }
-      // Endgame: user must confirm save via ask_question, then finish
+      // All domains ready: do not force save ask (already analyzed)
       if (pending.length === 0 && done.length > 0) {
         nextActions.push(
-          'ask_question 确认保存 → finish_novel_analysis(userConfirmed=true)',
+          "各域已齐：无需 ask 确认保存；用户明确要求保存时再 finish_novel_analysis",
         );
       }
 
@@ -1407,25 +1420,83 @@ export const analysisMasterTools: ToolDefinition[] = [
         nextActions,
         /** 用户点名单域时：缺依赖则 sequence = 依赖… + 目标 */
         launchPlan,
-        decisionHint:
-          pending.length === 0 && done.length > 0
-            ? {
-                mustAsk: true,
-                question: `本轮分析已就绪（${done.join("、")}）。是否保存到本书与文笔/点子库？`,
-                options: ["确认保存", "暂不保存"],
-              }
-            : done.length > 0
-              ? {
-                  mustAsk: true,
-                  question: `已有：${done.join("、")}；仍缺：${pending.join("、")}。如何继续？`,
-                  options: [
-                    "只补缺失域（推荐）",
-                    "全部重新分析",
-                    "只重跑角色相关",
-                    "先结束，不改动",
-                  ],
-                }
-              : { mustAsk: false, question: null, options: [] },
+        /** Human-readable dependency tree for master to show users */
+        dependencyTree: {
+          ascii: [
+            "analyze_form（章法）",
+            "├─ analyze_character_list（角色名单）",
+            "│  ├─ extract_character_detail（角色详情）",
+            "│  │  └─ extract_character_relationships（角色关系）",
+            "│  └─ （详情是关系的依赖）",
+            "├─ analyze_story_world（故事世界）",
+            "├─ analyze_timeline（时间线）",
+            "├─ extract_style（文风）",
+            "└─ extract_ideas（点子）",
+          ].join("\n"),
+          edges: ANALYSIS_AGENT_DEPENDENCIES,
+        },
+
+        /**
+         * Guidance only — master invents ask_question options for this user turn.
+         * Do NOT hardcode a fixed menu; options must be unambiguous for humans.
+         */
+        decisionHint: {
+          alreadyComplete: pending.length === 0 && done.length > 0,
+          /** Soft: only suggest asking when scope is unclear (partial done, vague user request) */
+          shouldClarifyScope:
+            done.length > 0 &&
+            // still missing something, or user may mean re-run vs fill
+            true,
+          doneDomainsZh: done.map((d) => {
+            const map: Record<string, string> = {
+              form: "章法",
+              character_list: "角色名单",
+              character_detail: "角色详情",
+              character_relationships: "角色关系",
+              story: "故事世界",
+              timeline: "时间线",
+              style: "文风",
+              ideas: "点子",
+            };
+            return map[d] || d;
+          }),
+          pendingDomainsZh: pending.map((d) => {
+            const map: Record<string, string> = {
+              form: "章法",
+              character_list: "角色名单",
+              character_detail: "角色详情",
+              character_relationships: "角色关系",
+              story: "故事世界",
+              timeline: "时间线",
+              style: "文风",
+              ideas: "点子",
+            };
+            return map[d] || d;
+          }),
+          agentZh: {
+            analyze_form: "章法",
+            analyze_character_list: "角色名单",
+            extract_character_detail: "角色详情",
+            extract_character_relationships: "角色关系",
+            analyze_story_world: "故事世界",
+            analyze_timeline: "时间线",
+            extract_style: "文风",
+            extract_ideas: "点子",
+          },
+          /** Rules the master must follow when writing options (not a fixed list) */
+          optionRules: [
+            "不要写死/照抄固定菜单；按用户本轮意图与 done/pending 现场组织选项",
+            "每个选项语义唯一：用户点了之后只能有一种理解，不能既像「只重角色」又像「全书重跑」",
+            "禁止歧义词单独当选项：如「全部重新分析」「重新分析」「再分析一遍」（未说明范围）",
+            "若涉及将派工：用中文写清范围（章法/角色名单/角色详情/角色关系/故事…），需要时加「将运行：A → B」中文步骤",
+            "禁止在用户可见 options 里写英文 agent_type",
+            "角色可拆成：仅名单 / 仅详情 / 仅关系 / 名单+详情+关系；不要合成含糊的「角色相关」",
+            "「全书重跑」必须写明含章法且很慢；与「只重角色」严格分开",
+            "各域已齐时：不要出现「确认保存/暂不保存」；已有结果无需再确认落库",
+            "选项数量适中（一般 2～5 个），只放与当前用户意图相关的，不要堆无关全书菜单",
+          ],
+          noSaveNagWhenComplete: true,
+        },
       };
       return { content: JSON.stringify(status, null, 2), messages: [] };
     },

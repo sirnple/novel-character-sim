@@ -1,6 +1,9 @@
 /**
  * Split novel text into extraction units (chapters or fixed windows).
  * Spec: chapter-first; pack when chapters > 150 or bodies tiny; else ~6k windows.
+ *
+ * LLM mention-scan may further pack several units into one model call
+ * (see packUnitsForMentionScan) under a char/unit budget for speed.
  */
 
 import { extractChapterCatalog } from "@/core/form/chapter-catalog";
@@ -11,6 +14,71 @@ export interface TextUnit {
   start: number;
   end: number;
   text: string;
+}
+
+/**
+ * Soft upper bound: Chinese chars sent as novel body per LLM mention-scan call.
+ * ~16k CJK ≈ mid context for flash models; keeps recall better than 30k+ dumps.
+ * Override: CHARACTER_MENTION_BATCH_CHARS
+ */
+export const MENTION_SCAN_BATCH_CHARS_DEFAULT = 16_000;
+
+/** Cap how many units share one LLM call (even if under char budget). */
+export const MENTION_SCAN_BATCH_UNITS_DEFAULT = 6;
+
+/**
+ * Group consecutive units into LLM call batches under char + unit caps.
+ * Single unit longer than maxChars is still one batch (caller truncates text).
+ */
+export function packUnitsForMentionScan(
+  units: TextUnit[],
+  options?: { maxChars?: number; maxUnits?: number },
+): TextUnit[][] {
+  const maxChars =
+    options?.maxChars ??
+    (() => {
+      const env = Number(process.env.CHARACTER_MENTION_BATCH_CHARS || "");
+      return Number.isFinite(env) && env >= 4_000
+        ? Math.floor(env)
+        : MENTION_SCAN_BATCH_CHARS_DEFAULT;
+    })();
+  const maxUnits =
+    options?.maxUnits ??
+    (() => {
+      const env = Number(process.env.CHARACTER_MENTION_BATCH_UNITS || "");
+      return Number.isFinite(env) && env >= 1
+        ? Math.floor(env)
+        : MENTION_SCAN_BATCH_UNITS_DEFAULT;
+    })();
+
+  if (!units.length) return [];
+  const batches: TextUnit[][] = [];
+  let cur: TextUnit[] = [];
+  let curChars = 0;
+
+  for (const u of units) {
+    const len = (u.text || "").length;
+    const wouldChars = curChars + len + (cur.length ? 80 : 0); // section header slack
+    const wouldUnits = cur.length + 1;
+    const overflow =
+      cur.length > 0 &&
+      (wouldUnits > maxUnits || (wouldChars > maxChars && curChars > 0));
+    if (overflow) {
+      batches.push(cur);
+      cur = [];
+      curChars = 0;
+    }
+    cur.push(u);
+    curChars += len + (cur.length > 1 ? 80 : 0);
+    // Lone unit already over budget: flush alone next iteration if more come
+    if (cur.length === 1 && len >= maxChars) {
+      batches.push(cur);
+      cur = [];
+      curChars = 0;
+    }
+  }
+  if (cur.length) batches.push(cur);
+  return batches;
 }
 
 export interface BuildUnitsOptions {

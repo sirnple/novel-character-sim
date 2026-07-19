@@ -10,6 +10,7 @@ import { parseNovel } from "@/core/parser/novel-parser";
 import { CharacterExtractor } from "@/core/extractor/character-extractor";
 import { buildNameScanUnits, type TextUnit } from "@/core/extractor/character-name-units";
 import type { UnitNameHit } from "@/core/extractor/character-name-aggregate";
+import { scanUnitHitsWithLlm } from "@/core/extractor/character-name-scan";
 import { countResolvedEntities } from "@/core/extractor/character-entity-frequency";
 import { gateRosterWithLlm } from "@/core/extractor/character-roster-gate";
 import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
@@ -287,8 +288,8 @@ const UNIT_SCHEMA = {
   },
 };
 
-// Bump when unit prompt/schema changes so name-unit cache invalidates
-const PROMPT_VERSION = "char-mentions-unit-v4-no-pronoun";
+// Bump when unit prompt/schema/batching changes so name-unit cache invalidates
+const PROMPT_VERSION = "char-mentions-unit-v5-batch";
 
 async function mapPool<T, R>(
   items: T[],
@@ -446,79 +447,81 @@ async function runCharacterJob(
   const llm = createLLMProvider("analysis");
   const zh = isChinese(fullText);
   const fp = job.contentFp || novelFingerprint(fullText);
-  const unitHits: UnitNameHit[][] = new Array(units.length);
+  let unitHits: UnitNameHit[][] = new Array(units.length);
 
-  // Mention scan: default concurrency 4 (override CHARACTER_MENTION_CONCURRENCY)
+  // Prefill unit cache (per unit range; batching still scans misses only)
+  const needScan: TextUnit[] = [];
+  for (let i = 0; i < units.length; i++) {
+    const unit = units[i];
+    const cacheKey = `${fp}:${unit.start}:${unit.end}:${PROMPT_VERSION}`;
+    if (!job.forceRefresh) {
+      const cached = getNameUnitCache(job.userId, job.novelId, cacheKey);
+      if (cached) {
+        unitHits[i] = cached;
+        continue;
+      }
+    }
+    needScan.push(unit);
+  }
+  job.completed = unitHits.filter(Boolean).length;
+  job.message =
+    needScan.length === 0
+      ? `扫描人名 ${units.length}/${units.length}（全缓存）`
+      : `扫描人名 ${job.completed}/${units.length}（待扫 ${needScan.length}）`;
+  touch(job);
+
   const envC = Number(process.env.CHARACTER_MENTION_CONCURRENCY || "");
   const scanConcurrency =
     Number.isFinite(envC) && envC >= 1 ? Math.floor(envC) : 4;
   console.log(
-    `[char-job] ${jobId} mention-scan units=${units.length} concurrency=${scanConcurrency}`,
+    `[char-job] ${jobId} mention-scan units=${units.length} need=${needScan.length} concurrency=${scanConcurrency}`,
   );
 
-  await mapPool(
-    units,
-    scanConcurrency,
-    async (unit, i) => {
-      if (stop()) return [] as UnitNameHit[];
-
-      const cacheKey = `${fp}:${unit.start}:${unit.end}:${PROMPT_VERSION}`;
-      if (!job.forceRefresh) {
-        const cached = getNameUnitCache(job.userId, job.novelId, cacheKey);
-        if (cached) {
-          unitHits[i] = cached;
-          job.completed = unitHits.filter(Boolean).length;
-          job.message = `扫描人名 ${job.completed}/${units.length}（缓存）`;
-          touch(job);
-          return cached;
-        }
-      }
-
-      let hits: UnitNameHit[] = [];
-      let lastErr: Error | null = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        if (stop()) break;
-        try {
-          hits = await runWithTokenContext(
-            {
-              userId: job.userId,
-              novelId: job.novelId,
-              agentId: "character_names_unit",
-              category: "extract",
+  if (needScan.length && !stop()) {
+    try {
+      const { unitHits: scanned } = await runWithTokenContext(
+        {
+          userId: job.userId,
+          novelId: job.novelId,
+          agentId: "character_names_unit",
+          category: "extract",
+        },
+        () =>
+          scanUnitHitsWithLlm(llm, fullText, {
+            units: needScan,
+            zh,
+            concurrency: scanConcurrency,
+            onProgress: (done, total, label) => {
+              if (stop()) return;
+              const base = units.length - needScan.length;
+              job.completed = base + done;
+              job.message = `扫描人名 ${job.completed}/${units.length} · ${label}`;
+              touch(job);
             },
-            () => extractUnitNames(llm, unit, zh),
-          );
-          lastErr = null;
-          break;
-        } catch (e) {
-          lastErr = e as Error;
-          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
-        }
-      }
-
-      if (lastErr && hits.length === 0) {
-        job.failedUnitIds.push(`u${i}`);
-        hits = [];
-      } else {
+          }),
+      );
+      // scanned[i] aligns with needScan[i]
+      for (let i = 0; i < needScan.length; i++) {
+        const u = needScan[i];
+        const hits = scanned[i] || [];
+        unitHits[u.index] = hits;
+        const cacheKey = `${fp}:${u.start}:${u.end}:${PROMPT_VERSION}`;
         try {
           saveNameUnitCache(job.userId, job.novelId, cacheKey, hits);
         } catch {
           /* ignore */
         }
       }
-
-      unitHits[i] = hits;
-
-      job.completed = unitHits.filter(Boolean).length;
-      job.message = `扫描人名 ${job.completed}/${units.length}`;
-      if (job.failedUnitIds.length) {
-        job.message += ` · 失败 ${job.failedUnitIds.length}`;
+    } catch (e) {
+      console.warn(`[char-job] ${jobId} mention-scan failed:`, (e as Error).message);
+      for (const u of needScan) {
+        if (!unitHits[u.index]) {
+          unitHits[u.index] = [];
+          job.failedUnitIds.push(`u${u.index}`);
+        }
       }
-      touch(job);
-      return hits;
-    },
-    stop,
-  );
+    }
+  }
 
   if (stop()) {
     job.status = "cancelled";

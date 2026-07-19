@@ -15,6 +15,36 @@ function formatGeneratedAt(iso: string): string {
   }
 }
 
+/**
+ * Story payloads sometimes store structured objects (e.g. subPlots as
+ * { title, description }) instead of plain strings — never pass objects to JSX.
+ */
+function asDisplayText(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+    return String(v);
+  }
+  if (Array.isArray(v)) {
+    return v.map(asDisplayText).filter(Boolean).join("；");
+  }
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    if ("title" in o || "description" in o || "summary" in o || "name" in o) {
+      const parts = [
+        asDisplayText(o.title ?? o.name),
+        asDisplayText(o.description ?? o.summary),
+      ].filter(Boolean);
+      if (parts.length) return parts.join(" — ");
+    }
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
 export default function ShareOverviewView({
   payload,
 }: {
@@ -60,15 +90,15 @@ export default function ShareOverviewView({
             <section>
               <h3 className="text-xs font-medium text-fog mb-2">情节摘要</h3>
               <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                {(story.plotSummary || "").trim() || "—"}
+                {asDisplayText(story.plotSummary).trim() || "—"}
               </p>
             </section>
 
-            {story.mainStoryline && (
+            {asDisplayText(story.mainStoryline) && (
               <section>
                 <h3 className="text-xs font-medium text-fog mb-2">主线</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed pl-3 border-l-2 border-primary/35">
-                  {story.mainStoryline}
+                  {asDisplayText(story.mainStoryline)}
                 </p>
               </section>
             )}
@@ -77,11 +107,15 @@ export default function ShareOverviewView({
               <section>
                 <h3 className="text-xs font-medium text-fog mb-2">主题</h3>
                 <div className="flex flex-wrap gap-2">
-                  {story.themes!.map((t) => (
-                    <span key={t} className="ov-chip-ok">
-                      {t}
-                    </span>
-                  ))}
+                  {story.themes!.map((t, i) => {
+                    const text = asDisplayText(t);
+                    if (!text) return null;
+                    return (
+                      <span key={`${text}-${i}`} className="ov-chip-ok">
+                        {text}
+                      </span>
+                    );
+                  })}
                 </div>
               </section>
             )}
@@ -92,18 +126,22 @@ export default function ShareOverviewView({
                   <Globe className="w-3.5 h-3.5" /> 世界观
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <Field label="时代" value={story.worldSetting.timePeriod} />
-                  <Field label="地点" value={story.worldSetting.location} />
-                  <Field label="社会" value={story.worldSetting.socialStructure} />
-                  <Field label="体系" value={story.worldSetting.powerSystem} />
+                  <Field label="时代" value={asDisplayText(story.worldSetting.timePeriod)} />
+                  <Field label="地点" value={asDisplayText(story.worldSetting.location)} />
+                  <Field label="社会" value={asDisplayText(story.worldSetting.socialStructure)} />
+                  <Field label="体系" value={asDisplayText(story.worldSetting.powerSystem)} />
                 </div>
                 {(story.worldSetting.factions?.length ?? 0) > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-3">
-                    {story.worldSetting.factions!.map((f) => (
-                      <span key={f} className="ov-chip-muted">
-                        {f}
-                      </span>
-                    ))}
+                    {story.worldSetting.factions!.map((f, i) => {
+                      const text = asDisplayText(f);
+                      if (!text) return null;
+                      return (
+                        <span key={`${text}-${i}`} className="ov-chip-muted">
+                          {text}
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
               </section>
@@ -113,14 +151,18 @@ export default function ShareOverviewView({
               <section>
                 <h3 className="text-xs font-medium text-fog mb-2">支线</h3>
                 <ul className="space-y-2">
-                  {story.subPlots!.map((s, i) => (
-                    <li
-                      key={i}
-                      className="text-sm text-muted-foreground leading-relaxed pl-3 border-l border-border"
-                    >
-                      {s}
-                    </li>
-                  ))}
+                  {story.subPlots!.map((s, i) => {
+                    const text = asDisplayText(s);
+                    if (!text) return null;
+                    return (
+                      <li
+                        key={i}
+                        className="text-sm text-muted-foreground leading-relaxed pl-3 border-l border-border"
+                      >
+                        {text}
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             )}
@@ -205,24 +247,37 @@ function ShareCharacterCard({ character }: { character: ShareCharacter }) {
         subtitle={(c.aliases || []).join(" / ") || undefined}
       >
         <div className="space-y-5">
-          {c.appearance?.summary && (
-            <Block label="外貌" text={c.appearance.summary} />
+          {asDisplayText(c.appearance?.summary) && (
+            <Block label="外貌" text={asDisplayText(c.appearance?.summary)} />
           )}
-          {c.personality?.description && (
-            <Block label="性格" text={c.personality.description} />
+          {asDisplayText(c.personality?.description) && (
+            <Block
+              label="性格"
+              text={asDisplayText(c.personality?.description)}
+            />
           )}
           {(c.personality?.traits?.length ?? 0) > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {c.personality!.traits!.map((t) => (
-                <span key={t} className="ov-chip-muted">
-                  {t}
-                </span>
-              ))}
+              {c.personality!.traits!.map((t, i) => {
+                const text = asDisplayText(t);
+                if (!text) return null;
+                return (
+                  <span key={`${text}-${i}`} className="ov-chip-muted">
+                    {text}
+                  </span>
+                );
+              })}
             </div>
           )}
-          {c.drive?.goal && <Block label="目标" text={c.drive.goal} />}
-          {c.drive?.motivation && <Block label="动机" text={c.drive.motivation} />}
-          {c.drive?.fear && <Block label="恐惧" text={c.drive.fear} />}
+          {asDisplayText(c.drive?.goal) && (
+            <Block label="目标" text={asDisplayText(c.drive?.goal)} />
+          )}
+          {asDisplayText(c.drive?.motivation) && (
+            <Block label="动机" text={asDisplayText(c.drive?.motivation)} />
+          )}
+          {asDisplayText(c.drive?.fear) && (
+            <Block label="恐惧" text={asDisplayText(c.drive?.fear)} />
+          )}
           {(c.relationships?.length ?? 0) > 0 && (
             <div>
               <h3 className="text-xs font-medium text-fog mb-2">关系</h3>
@@ -233,13 +288,13 @@ function ShareCharacterCard({ character }: { character: ShareCharacter }) {
                     className="text-sm text-muted-foreground rounded-xl bg-secondary/40 border border-border/40 px-3 py-2"
                   >
                     <span className="text-foreground/90 font-medium">
-                      {r.characterName}
+                      {asDisplayText(r.characterName)}
                     </span>
                     <span className="text-fog mx-1.5">·</span>
-                    {r.type}
-                    {r.description ? (
+                    {asDisplayText(r.type)}
+                    {asDisplayText(r.description) ? (
                       <span className="block text-xs text-fog mt-0.5">
-                        {r.description}
+                        {asDisplayText(r.description)}
                       </span>
                     ) : null}
                   </li>
@@ -254,11 +309,12 @@ function ShareCharacterCard({ character }: { character: ShareCharacter }) {
 }
 
 function Field({ label, value }: { label: string; value?: string }) {
-  if (!value) return null;
+  const text = asDisplayText(value).trim();
+  if (!text) return null;
   return (
     <div className="rounded-xl bg-secondary/40 border border-border/40 px-3 py-2.5">
       <p className="text-[10px] uppercase tracking-wide text-fog">{label}</p>
-      <p className="text-sm text-foreground/90 mt-0.5">{value}</p>
+      <p className="text-sm text-foreground/90 mt-0.5">{text}</p>
     </div>
   );
 }

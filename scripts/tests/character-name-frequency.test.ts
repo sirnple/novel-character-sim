@@ -8,7 +8,14 @@ import {
   filterByMentionFrequency,
   type UnitNameHit,
 } from "../../src/core/extractor/character-name-aggregate";
-import { buildNameScanUnits } from "../../src/core/extractor/character-name-units";
+import {
+  buildNameScanUnits,
+  packUnitsForMentionScan,
+} from "../../src/core/extractor/character-name-units";
+import {
+  distributeHitsToUnits,
+  formatMentionScanBatchText,
+} from "../../src/core/extractor/character-name-scan";
 import { buildSurfaceCatalog } from "../../src/core/extractor/character-surface-catalog";
 import { countResolvedEntities } from "../../src/core/extractor/character-entity-frequency";
 import {
@@ -133,6 +140,55 @@ export async function runCharacterNameFrequencyTests(): Promise<void> {
       const units = buildNameScanUnits(text, { windowChars: 5_000 });
       assert.ok(units.length >= 3);
       assert.ok(units[0].text.length > 0);
+    });
+
+    test("packUnitsForMentionScan merges under char budget", () => {
+      const units = Array.from({ length: 10 }, (_, i) => ({
+        index: i,
+        label: `第${i + 1}章`,
+        start: i * 1000,
+        end: (i + 1) * 1000,
+        text: "字".repeat(1000),
+      }));
+      const batches = packUnitsForMentionScan(units, {
+        maxChars: 3500,
+        maxUnits: 6,
+      });
+      assert.ok(batches.length >= 3);
+      assert.ok(batches.every((b) => b.length >= 1 && b.length <= 6));
+      const total = batches.reduce((n, b) => n + b.length, 0);
+      assert.equal(total, 10);
+    });
+
+    test("distributeHitsToUnits attributes by presence", () => {
+      const batch = [
+        {
+          index: 0,
+          label: "A",
+          start: 0,
+          end: 10,
+          text: "孙悟空来了",
+        },
+        {
+          index: 1,
+          label: "B",
+          start: 10,
+          end: 20,
+          text: "唐僧取经",
+        },
+      ];
+      const hits = [
+        { name: "孙悟空", aliases: ["齐天大圣"], count: 1 },
+        { name: "唐僧", aliases: [], count: 1 },
+      ];
+      const d = distributeHitsToUnits(batch, hits);
+      assert.equal(d[0].length, 1);
+      assert.equal(d[0][0].name, "孙悟空");
+      assert.equal(d[1].length, 1);
+      assert.equal(d[1][0].name, "唐僧");
+      const fmt = formatMentionScanBatchText(batch, 50_000);
+      assert.ok(fmt.text.includes("### A"));
+      assert.ok(fmt.text.includes("### B"));
     });
 
     test("entity count sums surfaces after coref (孙悟空 + 齐天大圣)", () => {

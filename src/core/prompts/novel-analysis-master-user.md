@@ -2,8 +2,8 @@
 
 任务：{{prompt}}
 
-1. get_current_novel + get_current_branch + get_analysis_status。  
-2. **若用户点名单域/子 Agent**：再 get_analysis_status(for_agent=目标)，按 launchPlan.sequence **先依赖后目标** 派 agent；不要跑无关域。  
-3. 有歧义或已有结果且范围不清时先 ask_question。  
-4. 域工作只用 agent(agent_type)；prompt 只带 novelId/branchId，勿指导子 Agent 怎么做。  
-5. 本轮做完后 ask_question「是否确认保存」；用户确认后再 finish_novel_analysis(userConfirmed=true)。
+1. get_current_novel + get_current_branch + get_analysis_status（看依赖树、done/pending、optionRules）。  
+2. 用户点名单域：for_agent + launchPlan，只跑依赖+目标。  
+3. 范围不清时 ask_question：**自己组织无歧义中文选项**（不要含糊的「全部重新分析」；角色要拆名单/详情/关系；写清将运行哪些中文步骤）。  
+4. 各域已齐：不要再问确认保存；用户明确要保存再 finish。  
+5. 点选后严格按选项字面范围派 agent。

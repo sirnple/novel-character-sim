@@ -2,12 +2,19 @@
  * Flash-friendly per-unit **character mention** scan → frequency filter → roster.
  * Step 1 finds character *referents* (names, epithets, kinship labels…), not only proper names.
  * Does NOT invent personality/relationships.
+ *
+ * Throughput: consecutive units are packed into one LLM call under a char/unit
+ * budget (default ~16k chars / 6 units), then hits are re-attributed per unit.
  */
 
 import type { LLMProvider } from "@/types";
 import { extractJSON } from "@/lib/utils";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
-import { buildNameScanUnits, type TextUnit } from "./character-name-units";
+import {
+  buildNameScanUnits,
+  packUnitsForMentionScan,
+  type TextUnit,
+} from "./character-name-units";
 import {
   aggregateUnitHits,
   filterByMentionFrequency,
@@ -29,8 +36,8 @@ const UNIT_NAME_SCHEMA = {
       characters: {
         type: "array",
         description:
-          "One surface per specific person. Prefer stable third-person labels. " +
-          "Exclude 他/她/它/他爸/我爸/有人 etc.",
+          "One surface per specific person across the whole passage. Prefer stable third-person labels. " +
+          "Exclude 他/她/它/他爸/我爸/有人 etc. Deduplicate same person.",
         items: {
           type: "object",
           properties: {
@@ -88,14 +95,83 @@ async function mapPool<T, R>(
   return out;
 }
 
-async function extractNamesInUnit(
+function normalizeHits(
+  characters: { name: string; aliases?: string[] }[] | undefined,
+): UnitNameHit[] {
+  return (characters || [])
+    .map((c) => ({
+      name: (c.name || "").trim(),
+      aliases: (c.aliases || []).map((a) => String(a).trim()).filter(Boolean),
+      count: 1 as const,
+    }))
+    .filter((c) => c.name.length >= 1 && c.name.length <= 24);
+}
+
+/** Build labeled multi-section body for one LLM call. */
+export function formatMentionScanBatchText(
+  batch: TextUnit[],
+  maxBodyChars: number,
+): { label: string; text: string } {
+  if (batch.length === 1) {
+    const u = batch[0];
+    return {
+      label: u.label,
+      text: (u.text || "").slice(0, maxBodyChars),
+    };
+  }
+  const parts: string[] = [];
+  let used = 0;
+  for (const u of batch) {
+    const header = `\n\n### ${u.label}\n`;
+    const room = maxBodyChars - used - header.length;
+    if (room <= 200) break;
+    const body = (u.text || "").slice(0, room);
+    parts.push(header + body);
+    used += header.length + body.length;
+  }
+  const labels = batch.map((u) => u.label);
+  const label =
+    labels.length <= 3
+      ? labels.join(" + ")
+      : `${labels[0]}…${labels[labels.length - 1]}（${labels.length}段）`;
+  return { label, text: parts.join("").trim() };
+}
+
+/**
+ * Attribute batch-level surfaces back to each unit by literal presence.
+ * Preserves unitHits / frequency semantics after multi-unit packing.
+ */
+export function distributeHitsToUnits(
+  batch: TextUnit[],
+  hits: UnitNameHit[],
+): UnitNameHit[][] {
+  return batch.map((unit) => {
+    const text = unit.text || "";
+    const out: UnitNameHit[] = [];
+    for (const h of hits) {
+      const names = [h.name, ...(h.aliases || [])].filter(Boolean);
+      if (names.some((n) => n && text.includes(n))) {
+        out.push({
+          name: h.name,
+          aliases: (h.aliases || []).filter((a) => a && text.includes(a)),
+          count: 1,
+        });
+      }
+    }
+    return out;
+  });
+}
+
+async function extractNamesInBatch(
   llm: LLMProvider,
-  unit: TextUnit,
+  batch: TextUnit[],
   zh: boolean,
+  maxBodyChars: number,
 ): Promise<UnitNameHit[]> {
+  const { label, text } = formatMentionScanBatchText(batch, maxBodyChars);
   const prompt = resolveAgentSystem("character_names_unit", zh ? "zh" : "en", {
-    unitLabel: unit.label,
-    unitText: unit.text.slice(0, 14_000),
+    unitLabel: label,
+    unitText: text,
   });
 
   try {
@@ -105,18 +181,10 @@ async function extractNamesInUnit(
       temperature: 0.2,
       maxTokens: 8192,
     });
-    return (result.characters || [])
-      .map((c) => ({
-        name: (c.name || "").trim(),
-        aliases: (c.aliases || []).map((a) => String(a).trim()).filter(Boolean),
-        count: 1,
-      }))
-      // Allow longer kinship/descriptive referents e.g. 「周屿和周航的母亲」
-      .filter((c) => c.name.length >= 1 && c.name.length <= 24);
+    return normalizeHits(result.characters);
   } catch (e) {
-    // Fallback: plain-text JSON if tool path fails
     console.warn(
-      `[NameScan] unit ${unit.index} tool failed:`,
+      `[NameScan] batch ${label} tool failed:`,
       (e as Error).message,
     );
     try {
@@ -134,13 +202,7 @@ async function extractNamesInUnit(
       const parsed = extractJSON<{
         characters?: { name: string; aliases?: string[] }[];
       }>(raw);
-      return (parsed?.characters || [])
-        .map((c) => ({
-          name: (c.name || "").trim(),
-          aliases: c.aliases || [],
-          count: 1,
-        }))
-        .filter((c) => c.name.length >= 1 && c.name.length <= 24);
+      return normalizeHits(parsed?.characters);
     } catch {
       return [];
     }
@@ -149,7 +211,7 @@ async function extractNamesInUnit(
 
 /**
  * LLM-only per-unit name/surface extraction (product path).
- * Does NOT use programmatic surname heuristics.
+ * Packs consecutive units into fewer LLM calls under char/unit budget.
  */
 export async function scanUnitHitsWithLlm(
   llm: LLMProvider,
@@ -158,11 +220,14 @@ export async function scanUnitHitsWithLlm(
     units?: TextUnit[];
     zh?: boolean;
     concurrency?: number;
+    /** Max novel chars per LLM call body (default ~16k / env) */
+    batchChars?: number;
+    /** Max units per LLM call (default 6 / env) */
+    batchUnits?: number;
     onProgress?: (done: number, total: number, label: string) => void;
   } = {},
 ): Promise<{ units: TextUnit[]; unitHits: UnitNameHit[][] }> {
   const zh = options.zh !== false;
-  // Default 4 everywhere (dev + prod). Override: CHARACTER_MENTION_CONCURRENCY
   const envC = Number(process.env.CHARACTER_MENTION_CONCURRENCY || "");
   const concurrency =
     options.concurrency ??
@@ -170,20 +235,57 @@ export async function scanUnitHitsWithLlm(
   const units =
     options.units?.length ? options.units : buildNameScanUnits(fullText);
 
+  const batches = packUnitsForMentionScan(units, {
+    maxChars: options.batchChars,
+    maxUnits: options.batchUnits,
+  });
+
+  // Body budget ≈ pack budget (section headers already reserved in packer slack)
+  const envBody = Number(process.env.CHARACTER_MENTION_BATCH_CHARS || "");
+  const maxBodyChars =
+    options.batchChars ??
+    (Number.isFinite(envBody) && envBody >= 4_000
+      ? Math.floor(envBody)
+      : 16_000);
+
   console.log(
-    `[MentionScan] units=${units.length} textLen=${fullText.length} concurrency=${concurrency}`,
+    `[MentionScan] units=${units.length} batches=${batches.length} ` +
+      `textLen=${fullText.length} concurrency=${concurrency} ` +
+      `batchChars≈${maxBodyChars}`,
   );
 
-  const unitHits = await mapPool(units, concurrency, async (unit, i) => {
-    const hits = await extractNamesInUnit(llm, unit, zh);
-    options.onProgress?.(i + 1, units.length, unit.label);
-    if ((i + 1) % 10 === 0 || i === 0 || i === units.length - 1) {
+  // Index by position in the `units` array (not unit.index — callers may pass a subset)
+  const posOf = new Map<TextUnit, number>();
+  units.forEach((u, i) => posOf.set(u, i));
+  const unitHits: UnitNameHit[][] = new Array(units.length);
+  let unitsDone = 0;
+
+  await mapPool(batches, concurrency, async (batch, bi) => {
+    const hits = await extractNamesInBatch(llm, batch, zh, maxBodyChars);
+    const distributed = distributeHitsToUnits(batch, hits);
+    for (let j = 0; j < batch.length; j++) {
+      const pos = posOf.get(batch[j]);
+      if (pos != null) unitHits[pos] = distributed[j];
+    }
+    unitsDone += batch.length;
+    const label =
+      batch.length === 1
+        ? batch[0].label
+        : `${batch[0].label}…×${batch.length}`;
+    options.onProgress?.(unitsDone, units.length, label);
+    if (bi === 0 || bi === batches.length - 1 || (bi + 1) % 5 === 0) {
       console.log(
-        `[MentionScan] unit ${i + 1}/${units.length} (${unit.label}): ${hits.map((h) => h.name).join("、") || "—"}`,
+        `[MentionScan] batch ${bi + 1}/${batches.length} (${label}): ` +
+          `${hits.map((h) => h.name).join("、") || "—"} → split ${batch.length} units`,
       );
     }
-    return hits;
+    return distributed;
   });
+
+  // Safety: any hole → empty list
+  for (let i = 0; i < unitHits.length; i++) {
+    if (!unitHits[i]) unitHits[i] = [];
+  }
 
   return { units, unitHits };
 }
@@ -207,7 +309,6 @@ export async function scanNamesByUnits(
   const filter = filterByMentionFrequency(aggregates, {
     textLength: fullText.length,
     unitCount: units.length,
-    // Soft prompt safety only; still frequency ladder, not top-80
     softMaxNames: 200,
   });
 
