@@ -8,7 +8,7 @@ import type {
 import type { ForeshadowingLedger } from "@/core/foreshadowing/types";
 import { emptyLedger } from "@/core/foreshadowing/types";
 import type { ShareOverviewPayload, ShareVisibility } from "@/lib/share-payload";
-import { isAdminEmail } from "@/lib/admin-users";
+import { isAdminEmail, parseAdminEmails } from "@/lib/admin-users";
 
 /** Default app DB. Override with NCS_DB_PATH or NOVEL_DB_PATH (absolute or cwd-relative). */
 export function resolveDbPath(): string {
@@ -465,6 +465,58 @@ function initSchema(db: Database.Database) {
     db.exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`);
     console.log(`[DB] Added is_admin to users`);
   } catch { /* already exists */ }
+
+  // Promote any existing accounts whose email is in ADMIN_EMAILS
+  try {
+    promoteAdminEmailsFromEnv(db);
+  } catch (e) {
+    console.warn("[DB] promoteAdminEmailsFromEnv failed:", e);
+  }
+}
+
+/** Mark users matching ADMIN_EMAILS as is_admin=1. Safe to call repeatedly. */
+function promoteAdminEmailsFromEnv(d: Database.Database): void {
+  const emails = [...parseAdminEmails()];
+  if (emails.length === 0) {
+    console.log("[DB] ADMIN_EMAILS not set — no admin auto-promote");
+    return;
+  }
+  console.log(`[DB] ADMIN_EMAILS configured (${emails.length} address(es))`);
+  const stmt = d.prepare(
+    `UPDATE users SET is_admin = 1, updated_at = datetime('now')
+     WHERE lower(email) = ? AND COALESCE(is_admin, 0) = 0`,
+  );
+  let promoted = 0;
+  for (const email of emails) {
+    const info = stmt.run(email);
+    promoted += Number(info.changes || 0);
+  }
+  if (promoted > 0) {
+    console.log(`[DB] Promoted ${promoted} user(s) to admin via ADMIN_EMAILS`);
+  }
+  // List admin emails present in DB (help ops confirm match without passwords)
+  try {
+    const admins = d
+      .prepare(
+        `SELECT email, is_admin FROM users WHERE is_admin = 1 OR lower(email) IN (${emails
+          .map(() => "?")
+          .join(",")})`,
+      )
+      .all(...emails) as { email: string; is_admin: number }[];
+    if (admins.length === 0) {
+      console.warn(
+        "[DB] No users match ADMIN_EMAILS yet — register/login with that email to become admin",
+      );
+    } else {
+      for (const a of admins) {
+        console.log(
+          `[DB] admin candidate email=${a.email} is_admin=${a.is_admin}`,
+        );
+      }
+    }
+  } catch {
+    /* ignore list errors */
+  }
 }
 
 // ---- Auth users / sessions ----

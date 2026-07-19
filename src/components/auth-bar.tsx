@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { LogIn, LogOut, User, X } from "lucide-react";
+import { LogIn, LogOut, Settings, User, X } from "lucide-react";
 
 interface MeResponse {
   userId: string;
   kind: "user" | "guest";
+  adminConfigured?: boolean;
   user: { id: string; email: string; displayName: string; isAdmin?: boolean } | null;
 }
 
@@ -95,11 +96,21 @@ export default function AuthBar() {
           type="button"
           onClick={() => copyId(me.userId)}
           className="hidden sm:inline text-sm text-muted-foreground max-w-[140px] truncate hover:text-foreground px-2 py-1.5 rounded-lg"
-          title={`${me.user.email}\nID: ${me.userId}${me.user.isAdmin ? "\n管理员" : ""}\n点击复制 ID`}
+          title={`${me.user.email}\nID: ${me.userId}${me.user.isAdmin ? "\n管理员" : me.adminConfigured === false ? "\n(服务端未配置 ADMIN_EMAILS)" : ""}\n点击复制 ID`}
         >
           {me.user.displayName || me.user.email}
           {me.user.isAdmin ? " · 管" : ""}
         </button>
+        {me.user.isAdmin && (
+          <a
+            href="/admin"
+            className="flex items-center gap-1.5 text-sm text-fog hover:text-muted-foreground px-2.5 py-2 rounded-lg hover:bg-panel-elevated"
+            title="管理后台"
+          >
+            <Settings className="w-4 h-4" />
+            <span className="hidden sm:inline">管理</span>
+          </a>
+        )}
         <button
           type="button"
           onClick={logout}

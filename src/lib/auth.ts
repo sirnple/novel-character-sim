@@ -23,6 +23,7 @@ import {
   type AuthUser,
 } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/auth-password";
+import { adminEmailsConfiguredCount } from "@/lib/admin-users";
 
 export type { AuthUser };
 
@@ -205,6 +206,8 @@ export function publicUser(user: AuthUser | null, auth: AuthContext) {
   return {
     userId: auth.userId,
     kind: auth.kind,
+    /** True when ADMIN_EMAILS / ADMIN_EMAIL is set on the server. */
+    adminConfigured: adminEmailsConfiguredCount() > 0,
     user: user
       ? {
           id: user.id,
