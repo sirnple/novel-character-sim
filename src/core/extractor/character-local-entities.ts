@@ -224,7 +224,7 @@ export function seedGlobalEntitiesFromLocal(
   }
 
   const out: ResolvedEntity[] = [];
-  for (const [, group] of groups) {
+  for (const group of Array.from(groups.values())) {
     const clusters = clusterByUnitDistance(group, D).sort(
       (a, b) => minUnit(a) - minUnit(b),
     );
@@ -308,7 +308,7 @@ export function collapseTechnicalFarSameNameKeys(
   }
 
   const out: ResolvedEntity[] = [];
-  for (const [, group] of groups) {
+  for (const group of Array.from(groups.values())) {
     const hasTech = group.some((r) => parseTechnicalFarSameName(r.name));
     if (!hasTech && group.length === 1) {
       const only = group[0];
@@ -373,7 +373,7 @@ export function collapseTechnicalFarSameNameKeys(
     }
 
     surfaceSet.add(bareName);
-    for (const a of aliasSet) surfaceSet.add(a);
+    for (const a of Array.from(aliasSet)) surfaceSet.add(a);
 
     out.push({
       name: bareName,
@@ -478,7 +478,7 @@ export function listNearCrossNameAliasCandidates(
       if (setA.has(kb)) reasons.push(`A侧表面含B名「${b.name}」`);
       if (setB.has(ka)) reasons.push(`B侧表面含A名「${a.name}」`);
       // Shared non-name surface (e.g. both claim 周总)
-      for (const s of setA) {
+      for (const s of Array.from(setA)) {
         if (s === ka || s === kb) continue;
         if (setB.has(s)) {
           reasons.push(`共享表面「${s}」`);
