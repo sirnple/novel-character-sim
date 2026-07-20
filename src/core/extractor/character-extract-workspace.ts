@@ -10,10 +10,13 @@ import {
 } from "./character-entity-types";
 import type { LocalEntity } from "./character-local-entities";
 import { applyEntityOps, type EntityOp } from "./character-entity-ops";
+import type { TextUnit } from "./character-name-units";
 
 export interface CharacterExtractWorkspace {
   fullText: string;
   catalog: SurfaceCatalog;
+  /** Scan units (chapter/windows) — anchors point here */
+  units?: TextUnit[];
   /** Stage-1 local coref entities (per unit/window) */
   localEntities?: LocalEntity[];
   /** Set by submit_character_entities */
@@ -46,11 +49,13 @@ export function beginCharacterExtractWorkspace(
     catalog: SurfaceCatalog;
     unitCount: number;
     localEntities?: LocalEntity[];
+    units?: TextUnit[];
   },
 ): void {
   store().set(key(userId, novelId, branchId), {
     fullText: data.fullText,
     catalog: data.catalog,
+    units: data.units || [],
     localEntities: data.localEntities || [],
     entities: null,
     unitCount: data.unitCount,

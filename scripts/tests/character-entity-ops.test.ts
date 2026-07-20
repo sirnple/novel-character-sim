@@ -78,26 +78,27 @@ function ent(
   assert.ok(!(main!.aliases || []).includes("某路人外号"));
 }
 
-// --- local entities from unit hits (program fills anchors) ---
+// --- local entities: unit-level anchor ---
 {
   const units: TextUnit[] = [
     {
       index: 0,
       label: "第1回",
-      start: 0,
-      end: 40,
+      start: 100,
+      end: 140,
       text: "孙悟空即齐天大圣也",
     },
   ];
-  const full = units[0].text;
   const hits: UnitNameHit[][] = [
     [{ name: "孙悟空", aliases: ["齐天大圣"], count: 1 }],
   ];
-  const locals = buildLocalEntitiesFromUnitHits(units, hits, full);
+  const locals = buildLocalEntitiesFromUnitHits(units, hits);
   assert.equal(locals.length, 1);
   assert.equal(locals[0].name, "孙悟空");
   assert.deepEqual(locals[0].aliases, ["齐天大圣"]);
-  assert.ok((locals[0].anchors?.length || 0) >= 1);
+  assert.equal(locals[0].anchors?.[0]?.unitIndex, 0);
+  assert.equal(locals[0].anchors?.[0]?.unitLabel, "第1回");
+  assert.equal(locals[0].anchors?.[0]?.offset, 100);
 }
 
 console.log("character-entity-ops.test.ts OK");

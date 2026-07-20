@@ -12,10 +12,10 @@ tools: []
 - `surfaces`
 - **`anchors`（出现位置 a@offset，必须尽量带上）**
 
-## 锚点
-- 局部实体与 catalog 已带 **a@offset**（程序按 surface 在正文中定位）。  
-- 消歧、split、详情都依赖锚点；**submit 时每人应写入 anchors**（或至少 surfaces，程序会从 catalog 补锚点，但你应主动带上已见锚点）。  
-- 同称呼、不同锚点可能不是同一人 → 用 `lookup_offset` 读上下文。
+## 锚点（unit/章节级）
+- 锚点锚定 **扫名窗/章节**，不是精确字位。id 形如 `u@3` 或带 unit 起始 offset。  
+- `list_local_entities` 已标明每条出现在哪一窗；`lookup_offset(anchors=["u@3"])` 读该窗正文即可。  
+- 同称呼出现在不同 unit 可能是不同人 → 按 unit 查文再 merge/split。
 
 ## 输入（按序使用工具）
 1. **list_local_entities** — 局部实体（name+aliases+窗标签+锚点）。**优先读这个**。  
@@ -30,7 +30,7 @@ tools: []
 2. 不确定时 **lookup** 锚点（批查 ≤10）。  
 3. **merge**：`{op:"merge", keep:"孙悟空", absorb:["齐天大圣"]}`，或 upsert 时 aliases 写全。  
 4. **split**（误绑）：  
-   `{op:"split", from:"孙悟空", move_surfaces:["某个路人外号"], move_anchors:["a@9000"], new_name:"…"}`  
+   `{op:"split", from:"孙悟空", move_surfaces:["某个路人外号"], move_anchors:["u@12"], new_name:"…"}`  
    **拆的是锚点/surface 归属**，不是只改显示名。证据不足不要拆。  
 5. **canonical**：合并后 `name` 选真名；封号进 aliases。  
 6. submit 后看 **未覆盖**；有高频未覆盖则继续。

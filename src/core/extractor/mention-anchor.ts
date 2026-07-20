@@ -1,34 +1,46 @@
 /**
- * Position anchors for character mentions — disambiguate same surface
- * at different book locations (coref + detail focus).
+ * Anchors for character mentions — **unit/chapter grain**, not precise char
+ * positions. Enough to re-open the scan window via lookup_offset (offset =
+ * unit.start) or by unitLabel.
  */
 
 export interface MentionAnchor {
-  /** Absolute char offset in fullText (start of surface) */
+  /**
+   * Lookup key into fullText: typically **unit.start** (window start),
+   * not the exact surface char index.
+   */
   offset: number;
-  /** Unit index when known */
+  /** Scan unit index (0-based in name-scan units array) */
   unitIndex?: number;
-  /** e.g. 第3章 / 窗12 */
+  /** e.g. 第3回 / 第12章 / 窗5 */
   unitLabel?: string;
-  /** Surface string observed at this offset */
+  /** Optional surface associated with this unit hit */
   surface?: string;
 }
 
 export const ANCHOR_PER_SURFACE_MAX = 6;
 export const ANCHOR_PER_ENTITY_MAX = 12;
 
-/** Stable id shown to agents: a@12345 */
-export function formatAnchorId(a: Pick<MentionAnchor, "offset">): string {
+/**
+ * Stable id for tools: prefer unit id `u@3`, else `a@{unitStartOffset}`.
+ */
+export function formatAnchorId(
+  a: Pick<MentionAnchor, "offset" | "unitIndex">,
+): string {
+  if (a.unitIndex != null && Number.isFinite(Number(a.unitIndex))) {
+    return `u@${Math.max(0, Math.floor(Number(a.unitIndex)))}`;
+  }
   return `a@${Math.max(0, Math.floor(Number(a.offset) || 0))}`;
 }
 
+/** Human-facing: chapter/unit first, then id */
 export function formatAnchorShort(a: MentionAnchor): string {
-  const id = formatAnchorId(a);
   const where = (a.unitLabel || "").trim();
-  const surf = (a.surface || "").trim();
-  const bits = [id];
+  const id = formatAnchorId(a);
+  const bits: string[] = [];
   if (where) bits.push(where);
-  if (surf) bits.push(`「${surf}」`);
+  else bits.push(id);
+  if (where) bits.push(id);
   return bits.join(" ");
 }
 
@@ -48,64 +60,92 @@ export function normalizeAnchors(
     if (typeof item === "number" && Number.isFinite(item)) {
       offset = Math.max(0, Math.floor(item));
     } else if (typeof item === "string") {
-      const m = item.trim().match(/^a@(\d+)/i) || item.trim().match(/^(\d+)$/);
-      if (m) offset = Math.max(0, parseInt(m[1], 10));
+      const t = item.trim();
+      const mu = t.match(/^u@(\d+)/i);
+      const ma = t.match(/^a@(\d+)/i) || t.match(/^(\d+)$/);
+      if (mu) {
+        unitIndex = Math.max(0, parseInt(mu[1], 10));
+        // offset filled by caller when resolving unit; keep 0 placeholder
+        offset = 0;
+      } else if (ma) {
+        offset = Math.max(0, parseInt(ma[1], 10));
+      }
     } else if (typeof item === "object") {
       const o = item as Record<string, unknown>;
-      if (o.offset != null && Number.isFinite(Number(o.offset))) {
-        offset = Math.max(0, Math.floor(Number(o.offset)));
-      } else if (typeof o.id === "string") {
-        const m = String(o.id).match(/a@(\d+)/i);
-        if (m) offset = Math.max(0, parseInt(m[1], 10));
-      }
       if (o.unitIndex != null && Number.isFinite(Number(o.unitIndex))) {
         unitIndex = Math.floor(Number(o.unitIndex));
       }
+      if (o.offset != null && Number.isFinite(Number(o.offset))) {
+        offset = Math.max(0, Math.floor(Number(o.offset)));
+      } else if (typeof o.id === "string") {
+        const mu = String(o.id).match(/^u@(\d+)/i);
+        const ma = String(o.id).match(/a@(\d+)/i);
+        if (mu) unitIndex = Math.max(0, parseInt(mu[1], 10));
+        if (ma) offset = Math.max(0, parseInt(ma[1], 10));
+      }
       if (o.unitLabel != null) unitLabel = String(o.unitLabel).trim() || undefined;
       if (o.surface != null) surface = String(o.surface).trim() || undefined;
+      // unit-only object: use unitIndex as identity; offset may be 0
+      if (offset == null && unitIndex != null) offset = 0;
     }
-    if (offset == null || seen.has(offset)) continue;
-    seen.add(offset);
+    if (offset == null) continue;
+    // Dedupe by unit when known, else by offset
+    const dedupeKey =
+      unitIndex != null ? unitIndex + 1_000_000_000 : offset;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
     out.push({ offset, unitIndex, unitLabel, surface });
     if (out.length >= cap) break;
   }
-  return out.sort((a, b) => a.offset - b.offset);
+  return out.sort(
+    (a, b) =>
+      (a.unitIndex ?? a.offset) - (b.unitIndex ?? b.offset) ||
+      a.offset - b.offset,
+  );
 }
 
-/** Union by offset; keep first non-empty labels. */
+/** Union by unit (preferred) or offset; keep first non-empty labels. */
 export function mergeAnchors(
   a: MentionAnchor[] | undefined | null,
   b: MentionAnchor[] | undefined | null,
   cap = ANCHOR_PER_ENTITY_MAX,
 ): MentionAnchor[] {
-  const by = new Map<number, MentionAnchor>();
+  const by = new Map<string, MentionAnchor>();
   for (const x of [...(a || []), ...(b || [])]) {
     const off = Math.max(0, Math.floor(Number(x.offset) || 0));
-    const prev = by.get(off);
+    const ui =
+      x.unitIndex != null && Number.isFinite(Number(x.unitIndex))
+        ? Math.floor(Number(x.unitIndex))
+        : undefined;
+    const key = ui != null ? `u:${ui}` : `o:${off}`;
+    const prev = by.get(key);
     if (!prev) {
-      by.set(off, {
+      by.set(key, {
         offset: off,
-        unitIndex: x.unitIndex,
+        unitIndex: ui,
         unitLabel: x.unitLabel,
         surface: x.surface,
       });
       continue;
     }
-    by.set(off, {
-      offset: off,
-      unitIndex: prev.unitIndex ?? x.unitIndex,
+    by.set(key, {
+      offset: prev.offset || off,
+      unitIndex: prev.unitIndex ?? ui,
       unitLabel: prev.unitLabel || x.unitLabel,
       surface: prev.surface || x.surface,
     });
   }
   return Array.from(by.values())
-    .sort((x, y) => x.offset - y.offset)
+    .sort(
+      (x, y) =>
+        (x.unitIndex ?? x.offset) - (y.unitIndex ?? y.offset) ||
+        x.offset - y.offset,
+    )
     .slice(0, cap);
 }
 
 /**
- * Prefer sparse sampling: first + evenly spaced + last when over cap.
- * Helps same-name-at-start-and-end books keep both clusters.
+ * Sparse sample of unit-level anchors: first + evenly spaced + last.
  */
 export function sampleAnchors(
   anchors: MentionAnchor[],
@@ -114,10 +154,12 @@ export function sampleAnchors(
   if (anchors.length <= cap) return anchors;
   if (cap <= 1) return [anchors[0]];
   const out: MentionAnchor[] = [];
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   const push = (a: MentionAnchor) => {
-    if (seen.has(a.offset)) return;
-    seen.add(a.offset);
+    const key =
+      a.unitIndex != null ? `u:${a.unitIndex}` : `o:${a.offset}`;
+    if (seen.has(key)) return;
+    seen.add(key);
     out.push(a);
   };
   push(anchors[0]);
@@ -127,4 +169,18 @@ export function sampleAnchors(
   }
   push(anchors[anchors.length - 1]);
   return out.slice(0, cap);
+}
+
+/** Build a unit/chapter anchor (offset = unit window start for lookup). */
+export function unitAnchor(
+  unit: { start: number; label?: string },
+  unitIndex: number,
+  surface?: string,
+): MentionAnchor {
+  return {
+    offset: Math.max(0, Math.floor(Number(unit.start) || 0)),
+    unitIndex,
+    unitLabel: (unit.label || "").trim() || `u${unitIndex}`,
+    surface,
+  };
 }

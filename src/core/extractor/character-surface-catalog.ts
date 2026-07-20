@@ -14,6 +14,7 @@ import {
   formatAnchorId,
   formatAnchorShort,
   sampleAnchors,
+  unitAnchor,
   type MentionAnchor,
 } from "./mention-anchor";
 
@@ -136,32 +137,15 @@ export function buildSurfaceCatalog(
   const stats: SurfaceStat[] = [];
   for (const [surface, unitSet] of Array.from(bySurface.entries())) {
     const unitIndices = Array.from(unitSet).sort((a, b) => a - b);
-    // Collect more offsets for anchors than for display count
+    // Frequency hint only (optional full-text count); anchors are unit/chapter grain
     const allOffsets = findOffsets(fullText, surface, Math.max(maxText, 24));
     const textHits = allOffsets.length;
-    const rawAnchors: MentionAnchor[] = allOffsets.map((offset) => {
-      const u = unitForOffset(units, offset);
-      return {
-        offset,
-        unitIndex: u?.index ?? -1,
-        unitLabel: u?.label ?? "?",
-        surface,
-      };
-    });
-    // If string search weak, seed anchors from unit windows where scan saw it
-    if (!rawAnchors.length && unitIndices.length) {
-      for (const ui of unitIndices.slice(0, ANCHOR_PER_SURFACE_MAX)) {
-        const u = units[ui];
-        if (!u) continue;
-        const local = u.text.indexOf(surface);
-        const offset = local >= 0 ? u.start + local : u.start;
-        rawAnchors.push({
-          offset,
-          unitIndex: ui,
-          unitLabel: u.label,
-          surface,
-        });
-      }
+    // One anchor per scan unit where this surface was seen (unit.start for lookup)
+    const rawAnchors: MentionAnchor[] = [];
+    for (const ui of unitIndices) {
+      const u = units[ui];
+      if (!u) continue;
+      rawAnchors.push(unitAnchor(u, ui, surface));
     }
     const anchors = sampleAnchors(rawAnchors, ANCHOR_PER_SURFACE_MAX);
     stats.push({
@@ -197,14 +181,26 @@ export function buildSurfaceCatalog(
   const lookup = (surface: string, maxHits = 4): SurfaceHit[] => {
     const s = norm(surface);
     if (!s) return [];
-    // Prefer catalog anchors (sampled positions) then raw string search
+    // Unit/chapter windows where scan saw this surface
     const st = statBySurface.get(s);
     if (st?.anchors?.length) {
-      return st.anchors.slice(0, maxHits).map((a) => toHit(a.offset, s, s.length));
-    }
-    const offsets = findOffsets(fullText, s, maxHits);
-    if (offsets.length) {
-      return offsets.map((offset) => toHit(offset, s, s.length));
+      return st.anchors.slice(0, maxHits).map((a) => {
+        const u =
+          a.unitIndex != null && units[a.unitIndex]
+            ? units[a.unitIndex]
+            : unitForOffset(units, a.offset);
+        // Return a window around unit start (or unit body) for the model
+        const start = u?.start ?? a.offset;
+        const body = u?.text || fullText.slice(start, start + 800);
+        const ctx = body.replace(/\s+/g, " ").trim().slice(0, radius * 4);
+        return {
+          unitIndex: a.unitIndex ?? u?.index ?? -1,
+          unitLabel: a.unitLabel || u?.label || "?",
+          offset: start,
+          context: ctx.length ? ctx : sliceContext(fullText, start, s.length, radius),
+          anchorId: formatAnchorId(a),
+        };
+      });
     }
     const unitsIdx = unitIndexBySurface.get(s);
     if (!unitsIdx?.size) return [];
@@ -212,9 +208,7 @@ export function buildSurfaceCatalog(
     for (const ui of Array.from(unitsIdx).slice(0, maxHits)) {
       const u = units[ui];
       if (!u) continue;
-      const local = u.text.indexOf(s);
-      const offset = local >= 0 ? u.start + local : u.start;
-      hits.push(toHit(offset, s, s.length));
+      hits.push(toHit(u.start, s, s.length));
     }
     return hits;
   };

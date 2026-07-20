@@ -438,20 +438,20 @@ export const characterExtractTools: ToolDefinition[] = [
   {
     name: "lookup_offset",
     description:
-      "按 **锚点 offset** 读原文（消解/详情请用名单里的 a@offset，勿只靠角色名）。" +
-      "**优先批量** offsets/anchors（最多 " +
+      "按 **unit/章节锚点** 读原文。锚点优先 `u@3`（扫名窗）或 unit 起始 a@offset。" +
+      "批量 anchors（最多 " +
       `${LOOKUP_OFFSET_BATCH_MAX}）。` +
-      '例：offsets=[1200,8800] 或 anchors_json=["a@1200","a@8800"]。',
+      '例：anchors=["u@0","u@12"] 或 ["第1回"] 用 list 里的 u@。',
     parameters: {
       type: "object",
       properties: {
         offset: {
           type: "number",
-          description: "单次：正文起始 offset（0-based）= 锚点数字部分",
+          description: "单次：正文起始 offset（unit.start）",
         },
         length: {
           type: "number",
-          description: "单次读取长度，默认 400，最大 2000；批读默认更短",
+          description: "单次读取长度；默认读满 unit 窗（上限 2000）",
         },
         offsets: {
           type: "array",
@@ -464,12 +464,12 @@ export const characterExtractTools: ToolDefinition[] = [
         },
         anchors: {
           type: "array",
-          description: '锚点 id 或对象，如 ["a@1200",{"offset":8800}]',
+          description: '锚点 id，如 ["u@3","u@12"] 或 a@{unitStart}',
           items: { type: "string" },
         },
         anchors_json: {
           type: "string",
-          description: '锚点 JSON，如 ["a@1200","a@8800"]',
+          description: '锚点 JSON，如 ["u@0","u@5"]',
         },
       },
       required: [],
@@ -479,28 +479,86 @@ export const characterExtractTools: ToolDefinition[] = [
       const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
       // Fall back to analysis fullText if extract workspace missing (detail agent)
       let fullText = ws?.fullText || "";
+      const aws = getNovelAnalysisWorkspace(userId, novelId, branchId);
       if (!fullText) {
-        const aws = getNovelAnalysisWorkspace(userId, novelId, branchId);
         fullText = aws?.fullText || "";
       }
       if (!fullText) {
         return { content: "无正文可读（请先 scan 或加载小说）", messages: [] };
       }
-      // Merge anchors into offset batch
-      const fromAnchors: Array<{ offset: number; length?: number }> =
-        normalizeAnchors(
-          typeof args.anchors_json === "string" && args.anchors_json.trim()
-            ? (() => {
-                try {
-                  return JSON.parse(args.anchors_json as string);
-                } catch {
-                  return [];
-                }
-              })()
-            : args.anchors,
-        ).map((a) => ({ offset: a.offset }));
-      const mergedRanges: Array<{ offset: number; length?: number }> = [
-        ...parseOffsetBatch(args as Record<string, unknown>),
+      const units =
+        (ws?.units && ws.units.length ? ws.units : null) ||
+        aws?.units ||
+        [];
+      const resolveUnitRange = (
+        a: { offset: number; unitIndex?: number; unitLabel?: string },
+      ): { offset: number; length?: number; label: string } => {
+        if (a.unitIndex != null && units[a.unitIndex]) {
+          const u = units[a.unitIndex] as {
+            start: number;
+            end: number;
+            label?: string;
+            text?: string;
+          };
+          const len = Math.min(
+            2000,
+            Math.max(200, (u.end ?? u.start + 800) - u.start),
+          );
+          return {
+            offset: u.start,
+            length: len,
+            label: u.label || `u@${a.unitIndex}`,
+          };
+        }
+        // Match unit by start offset
+        const hit = (units as { start: number; end: number; label?: string }[]).find(
+          (u) => Math.abs(u.start - a.offset) < 8,
+        );
+        if (hit) {
+          return {
+            offset: hit.start,
+            length: Math.min(2000, Math.max(200, hit.end - hit.start)),
+            label: hit.label || `a@${hit.start}`,
+          };
+        }
+        return {
+          offset: a.offset,
+          length: undefined,
+          label: a.unitLabel || `a@${a.offset}`,
+        };
+      };
+
+      const rawAnchors = normalizeAnchors(
+        typeof args.anchors_json === "string" && args.anchors_json.trim()
+          ? (() => {
+              try {
+                return JSON.parse(args.anchors_json as string);
+              } catch {
+                return [];
+              }
+            })()
+          : args.anchors,
+      );
+      // Resolve u@N: normalizeAnchors may leave offset=0 — fix from unitIndex
+      const fromAnchors: Array<{ offset: number; length?: number; label: string }> =
+        rawAnchors.map((a) => {
+          if (
+            a.unitIndex != null &&
+            (!a.offset || a.offset === 0) &&
+            units[a.unitIndex]
+          ) {
+            return resolveUnitRange({
+              ...a,
+              offset: (units[a.unitIndex] as { start: number }).start,
+            });
+          }
+          return resolveUnitRange(a);
+        });
+      const mergedRanges: Array<{ offset: number; length?: number; label?: string }> = [
+        ...parseOffsetBatch(args as Record<string, unknown>).map((r) => ({
+          ...r,
+          label: `a@${r.offset}`,
+        })),
         ...fromAnchors,
       ];
       const seenOff = new Set<number>();
@@ -512,15 +570,16 @@ export const characterExtractTools: ToolDefinition[] = [
       if (!allRanges.length) {
         return {
           content:
-            "缺少 offset/offsets/anchors。优先用名单锚点：anchors=[\"a@1200\",\"a@8800\"]。",
+            "缺少 offset/offsets/anchors。优先用名单 unit 锚点：anchors=[\"u@0\",\"u@12\"]。",
           messages: [],
         };
       }
       const countOmitted = allRanges.slice(LOOKUP_OFFSET_BATCH_MAX);
       let ranges = allRanges.slice(0, LOOKUP_OFFSET_BATCH_MAX);
       const batch = ranges.length > 1;
-      const defaultLen = batch ? 350 : 400;
-      const maxLen = batch ? 800 : 2000;
+      // Unit windows are larger than char snippets
+      const defaultLen = batch ? 1200 : 1600;
+      const maxLen = 2000;
       const globalLen =
         args.length != null
           ? Math.min(maxLen, Math.max(50, Math.floor(Number(args.length) || defaultLen)))
@@ -528,15 +587,19 @@ export const characterExtractTools: ToolDefinition[] = [
       const parts: string[] = [];
       if (batch) {
         parts.push(
-          `【批量 lookup_offset】请求 ${allRanges.length} 处，本批处理 ${ranges.length} 处` +
-            `（每段默认 ${defaultLen}、上限 ${maxLen}；输出预算 ${BATCH_TEXT_BUDGET} 字）`,
+          `【批量 lookup 扫名窗】请求 ${allRanges.length} 处，本批 ${ranges.length} 处` +
+            `（每窗上限 ${maxLen} 字；输出预算 ${BATCH_TEXT_BUDGET} 字）`,
         );
       }
       let used = 0;
       let returned = 0;
       const budgetOmitted: Array<{ offset: number }> = [];
       for (let i = 0; i < ranges.length; i++) {
-        const r = ranges[i];
+        const r = ranges[i] as {
+          offset: number;
+          length?: number;
+          label?: string;
+        };
         if (used >= BATCH_TEXT_BUDGET) {
           budgetOmitted.push(...ranges.slice(i));
           break;
@@ -555,8 +618,9 @@ export const characterExtractTools: ToolDefinition[] = [
         const offset = r.offset;
         const end = Math.min(fullText.length, offset + length);
         const slice = fullText.slice(offset, end).replace(/\s+/g, " ").trim();
+        const label = r.label || `a@${offset}`;
         const block =
-          `--- a@${offset} offset=${offset}..${end} / total=${fullText.length} ---\n${slice}`;
+          `--- ${label} · offset=${offset}..${end} / total=${fullText.length} ---\n${slice}`;
         parts.push(block);
         used += block.length;
         returned++;
@@ -612,9 +676,9 @@ export const characterExtractTools: ToolDefinition[] = [
         entities_json: {
           type: "string",
           description:
-            "实体 JSON。**尽量带 anchors**（a@offset）。例：" +
-            '[{"name":"孙悟空","aliases":["齐天大圣","美猴王"],"surfaces":["孙悟空","齐天大圣"],' +
-            '"anchors":[{"offset":1200,"unitLabel":"第1回","surface":"孙悟空"},{"offset":8800,"surface":"齐天大圣"}]}]',
+            "实体 JSON。anchors=扫名 unit（unitIndex/unitLabel）。例：" +
+            '[{"name":"孙悟空","aliases":["齐天大圣"],"surfaces":["孙悟空","齐天大圣"],' +
+            '"anchors":[{"unitIndex":0,"unitLabel":"第1回","offset":0},{"unitIndex":12,"unitLabel":"第13回","offset":50000}]}]',
         },
         ops: {
           type: "array",
@@ -625,7 +689,7 @@ export const characterExtractTools: ToolDefinition[] = [
           type: "string",
           description:
             'ops JSON。例：[{"op":"merge","keep":"孙悟空","absorb":["齐天大圣"]},' +
-            '{"op":"split","from":"孙悟空","move_anchors":["a@9000"],"new_name":"某路人"}]',
+            '{"op":"split","from":"孙悟空","move_anchors":["u@12"],"new_name":"某路人"}]',
         },
       },
       required: [],

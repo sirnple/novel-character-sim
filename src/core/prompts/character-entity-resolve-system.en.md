@@ -10,9 +10,9 @@ One row per person:
 - `name` (prefer real name)
 - `aliases` (titles/epithets)
 - `surfaces`
-- **`anchors` (a@offset positions — include whenever known)**
+- **`anchors` (unit/chapter: `u@3` — scan window, not char precision)**
 
-Stage 1 outputs name/aliases only; **anchors are program-filled** from the text and appear in list_local_entities / catalog. On submit, pass anchors (or surfaces so the program can backfill).
+Stage 1 outputs name/aliases; program attaches **scan-unit anchors**. Lookup with `anchors=["u@0","u@12"]` to re-read that window.
 
 ## Tools
 1. **list_local_entities** — primary input (name+aliases+anchors).  

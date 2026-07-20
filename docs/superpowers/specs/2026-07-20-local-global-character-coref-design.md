@@ -66,7 +66,7 @@ buildNameScanUnits (chapter-first)
 | `name` | 本窗最佳称呼（真名优先；可仅为称谓） |
 | `aliases` | 本窗其它 surface（同一人） |
 | `unitIndex` / `unitLabel` | 来源窗 |
-| `anchors` | **程序**按 name/aliases 在 unit 正文 span 内 `indexOf` 补全（阶段1 LLM **不**输出 offset） |
+| `anchors` | **扫名 unit/章节**：一条记录 = 该窗（`unitIndex` + `unitLabel`，`offset=unit.start` 便于 lookup）；非精确字位 |
 
 **成功标准（阶段 1）**
 

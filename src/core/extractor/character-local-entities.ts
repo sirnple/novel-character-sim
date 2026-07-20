@@ -1,18 +1,18 @@
 /**
  * Local entities from stage-1 unit scan (name + in-window aliases).
- * Global coref merges/splits these; local name may be title-only.
+ * Anchors = **scan unit / chapter**, not precise char positions.
  */
 
 import type { TextUnit } from "./character-name-units";
 import type { UnitNameHit } from "./character-name-aggregate";
-import type { MentionAnchor } from "./mention-anchor";
+import { unitAnchor, type MentionAnchor } from "./mention-anchor";
 
 export interface LocalEntity {
   name: string;
   aliases: string[];
   unitIndex: number;
   unitLabel?: string;
-  /** Sampled occurrence anchors when fullText provided */
+  /** Unit/chapter anchors (offset = unit.start for lookup) */
   anchors?: MentionAnchor[];
 }
 
@@ -20,30 +20,16 @@ function norm(s: string): string {
   return String(s || "").replace(/\s+/g, "").trim();
 }
 
-function findOffsets(haystack: string, needle: string, max: number): number[] {
-  if (!needle || !haystack) return [];
-  const out: number[] = [];
-  let from = 0;
-  while (out.length < max && from < haystack.length) {
-    const i = haystack.indexOf(needle, from);
-    if (i < 0) break;
-    out.push(i);
-    from = i + Math.max(1, needle.length);
-  }
-  return out;
-}
-
 /**
- * Build local entities from per-unit hits (already locally coref'd by the unit LLM).
- * Optionally attach anchors from fullText for surfaces that appear in the unit span.
+ * Build local entities from per-unit hits (locally coref'd by the unit LLM).
+ * One anchor per entity = the scan unit where it was found.
  */
 export function buildLocalEntitiesFromUnitHits(
   units: TextUnit[],
   unitHits: UnitNameHit[][],
-  fullText?: string,
-  opts?: { anchorsPerSurface?: number },
+  _fullText?: string,
 ): LocalEntity[] {
-  const cap = Math.max(1, opts?.anchorsPerSurface ?? 4);
+  void _fullText;
   const out: LocalEntity[] = [];
 
   for (let ui = 0; ui < units.length; ui++) {
@@ -59,34 +45,9 @@ export function buildLocalEntitiesFromUnitHits(
             .filter((a) => a && norm(a) !== norm(name)),
         ),
       );
-      const surfaces = [name, ...aliases];
-      let anchors: MentionAnchor[] | undefined;
-      if (fullText && unit) {
-        const collected: MentionAnchor[] = [];
-        const seen = new Set<number>();
-        for (const surf of surfaces) {
-          // Prefer hits inside this unit's span
-          const start = unit.start ?? 0;
-          const end = unit.end ?? fullText.length;
-          const slice = fullText.slice(start, end);
-          const locals = findOffsets(slice, surf, cap);
-          for (const loc of locals) {
-            const offset = start + loc;
-            if (seen.has(offset)) continue;
-            seen.add(offset);
-            collected.push({
-              offset,
-              unitIndex: ui,
-              unitLabel: unit.label,
-              surface: surf,
-            });
-          }
-        }
-        if (collected.length) {
-          collected.sort((a, b) => a.offset - b.offset);
-          anchors = collected.slice(0, cap * 2);
-        }
-      }
+      const anchors = unit
+        ? [unitAnchor(unit, ui, name)]
+        : undefined;
       out.push({
         name,
         aliases,
@@ -121,17 +82,13 @@ export function formatLocalEntitiesForPrompt(
   const lines = slice.map((e, i) => {
     const al =
       e.aliases?.length > 0 ? ` aliases=[${e.aliases.join("、")}]` : "";
-    const where = e.unitLabel ? ` @${e.unitLabel}` : ` @u${e.unitIndex}`;
-    const ancs = e.anchors || [];
-    const anc =
-      ancs.length > 0
-        ? ` 锚点=${ancs
-            .slice(0, 3)
-            .map((a) => `a@${a.offset}`)
-            .join(",")}`
-        : "";
-    return `${offset + i + 1}. ${e.name}${al}${where}${anc}`;
+    const where = e.unitLabel
+      ? ` · 窗 ${e.unitLabel} (u@${e.unitIndex})`
+      : ` · u@${e.unitIndex}`;
+    return `${offset + i + 1}. ${e.name}${al}${where}`;
   });
-  const head = `局部实体 ${locals.length} 条；本页 offset=${offset} limit=${limit}（${slice.length} 条）`;
+  const head =
+    `局部实体 ${locals.length} 条（锚点=扫名 unit/章节，可 lookup 该窗正文）；` +
+    `本页 offset=${offset} limit=${limit}（${slice.length} 条）`;
   return head + "\n" + lines.join("\n");
 }

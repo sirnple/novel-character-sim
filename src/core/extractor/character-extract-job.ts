@@ -564,6 +564,7 @@ async function runCharacterJob(
     catalog,
     unitCount: units.length,
     localEntities,
+    units,
   });
 
   job.message = `全书消解（局部 ${localEntities.length} · surface ${catalog.stats.length}）…`;
