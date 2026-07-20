@@ -18,12 +18,13 @@ tools: []
 - 同称呼出现在不同 unit 可能是不同人 → 按 unit 查文再 merge/split。
 
 ## 输入（按序使用工具）
-1. **list_local_entities** — 局部实体（name+aliases+窗标签+锚点）。**优先读这个**。  
-2. list_surface_candidates / **lookup_surface** / **lookup_offset** — 补证据、查冲突。  
-3. **list_uncovered_surfaces** — 未挂上 catalog 的高频称呼。  
-4. **submit_character_entities** — upsert + **ops**（merge/split）；实体须含 anchors/surfaces。
+1. 若无 catalog：**scan_character_mentions**（窗内扫+局部消解；会预填全书种子名单）。  
+2. **list_local_entities** — 局部实体（name+aliases+窗 `u@`）。**优先读这个**。  
+3. list_surface_candidates / **lookup_surface** / **lookup_offset(anchors=["u@…"])** — 补证据。  
+4. **list_uncovered_surfaces** — 未挂上的高频称呼。  
+5. **submit_character_entities** — upsert + **ops**（merge/split）。
 
-若无 catalog：先 **scan_character_mentions**。
+工作区在 scan 后已有 **按 name 合并的种子实体**（跨窗同名已并、aliases 已并）。你的任务是：把「齐天大圣」这类**不同 name 的局部行** merge 进真名，并 split 误绑。
 
 ## 全书消解规程
 1. `list_local_entities`：同 surface 跨窗、封号与真名候选。  

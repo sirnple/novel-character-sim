@@ -8,7 +8,10 @@ import {
   mergeResolvedEntities,
   type ResolvedEntity,
 } from "./character-entity-types";
-import type { LocalEntity } from "./character-local-entities";
+import {
+  seedGlobalEntitiesFromLocal,
+  type LocalEntity,
+} from "./character-local-entities";
 import { applyEntityOps, type EntityOp } from "./character-entity-ops";
 import type { TextUnit } from "./character-name-units";
 
@@ -52,12 +55,17 @@ export function beginCharacterExtractWorkspace(
     units?: TextUnit[];
   },
 ): void {
+  const locals = data.localEntities || [];
+  // Seed global roster from local name-key merge so stage-2 starts from
+  // in-window coref, not an empty list.
+  const seeded =
+    locals.length > 0 ? seedGlobalEntitiesFromLocal(locals) : null;
   store().set(key(userId, novelId, branchId), {
     fullText: data.fullText,
     catalog: data.catalog,
     units: data.units || [],
-    localEntities: data.localEntities || [],
-    entities: null,
+    localEntities: locals,
+    entities: seeded,
     unitCount: data.unitCount,
     surfaceCount: data.catalog.stats.length,
     updatedAt: new Date().toISOString(),

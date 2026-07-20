@@ -4,7 +4,10 @@
 import assert from "node:assert/strict";
 import { applyEntityOps } from "../../src/core/extractor/character-entity-ops";
 import type { ResolvedEntity } from "../../src/core/extractor/character-entity-types";
-import { buildLocalEntitiesFromUnitHits } from "../../src/core/extractor/character-local-entities";
+import {
+  buildLocalEntitiesFromUnitHits,
+  seedGlobalEntitiesFromLocal,
+} from "../../src/core/extractor/character-local-entities";
 import type { TextUnit } from "../../src/core/extractor/character-name-units";
 import type { UnitNameHit } from "../../src/core/extractor/character-name-aggregate";
 
@@ -99,6 +102,41 @@ function ent(
   assert.equal(locals[0].anchors?.[0]?.unitIndex, 0);
   assert.equal(locals[0].anchors?.[0]?.unitLabel, "第1回");
   assert.equal(locals[0].anchors?.[0]?.offset, 100);
+}
+
+// --- seed global from local by name key ---
+{
+  const locals = [
+    {
+      name: "孙悟空",
+      aliases: ["齐天大圣"],
+      unitIndex: 0,
+      unitLabel: "第1回",
+      anchors: [{ offset: 0, unitIndex: 0, unitLabel: "第1回" }],
+    },
+    {
+      name: "孙悟空",
+      aliases: ["美猴王"],
+      unitIndex: 2,
+      unitLabel: "第3回",
+      anchors: [{ offset: 500, unitIndex: 2, unitLabel: "第3回" }],
+    },
+    {
+      name: "齐天大圣",
+      aliases: [],
+      unitIndex: 5,
+      unitLabel: "第6回",
+      anchors: [{ offset: 900, unitIndex: 5, unitLabel: "第6回" }],
+    },
+  ];
+  const seeded = seedGlobalEntitiesFromLocal(locals);
+  // same name merged; 齐天大圣 as separate local name stays until global merge
+  assert.equal(seeded.length, 2);
+  const wukong = seeded.find((e) => e.name === "孙悟空");
+  assert.ok(wukong);
+  assert.ok(wukong!.aliases.includes("齐天大圣"));
+  assert.ok(wukong!.aliases.includes("美猴王"));
+  assert.equal(wukong!.anchors?.length, 2);
 }
 
 console.log("character-entity-ops.test.ts OK");

@@ -9,6 +9,7 @@ import { makeLoopAgent } from "./make-loop-agent";
 import { characterExtractTools } from "./character-extract-tools";
 import { analysisDomainTools } from "./analysis-tools";
 import { getCharacterExtractWorkspace } from "@/core/extractor/character-extract-workspace";
+import { seedGlobalEntitiesFromLocal } from "@/core/extractor/character-local-entities";
 import { SUBMIT_ENTITIES_OK } from "@/core/extractor/character-entity-types";
 import {
   getNovelAnalysisWorkspace,
@@ -53,15 +54,17 @@ const characterListLoop = makeLoopAgent({
 /** 子 Agent：工具循环由模型调度；成功后校验 workspace 实体 */
 export const characterEntityResolveAgent: AgentDef = {
   execute: async (ctx, llm, onChunk, onTrail) => {
-    // Fresh roster each run: clear entities + draft membership so leftovers
-    // from prior analysis cannot inflate the final list after commit.
+    // Clear draft membership from prior analysis; re-seed global roster from
+    // local entities so each run starts from stage-1 coref (not stale submit).
     const branchId = ctx.branchId || "main";
     const existing = getCharacterExtractWorkspace(
       ctx.userId,
       ctx.novelId,
       branchId,
     );
-    if (existing) existing.entities = null;
+    if (existing?.localEntities?.length) {
+      existing.entities = seedGlobalEntitiesFromLocal(existing.localEntities);
+    }
     if (getNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId)) {
       patchNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId, {
         charactersDraft: null,

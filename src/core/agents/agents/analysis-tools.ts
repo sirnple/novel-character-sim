@@ -806,9 +806,9 @@ export const analysisDomainTools: ToolDefinition[] = [
                 ?.localEntities?.length ?? 0;
         return (
           `${head}\n` +
-          `units=${unitCount} surfaces=${surfaceCount} localEntities=${localN}（锚点 a@offset）\n` +
+          `units=${unitCount} surfaces=${surfaceCount} localEntities=${localN}（锚点=扫名窗 u@）\n` +
           `前 ${Math.min(30, topLines.length)} 个 surface：\n${top}\n` +
-          `全书消解：list_local_entities → lookup → submit（merge/split）；补漏 list_uncovered_surfaces。`
+          `全书消解：list_local_entities → lookup(u@) → submit merge/split；补漏 list_uncovered_surfaces。`
         );
       };
 

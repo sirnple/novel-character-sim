@@ -5,7 +5,9 @@
 
 import type { TextUnit } from "./character-name-units";
 import type { UnitNameHit } from "./character-name-aggregate";
-import { unitAnchor, type MentionAnchor } from "./mention-anchor";
+import { mergeAnchors, unitAnchor, type MentionAnchor } from "./mention-anchor";
+import type { ResolvedEntity } from "./character-entity-types";
+import { nameKeyEntity } from "./character-entity-types";
 
 export interface LocalEntity {
   name: string;
@@ -68,6 +70,53 @@ export function surfacesFromLocalEntities(locals: LocalEntity[]): string[] {
     for (const a of e.aliases || []) set.add(a);
   }
   return Array.from(set).filter((s) => norm(s).length >= 1);
+}
+
+/**
+ * Seed book-wide roster from local entities by **exact name key** only
+ * (union aliases + unit anchors). Cross-title merge (孙悟空↔齐天大圣 as
+ * separate local names) remains for the global agent.
+ */
+export function seedGlobalEntitiesFromLocal(
+  locals: LocalEntity[],
+): ResolvedEntity[] {
+  const byKey = new Map<string, ResolvedEntity>();
+  for (const loc of locals) {
+    const name = (loc.name || "").trim();
+    const k = nameKeyEntity(name);
+    if (!k) continue;
+    const aliases = (loc.aliases || []).filter(
+      (a) => a && nameKeyEntity(a) !== k,
+    );
+    const surfaces = Array.from(new Set([name, ...aliases].filter(Boolean)));
+    const anchors = loc.anchors || [];
+    const prev = byKey.get(k);
+    if (!prev) {
+      byKey.set(k, {
+        name,
+        aliases,
+        surfaces,
+        anchors: anchors.length ? anchors : undefined,
+        role: "supporting",
+      });
+      continue;
+    }
+    const nextAliases = Array.from(
+      new Set([...(prev.aliases || []), ...aliases].filter(Boolean)),
+    );
+    const nextSurfaces = Array.from(
+      new Set([...(prev.surfaces || []), ...surfaces].filter(Boolean)),
+    );
+    byKey.set(k, {
+      name: prev.name || name,
+      aliases: nextAliases.filter((a) => nameKeyEntity(a) !== k),
+      surfaces: nextSurfaces,
+      anchors: mergeAnchors(prev.anchors, anchors),
+      role: prev.role || "supporting",
+      briefDescription: prev.briefDescription,
+    });
+  }
+  return Array.from(byKey.values());
 }
 
 /** Compact listing for the global agent. */
