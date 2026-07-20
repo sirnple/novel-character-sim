@@ -8,10 +8,14 @@ import {
   mergeResolvedEntities,
   type ResolvedEntity,
 } from "./character-entity-types";
+import type { LocalEntity } from "./character-local-entities";
+import { applyEntityOps, type EntityOp } from "./character-entity-ops";
 
 export interface CharacterExtractWorkspace {
   fullText: string;
   catalog: SurfaceCatalog;
+  /** Stage-1 local coref entities (per unit/window) */
+  localEntities?: LocalEntity[];
   /** Set by submit_character_entities */
   entities: ResolvedEntity[] | null;
   unitCount: number;
@@ -41,11 +45,13 @@ export function beginCharacterExtractWorkspace(
     fullText: string;
     catalog: SurfaceCatalog;
     unitCount: number;
+    localEntities?: LocalEntity[];
   },
 ): void {
   store().set(key(userId, novelId, branchId), {
     fullText: data.fullText,
     catalog: data.catalog,
+    localEntities: data.localEntities || [],
     entities: null,
     unitCount: data.unitCount,
     surfaceCount: data.catalog.stats.length,
@@ -71,13 +77,14 @@ export function saveResolvedEntities(
   novelId: string,
   branchId: string,
   entities: ResolvedEntity[],
-  opts?: { replace?: boolean },
+  opts?: { replace?: boolean; ops?: EntityOp[] },
 ): {
   ok: boolean;
   message: string;
   batchCount: number;
   totalCount: number;
   entities: ResolvedEntity[];
+  opLog: string[];
 } {
   const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
   if (!ws) {
@@ -87,20 +94,39 @@ export function saveResolvedEntities(
       batchCount: 0,
       totalCount: 0,
       entities: [],
+      opLog: [],
     };
   }
   const batchCount = entities.length;
+  // Spec: apply ops first (merge/split), then upsert entities into roster
+  let base = ws.entities || [];
+  let opLog: string[] = [];
+  if (opts?.ops?.length) {
+    const applied = applyEntityOps(base, opts.ops);
+    base = applied.entities;
+    opLog = applied.log;
+  }
   const next = opts?.replace
     ? entities
-    : mergeResolvedEntities(ws.entities, entities);
-  ws.entities = next;
+    : mergeResolvedEntities(base, entities);
+  // If only ops and empty entities batch, still persist ops result
+  const final =
+    opts?.replace
+      ? entities
+      : entities.length
+        ? next
+        : opts?.ops?.length
+          ? base
+          : next;
+  ws.entities = final;
   ws.updatedAt = new Date().toISOString();
   return {
     ok: true,
-    message: `本批 ${batchCount} 人，累计 ${next.length} 人。`,
+    message: `本批 ${batchCount} 人，累计 ${final.length} 人。`,
     batchCount,
-    totalCount: next.length,
-    entities: next,
+    totalCount: final.length,
+    entities: final,
+    opLog,
   };
 }
 

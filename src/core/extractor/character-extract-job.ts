@@ -14,6 +14,7 @@ import { scanUnitHitsWithLlm } from "@/core/extractor/character-name-scan";
 import { countResolvedEntities } from "@/core/extractor/character-entity-frequency";
 import { gateRosterWithLlm } from "@/core/extractor/character-roster-gate";
 import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
+import { buildLocalEntitiesFromUnitHits } from "@/core/extractor/character-local-entities";
 import {
   beginCharacterExtractWorkspace,
   clearCharacterExtractWorkspace,
@@ -545,8 +546,9 @@ async function runCharacterJob(
   touch(job);
 
   const catalog = buildSurfaceCatalog(unitHits, units, fullText);
+  const localEntities = buildLocalEntitiesFromUnitHits(units, unitHits, fullText);
   console.log(
-    `[char-job] ${jobId} surfaces=${catalog.stats.length} → coref agent`,
+    `[char-job] ${jobId} surfaces=${catalog.stats.length} localEntities=${localEntities.length} → global coref`,
   );
 
   if (stop()) {
@@ -561,9 +563,10 @@ async function runCharacterJob(
     fullText,
     catalog,
     unitCount: units.length,
+    localEntities,
   });
 
-  job.message = `指代消解 Agent（${catalog.stats.length} 个候选）…`;
+  job.message = `全书消解（局部 ${localEntities.length} · surface ${catalog.stats.length}）…`;
   touch(job);
 
   const resolveAgent = getAgent("character_entity_resolve");
@@ -573,7 +576,9 @@ async function runCharacterJob(
 
   const agentResult = await resolveAgent.execute(
     {
-      prompt: `将 ${catalog.stats.length} 个扫名候选归并为角色实体（name=真实姓名，aliases=封号外号）。高召回，次要角色也保留。`,
+      prompt:
+        `阶段1已产出 ${localEntities.length} 条局部实体、${catalog.stats.length} 个 surface。` +
+        `请 list_local_entities，跨窗 merge/split，submit 后处理未覆盖。name=真名优先，aliases=称谓外号。`,
       novelId: job.novelId,
       branchId: job.branchId,
       userId: job.userId,

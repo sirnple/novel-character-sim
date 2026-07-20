@@ -27,30 +27,33 @@ import {
 const UNIT_NAME_SCHEMA = {
   name: "unit_character_mentions",
   description:
-    "Specific character mentions only: proper names, nicknames, stable third-person " +
-    "kinship/role/epithets (e.g. 周屿的母亲, 短发大叔). " +
-    "Do NOT include bare pronouns (他/她/它) or deictic kinship (他爸/他妈) as-is.",
+    "Characters in this window with LOCAL coref: one row per person. " +
+    "Proper names, nicknames, titles, stable third-person kinship/roles. " +
+    "Merge same-person surfaces into name+aliases within the window. " +
+    "No bare pronouns (他/她) or deictic kinship (他爸) as-is.",
   parameters: {
     type: "object",
     properties: {
       characters: {
         type: "array",
         description:
-          "One surface per specific person across the whole passage. Prefer stable third-person labels. " +
-          "Exclude 他/她/它/他爸/我爸/有人 etc. Deduplicate same person.",
+          "One row per person in this window only. Same person must not be split " +
+          "(e.g. 洛雪棠 + 洛大小姐 → one row). Exclude 他/她/他爸/有人.",
         items: {
           type: "object",
           properties: {
             name: {
               type: "string",
               description:
-                "Proper name OR stable referent (周屿的母亲/短发大叔). " +
-                "Never bare 他/她/它 or 他爸 alone.",
+                "Best form in this window (prefer real name; title alone OK). " +
+                "Never bare 他/她 or 他爸 alone.",
             },
             aliases: {
               type: "array",
               items: { type: "string" },
-              description: "Other surfaces for the same person in this passage only",
+              description:
+                "Other forms of the SAME person in THIS window only " +
+                "(titles/epithets/nicknames). Empty if none.",
             },
           },
           required: ["name"],

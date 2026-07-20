@@ -33,6 +33,8 @@ const characterListLoop = makeLoopAgent({
   tools: pick(
     [
       "scan_character_mentions",
+      "list_local_entities",
+      "list_uncovered_surfaces",
       "list_surface_candidates",
       "lookup_surface",
       "lookup_offset",
@@ -42,7 +44,8 @@ const characterListLoop = makeLoopAgent({
   ),
   submitTool: "submit_character_entities",
   okMarker: SUBMIT_ENTITIES_OK,
-  maxSteps: 28,
+  // Long books: local list + multi-batch merge/split + uncovered passes
+  maxSteps: 48,
   temperature: 0.25,
   maxTokens: 8192,
 });

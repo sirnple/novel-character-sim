@@ -111,10 +111,65 @@ export function normalizeResolvedEntities(
   return out;
 }
 
+function claimedKeysOf(e: ResolvedEntity): Set<string> {
+  const s = new Set<string>();
+  for (const x of [e.name, ...(e.aliases || []), ...(e.surfaces || [])]) {
+    const k = nameKeyEntity(x);
+    if (k) s.add(k);
+  }
+  return s;
+}
+
+function unionEntity(a: ResolvedEntity, b: ResolvedEntity): ResolvedEntity {
+  const aliases = Array.from(
+    new Set([...(a.aliases || []), ...(b.aliases || [])].filter(Boolean)),
+  );
+  const surfaces = Array.from(
+    new Set(
+      [
+        a.name,
+        b.name,
+        ...(a.surfaces || []),
+        ...(b.surfaces || []),
+        ...aliases,
+      ].filter(Boolean),
+    ),
+  );
+  const briefA = (a.briefDescription || "").trim();
+  const briefB = (b.briefDescription || "").trim();
+  const anchors = mergeAnchors(a.anchors, b.anchors);
+  // Prefer longer real-name-ish form already chosen as name by agent;
+  // if one name is substring of the other, keep longer.
+  let name = a.name || b.name;
+  const ka = nameKeyEntity(a.name);
+  const kb = nameKeyEntity(b.name);
+  if (ka && kb && ka !== kb) {
+    if (kb.includes(ka) && kb.length > ka.length) name = b.name;
+    else if (ka.includes(kb) && ka.length > kb.length) name = a.name;
+    else if ((b.role === "protagonist" || b.role === "antagonist") && a.role === "supporting")
+      name = b.name;
+  }
+  const nameKey = nameKeyEntity(name);
+  return {
+    name,
+    aliases: aliases.filter((x) => nameKeyEntity(x) !== nameKey),
+    surfaces: surfaces.filter(Boolean),
+    role:
+      b.role && b.role !== "supporting"
+        ? b.role
+        : a.role && a.role !== "supporting"
+          ? a.role
+          : b.role || a.role || "supporting",
+    briefDescription:
+      briefB.length >= briefA.length ? briefB || undefined : briefA || undefined,
+    anchors: anchors.length ? anchors : undefined,
+  };
+}
+
 /**
- * Merge batch entities into existing roster by name key.
- * Same person: union aliases/surfaces; prefer non-empty role/brief from either side
- * (incoming wins if richer).
+ * Merge batch into roster by **name key**, then collapse entities that share
+ * any claimed surface (name/alias/surface). Shared surface means the agent
+ * already treated them as the same label set — not string kinship heuristics.
  */
 export function mergeResolvedEntities(
   prev: ResolvedEntity[] | null | undefined,
@@ -133,29 +188,35 @@ export function mergeResolvedEntities(
       byKey.set(k, e);
       continue;
     }
-    const aliases = Array.from(
-      new Set([...(old.aliases || []), ...(e.aliases || [])].filter(Boolean)),
-    );
-    const surfaces = Array.from(
-      new Set([...(old.surfaces || []), ...(e.surfaces || [])].filter(Boolean)),
-    );
-    const briefIncoming = (e.briefDescription || "").trim();
-    const briefOld = (old.briefDescription || "").trim();
-    const anchors = mergeAnchors(old.anchors, e.anchors);
-    byKey.set(k, {
-      name: old.name || e.name,
-      aliases,
-      surfaces,
-      role:
-        e.role && e.role !== "supporting"
-          ? e.role
-          : old.role || e.role || "supporting",
-      briefDescription:
-        briefIncoming.length >= briefOld.length ? briefIncoming || undefined : briefOld || undefined,
-      anchors: anchors.length ? anchors : undefined,
-    });
+    byKey.set(k, unionEntity(old, e));
   }
-  return Array.from(byKey.values());
+
+  // Collapse when two different name-keys share a surface claim
+  let list = Array.from(byKey.values());
+  let changed = true;
+  while (changed) {
+    changed = false;
+    outer: for (let i = 0; i < list.length; i++) {
+      const ki = claimedKeysOf(list[i]);
+      for (let j = i + 1; j < list.length; j++) {
+        const kj = claimedKeysOf(list[j]);
+        let hit = false;
+        for (const x of Array.from(ki)) {
+          if (kj.has(x)) {
+            hit = true;
+            break;
+          }
+        }
+        if (!hit) continue;
+        const merged = unionEntity(list[i], list[j]);
+        list = list.filter((_, idx) => idx !== i && idx !== j);
+        list.push(merged);
+        changed = true;
+        break outer;
+      }
+    }
+  }
+  return list;
 }
 
 export const SUBMIT_ENTITIES_OK = "角色实体已存";

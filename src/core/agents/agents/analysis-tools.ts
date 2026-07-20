@@ -64,6 +64,7 @@ import {
 } from "../batch-tool-limits";
 import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
 import { scanUnitHitsWithLlm } from "@/core/extractor/character-name-scan";
+import { buildLocalEntitiesFromUnitHits } from "@/core/extractor/character-local-entities";
 import { relationshipTypePromptList } from "@/core/extractor/relationship-types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { isChinese } from "@/lib/utils";
@@ -119,7 +120,7 @@ async function seedCharacterCatalogViaLlm(
   units: ReturnType<typeof buildNameScanUnits>,
   llm: LLMProvider,
   onProgress?: (done: number, total: number, label: string) => void,
-): Promise<{ surfaceCount: number; unitCount: number }> {
+): Promise<{ surfaceCount: number; unitCount: number; localEntityCount: number }> {
   let unitsLocal = units.length ? units : buildNameScanUnits(text);
   if (!unitsLocal.length) {
     unitsLocal = [
@@ -138,12 +139,22 @@ async function seedCharacterCatalogViaLlm(
     onProgress,
   });
   const catalog = buildSurfaceCatalog(unitHits, scannedUnits, text);
+  const localEntities = buildLocalEntitiesFromUnitHits(
+    scannedUnits,
+    unitHits,
+    text,
+  );
   beginCharacterExtractWorkspace(userId, novelId, branchId, {
     fullText: text,
     catalog,
     unitCount: scannedUnits.length,
+    localEntities,
   });
-  return { surfaceCount: catalog.stats.length, unitCount: scannedUnits.length };
+  return {
+    surfaceCount: catalog.stats.length,
+    unitCount: scannedUnits.length,
+    localEntityCount: localEntities.length,
+  };
 }
 
 export const ANALYSIS_OK = {
@@ -751,10 +762,10 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "scan_character_mentions",
     description:
-      "【角色列表子 Agent】LLM 分段扫角色指称 surface，写入 catalog；" +
-      "每条 surface 带出现位置 **锚点 a@offset**（供消解/详情按位置读文，防同名异人）。" +
-      "成功含「角色指称已扫描」。之后 list_surface_candidates / lookup_* / submit_character_entities。" +
-      "无 catalog 须先调；有 catalog 且未 forceRefresh 则复用。",
+      "【角色列表】LLM 分段：扫角色 + **窗内局部消解**，写入 catalog 与 localEntities；" +
+      "surface 带锚点 a@offset。成功含「角色指称已扫描」。" +
+      "之后 list_local_entities → lookup → submit（merge/split）。" +
+      "有 catalog 且未 forceRefresh 则复用。",
     parameters: {
       type: "object",
       properties: {
@@ -777,20 +788,26 @@ export const analysisDomainTools: ToolDefinition[] = [
         surfaceCount: number,
         unitCount: number,
         topLines: string[],
+        localEntityCount?: number,
       ) => {
         const head =
           mode === "cached"
             ? `${ANALYSIS_OK.scan}（复用已有 catalog）`
-            : `${ANALYSIS_OK.scan}（LLM 分段新建 catalog）`;
+            : `${ANALYSIS_OK.scan}（LLM 分段：扫名+局部消解）`;
         const top =
           topLines.length > 0
             ? topLines.map((s, i) => `${i + 1}. ${s}`).join("\n")
             : "（无候选指称 — 扫描结果为空）";
+        const localN =
+          localEntityCount != null
+            ? localEntityCount
+            : getCharacterExtractWorkspace(userId, novelId, branchId)
+                ?.localEntities?.length ?? 0;
         return (
           `${head}\n` +
-          `units=${unitCount} surfaces=${surfaceCount}（每条含锚点 a@offset）\n` +
-          `前 ${Math.min(30, topLines.length)} 个候选（含锚点样例）：\n${top}\n` +
-          `完整列表 list_surface_candidates；消歧/详情请按锚点 lookup_offset(anchors=…)。`
+          `units=${unitCount} surfaces=${surfaceCount} localEntities=${localN}（锚点 a@offset）\n` +
+          `前 ${Math.min(30, topLines.length)} 个 surface：\n${top}\n` +
+          `全书消解：list_local_entities → lookup → submit（merge/split）；补漏 list_uncovered_surfaces。`
         );
       };
 
@@ -862,6 +879,7 @@ export const analysisDomainTools: ToolDefinition[] = [
             surfaceCount,
             unitCount,
             topSurfaceLines(after?.catalog?.stats || []),
+            after?.localEntities?.length ?? 0,
           ),
           messages: [],
         };

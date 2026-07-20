@@ -35,6 +35,13 @@ import {
   formatBatchOverflowNotice,
 } from "../batch-tool-limits";
 import type { CharacterProfile } from "@/types";
+import { formatLocalEntitiesForPrompt } from "@/core/extractor/character-local-entities";
+import {
+  formatUncoveredForPrompt,
+  listUncoveredSurfaces,
+  claimedSurfaceSet,
+} from "@/core/extractor/character-entity-coverage";
+import { parseEntityOps } from "@/core/extractor/character-entity-ops";
 
 /**
  * Stage roster entities as profiles in analysis workspace (DB only on finish).
@@ -214,10 +221,74 @@ export function parseOffsetBatch(
 
 export const characterExtractTools: ToolDefinition[] = [
   {
+    name: "list_local_entities",
+    description:
+      "列出阶段1局部消解实体（每窗 name+aliases+锚点）。全书消解应以此为输入做 merge/split。" +
+      "可分页 offset/limit。",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "默认 80，最大 150" },
+        offset: { type: "number", description: "分页跳过，默认 0" },
+      },
+      required: [],
+    },
+    execute: async (args, ctx) => {
+      const { userId, novelId, branchId } = wsKey(ctx);
+      const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
+      if (!ws) {
+        return { content: "无工作区。请先 scan_character_mentions。", messages: [] };
+      }
+      const limit = Math.min(150, Math.max(1, Math.floor(Number(args.limit) || 80)));
+      const offset = Math.max(0, Math.floor(Number(args.offset) || 0));
+      const locals = ws.localEntities || [];
+      return {
+        content: formatLocalEntitiesForPrompt(locals, { offset, limit }),
+        messages: [],
+      };
+    },
+  },
+  {
+    name: "list_uncovered_surfaces",
+    description:
+      "列出 catalog 中尚未落入任何全书实体 name/aliases/surfaces 的高频 surface。" +
+      "submit 后应用此检查是否还需 merge/upsert。",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "默认 60，最大 120" },
+        minUnitHits: { type: "number", description: "最少扫名段数，默认 1" },
+      },
+      required: [],
+    },
+    execute: async (args, ctx) => {
+      const { userId, novelId, branchId } = wsKey(ctx);
+      const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
+      if (!ws) {
+        return { content: "无工作区。", messages: [] };
+      }
+      const limit = Math.min(120, Math.max(1, Math.floor(Number(args.limit) || 60)));
+      const minUnitHits = Math.max(0, Math.floor(Number(args.minUnitHits) || 1));
+      const items = listUncoveredSurfaces(ws.catalog, ws.entities, {
+        limit,
+        minUnitHits,
+      });
+      const claimed = claimedSurfaceSet(ws.entities).size;
+      return {
+        content: formatUncoveredForPrompt(
+          items,
+          ws.catalog.stats.length,
+          claimed,
+        ),
+        messages: [],
+      };
+    },
+  },
+  {
     name: "list_surface_candidates",
     description:
-      "列出 scan_character_mentions 得到的候选角色指称 surface（尚未指代消解）。可分页。" +
-      "例：孙悟空、齐天大圣、周屿的母亲。无 catalog 时先调 scan_character_mentions。",
+      "列出扫名 catalog 的 surface（频次+锚点）。优先 list_local_entities 做全书消解；" +
+      "本工具用于补漏与 lookup。可分页。",
     parameters: {
       type: "object",
       properties: {
@@ -527,23 +598,33 @@ export const characterExtractTools: ToolDefinition[] = [
   {
     name: "submit_character_entities",
     description:
-      "提交指代消解结果（可分批）。每批按 name 合并。" +
-      "须带 surfaces；**建议带 anchors**（a@offset）归属此人的出现位置；同名异人拆成多条不同 name 或不同锚点集。" +
-      "aliases 仅第三人称。成功含「角色实体已存」。",
+      "提交全书实体（可分批）。顺序：先执行 ops（merge/split），再 upsert entities。" +
+      "merge: {op:\"merge\",keep,absorb:[]}；split: {op:\"split\",from,move_surfaces?,move_anchors?,new_name?}。" +
+      "aliases 仅第三人称。成功含「角色实体已存」+ 未覆盖 surface 提示。",
     parameters: {
       type: "object",
       properties: {
         entities: {
           type: "array",
-          description: "角色实体列表",
+          description: "角色实体列表（upsert）",
           items: { type: "string" },
         },
         entities_json: {
           type: "string",
           description:
-            "实体 JSON。aliases 第三人称；anchors 为出现位置。" +
-            '例：[{"name":"周伯彦","aliases":["周总"],"surfaces":["周伯彦","周总"],"anchors":[{"offset":1200,"unitLabel":"第1章"},{"offset":8800}]}]' +
-            "（不可 aliases 含 我爸/你爸）",
+            "实体 JSON。例：" +
+            '[{"name":"洛雪棠","aliases":["洛大小姐"],"surfaces":["洛雪棠","洛大小姐"],"anchors":[{"offset":1200}]}]',
+        },
+        ops: {
+          type: "array",
+          description: "merge/split 操作数组",
+          items: { type: "string" },
+        },
+        ops_json: {
+          type: "string",
+          description:
+            'ops JSON。例：[{"op":"merge","keep":"洛雪棠","absorb":["洛大小姐"]},' +
+            '{"op":"split","from":"洛雪棠","move_surfaces":["那位小姐"],"new_name":"沈薇薇"}]',
         },
       },
       required: [],
@@ -579,6 +660,12 @@ export const characterExtractTools: ToolDefinition[] = [
         }
       }
 
+      const ops = parseEntityOps(
+        typeof args.ops_json === "string" && args.ops_json.trim()
+          ? args.ops_json
+          : args.ops,
+      );
+
       const deicticIssues = findFirstSecondPersonAliasIssues(raw);
       if (deicticIssues.length) {
         return {
@@ -586,25 +673,27 @@ export const characterExtractTools: ToolDefinition[] = [
             `未写入：name/aliases 含第一或二人称指示语，请改成第三人称稳定称呼后重交 submit_character_entities。\n` +
             `问题：${deicticIssues.slice(0, 20).join("；")}` +
             (deicticIssues.length > 20 ? `…共${deicticIssues.length}处` : "") +
-            `\n正确例：周伯彦 aliases=["周总","周屿的父亲"]；错误例：aliases=["我爸","你爸"]。`,
+            `\n正确例：洛雪棠 aliases=["洛大小姐"]；错误例：aliases=["我爸"]。`,
           messages: [],
         };
       }
 
       let entities = normalizeResolvedEntities(raw);
-      if (!entities.length) {
+      if (!entities.length && !ops.length) {
         return {
-          content: "实体列表为空。请至少提交 1 个有效实体（name 必填，且非第一二人称）。",
+          content:
+            "实体列表与 ops 皆空。请 upsert entities 和/或提供 merge/split ops。",
           messages: [],
         };
       }
 
-      // Attach catalog anchors when agent omitted them
       const cws = getCharacterExtractWorkspace(userId, novelId, branchId);
       entities = enrichEntitiesWithCatalogAnchors(entities, cws?.catalog);
       const withAnchors = entities.filter((e) => (e.anchors?.length || 0) > 0).length;
 
-      const result = saveResolvedEntities(userId, novelId, branchId, entities);
+      const result = saveResolvedEntities(userId, novelId, branchId, entities, {
+        ops,
+      });
       if (!result.ok) {
         return { content: result.message, messages: [] };
       }
@@ -627,10 +716,28 @@ export const characterExtractTools: ToolDefinition[] = [
           (e as Error).message,
         );
       }
+
+      const uncovered = listUncoveredSurfaces(cws?.catalog, result.entities, {
+        limit: 40,
+        minUnitHits: 1,
+      });
+      const claimed = claimedSurfaceSet(result.entities).size;
+      const coverNote = formatUncoveredForPrompt(
+        uncovered,
+        cws?.catalog.stats.length || 0,
+        claimed,
+      );
+      const opNote =
+        result.opLog?.length > 0
+          ? `\nops：${result.opLog.slice(0, 12).join("；")}`
+          : "";
+
       return {
         content:
-          `${SUBMIT_ENTITIES_OK}：本批 ${result.batchCount} 人，累计 ${result.totalCount} 人` +
-          `（本批含锚点 ${withAnchors}/${entities.length}；可继续分批；待 finish 落库）`,
+          `${SUBMIT_ENTITIES_OK}：本批 upsert ${result.batchCount} 人，累计 ${result.totalCount} 人` +
+          `（本批含锚点 ${withAnchors}/${entities.length || 0}）` +
+          opNote +
+          `\n${coverNote}`,
         messages: [],
       };
     },
