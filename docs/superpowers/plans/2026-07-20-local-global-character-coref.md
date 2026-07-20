@@ -30,8 +30,9 @@
 
 ### P5 — 验证
 
-- [ ] 用《超凡都市》整书跑 `analyze_character_list` 抽检三对
-- [x] ops 单测通过
+- [x] ops / local seed 单测通过
+- [x] scan 后 seed 全书名单（按 name 合并局部实体）
+- [ ] 产品路径：对目标书 forceRefresh 跑角色列表，人工抽检真名+封号
 
 ## 实现顺序
 
