@@ -38,14 +38,15 @@ const UNIT_NAME_SCHEMA = {
         type: "array",
         description:
           "One row per person in this window only. Same person must not be split " +
-          "(e.g. 洛雪棠 + 洛大小姐 → one row). Exclude 他/她/他爸/有人.",
+          "(e.g. 孙悟空 + 齐天大圣 → one row). Exclude 他/她/他爸/有人. " +
+          "Do not output offsets; program fills anchors from the text.",
         items: {
           type: "object",
           properties: {
             name: {
               type: "string",
               description:
-                "Best form in this window (prefer real name; title alone OK). " +
+                "Best form in this window (prefer real name e.g. 孙悟空; title alone OK). " +
                 "Never bare 他/她 or 他爸 alone.",
             },
             aliases: {
@@ -53,7 +54,7 @@ const UNIT_NAME_SCHEMA = {
               items: { type: "string" },
               description:
                 "Other forms of the SAME person in THIS window only " +
-                "(titles/epithets/nicknames). Empty if none.",
+                "(e.g. 齐天大圣, 美猴王 for 孙悟空). Empty if none.",
             },
           },
           required: ["name"],

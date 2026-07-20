@@ -612,8 +612,9 @@ export const characterExtractTools: ToolDefinition[] = [
         entities_json: {
           type: "string",
           description:
-            "实体 JSON。例：" +
-            '[{"name":"洛雪棠","aliases":["洛大小姐"],"surfaces":["洛雪棠","洛大小姐"],"anchors":[{"offset":1200}]}]',
+            "实体 JSON。**尽量带 anchors**（a@offset）。例：" +
+            '[{"name":"孙悟空","aliases":["齐天大圣","美猴王"],"surfaces":["孙悟空","齐天大圣"],' +
+            '"anchors":[{"offset":1200,"unitLabel":"第1回","surface":"孙悟空"},{"offset":8800,"surface":"齐天大圣"}]}]',
         },
         ops: {
           type: "array",
@@ -623,8 +624,8 @@ export const characterExtractTools: ToolDefinition[] = [
         ops_json: {
           type: "string",
           description:
-            'ops JSON。例：[{"op":"merge","keep":"洛雪棠","absorb":["洛大小姐"]},' +
-            '{"op":"split","from":"洛雪棠","move_surfaces":["那位小姐"],"new_name":"沈薇薇"}]',
+            'ops JSON。例：[{"op":"merge","keep":"孙悟空","absorb":["齐天大圣"]},' +
+            '{"op":"split","from":"孙悟空","move_anchors":["a@9000"],"new_name":"某路人"}]',
         },
       },
       required: [],
@@ -673,7 +674,7 @@ export const characterExtractTools: ToolDefinition[] = [
             `未写入：name/aliases 含第一或二人称指示语，请改成第三人称稳定称呼后重交 submit_character_entities。\n` +
             `问题：${deicticIssues.slice(0, 20).join("；")}` +
             (deicticIssues.length > 20 ? `…共${deicticIssues.length}处` : "") +
-            `\n正确例：洛雪棠 aliases=["洛大小姐"]；错误例：aliases=["我爸"]。`,
+            `\n正确例：孙悟空 aliases=["齐天大圣"]；错误例：aliases=["我爸"]。`,
           messages: [],
         };
       }

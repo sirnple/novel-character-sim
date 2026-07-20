@@ -2,7 +2,7 @@
 
 **Status:** Accepted direction (product grill); implementation in progress  
 **Date:** 2026-07-20  
-**Context:** 长篇（如《超凡都市之绿帽武神》）扫名召回尚可，但「洛大小姐↔洛雪棠」「洛家二小姐↔洛雨棠」「兰嫣大嫂↔唐兰嫣」等称谓未并入真名。根因是 **扫名与全书消解信息断裂**：阶段 1 禁止局部消解，阶段 2 只见扁平 surface 冷启动。
+**Context:** 长篇上真名与封号/外号（如西游：孙悟空↔齐天大圣）常未并入同一实体。根因是 **扫名与全书消解信息断裂**：阶段 1 禁止局部消解，阶段 2 只见扁平 surface 冷启动。
 
 **Related:** `2026-07-18-character-name-scan-design.md`（单元扫名）；本 spec **修订** 其中「本步不做消解」的局部规则。
 
@@ -66,7 +66,7 @@ buildNameScanUnits (chapter-first)
 | `name` | 本窗最佳称呼（真名优先；可仅为称谓） |
 | `aliases` | 本窗其它 surface（同一人） |
 | `unitIndex` / `unitLabel` | 来源窗 |
-| `anchors?` | 可选；无则程序用全文 indexOf 补 |
+| `anchors` | **程序**按 name/aliases 在 unit 正文 span 内 `indexOf` 补全（阶段1 LLM **不**输出 offset） |
 
 **成功标准（阶段 1）**
 
@@ -184,11 +184,11 @@ interface ResolvedEntity {
 
 ## 9. Acceptance
 
-1. 单元 prompt/ schema 要求本窗 aliases 合并；黄金句「洛雪棠，洛大小姐」同窗 → 一行两 surface。  
-2. 全局可用 merge 把跨窗「洛大小姐」并入「洛雪棠」。  
-3. split 能按 anchor/surface 挪走误绑 surface。  
-4. submit 后可见未覆盖列表。  
-5. 《超凡都市》类长篇：上述三对称谓在名单中作为 aliases 挂在对应真名下（人工或 eval 抽检）。
+1. 单元 prompt/schema 要求本窗 aliases 合并；例：孙悟空+齐天大圣同窗 → 一行。  
+2. 局部实体与 catalog **带程序补全的 anchors**；list_local_entities 可见 a@offset。  
+3. 全局 merge 可把跨窗封号并入真名；split 按 anchor/surface 挪归属。  
+4. submit 契约强调 anchors；成功后可见未覆盖列表。  
+5. 西游记类用例：孙悟空/齐天大圣、猪八戒/天蓬元帅 等在名单中合并（人工或 eval 抽检）。
 
 ## 10. Out of scope this ship
 

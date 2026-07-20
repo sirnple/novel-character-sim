@@ -27,15 +27,18 @@ function ent(
 // --- merge ---
 {
   const roster = [
-    ent("洛雪棠", [], [{ offset: 100, surface: "洛雪棠" }]),
-    ent("洛大小姐", [], [{ offset: 200, surface: "洛大小姐" }]),
+    ent("孙悟空", [], [{ offset: 100, surface: "孙悟空" }]),
+    ent("齐天大圣", [], [{ offset: 200, surface: "齐天大圣" }]),
   ];
   const { entities, log } = applyEntityOps(roster, [
-    { op: "merge", keep: "洛雪棠", absorb: ["洛大小姐"] },
+    { op: "merge", keep: "孙悟空", absorb: ["齐天大圣"] },
   ]);
   assert.equal(entities.length, 1);
-  assert.equal(entities[0].name, "洛雪棠");
-  assert.ok(entities[0].aliases.includes("洛大小姐") || entities[0].surfaces?.includes("洛大小姐"));
+  assert.equal(entities[0].name, "孙悟空");
+  assert.ok(
+    entities[0].aliases.includes("齐天大圣") ||
+      entities[0].surfaces?.includes("齐天大圣"),
+  );
   assert.ok(log.some((l) => l.includes("merge")));
 }
 
@@ -43,50 +46,57 @@ function ent(
 {
   const roster = [
     ent(
-      "洛雪棠",
-      ["洛大小姐", "那位小姐"],
+      "孙悟空",
+      ["齐天大圣", "某路人外号"],
       [
-        { offset: 1, surface: "洛雪棠" },
-        { offset: 2, surface: "洛大小姐" },
-        { offset: 9, surface: "那位小姐" },
+        { offset: 1, surface: "孙悟空" },
+        { offset: 2, surface: "齐天大圣" },
+        { offset: 9, surface: "某路人外号" },
       ],
     ),
   ];
   const { entities } = applyEntityOps(roster, [
     {
       op: "split",
-      from: "洛雪棠",
-      move_surfaces: ["那位小姐"],
-      new_name: "沈薇薇",
+      from: "孙悟空",
+      move_surfaces: ["某路人外号"],
+      new_name: "某路人",
     },
   ]);
   assert.equal(entities.length, 2);
-  const main = entities.find((e) => e.name === "洛雪棠" || e.aliases.includes("洛大小姐"));
-  const other = entities.find((e) => e.name === "沈薇薇" || e.aliases.includes("那位小姐") || e.name === "那位小姐");
+  const main = entities.find(
+    (e) => e.name === "孙悟空" || e.aliases.includes("齐天大圣"),
+  );
+  const other = entities.find(
+    (e) =>
+      e.name === "某路人" ||
+      e.aliases.includes("某路人外号") ||
+      e.name === "某路人外号",
+  );
   assert.ok(main);
   assert.ok(other);
-  assert.ok(!(main!.aliases || []).includes("那位小姐"));
+  assert.ok(!(main!.aliases || []).includes("某路人外号"));
 }
 
-// --- local entities from unit hits ---
+// --- local entities from unit hits (program fills anchors) ---
 {
   const units: TextUnit[] = [
     {
       index: 0,
-      label: "第1章",
+      label: "第1回",
       start: 0,
-      end: 50,
-      text: "洛雪棠，洛大小姐堪称人间绝色",
+      end: 40,
+      text: "孙悟空即齐天大圣也",
     },
   ];
   const full = units[0].text;
   const hits: UnitNameHit[][] = [
-    [{ name: "洛雪棠", aliases: ["洛大小姐"], count: 1 }],
+    [{ name: "孙悟空", aliases: ["齐天大圣"], count: 1 }],
   ];
   const locals = buildLocalEntitiesFromUnitHits(units, hits, full);
   assert.equal(locals.length, 1);
-  assert.equal(locals[0].name, "洛雪棠");
-  assert.deepEqual(locals[0].aliases, ["洛大小姐"]);
+  assert.equal(locals[0].name, "孙悟空");
+  assert.deepEqual(locals[0].aliases, ["齐天大圣"]);
   assert.ok((locals[0].anchors?.length || 0) >= 1);
 }
 
