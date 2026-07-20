@@ -9,7 +9,7 @@
  * pollution is stripped by sanitizeAliasesAgainstRoster.
  */
 
-
+import { isInvalidUnitPrimaryName } from "./character-entity-types";
 
 export interface ConsolidatableCharacter {
   name: string;
@@ -84,11 +84,8 @@ export function titleLikenessScore(s: string): number {
   return score;
 }
 
-/** Lazy import avoids circular init with character-entity-types.normalize */
 function isSuspendedPrimaryLabel(s: string): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const m = require("./character-entity-types") as typeof import("./character-entity-types");
-  return m.isInvalidUnitPrimaryName(s);
+  return isInvalidUnitPrimaryName(s);
 }
 
 /**
