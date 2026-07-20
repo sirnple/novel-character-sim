@@ -6,8 +6,14 @@ import { applyEntityOps } from "../../src/core/extractor/character-entity-ops";
 import type { ResolvedEntity } from "../../src/core/extractor/character-entity-types";
 import {
   buildLocalEntitiesFromUnitHits,
+  collapseTechnicalFarSameNameKeys,
+  listNearCrossNameAliasCandidates,
   seedGlobalEntitiesFromLocal,
 } from "../../src/core/extractor/character-local-entities";
+import {
+  formatRelationPrimariesForPrompt,
+  listRelationPrimaryNames,
+} from "../../src/core/extractor/character-entity-coverage";
 import type { TextUnit } from "../../src/core/extractor/character-name-units";
 import type { UnitNameHit } from "../../src/core/extractor/character-name-aggregate";
 
@@ -104,7 +110,7 @@ function ent(
   assert.equal(locals[0].anchors?.[0]?.offset, 100);
 }
 
-// --- seed global from local by name key ---
+// --- seed: near same-name (Δunit ≤ D=5) program-merged; different name stays ---
 {
   const locals = [
     {
@@ -130,13 +136,245 @@ function ent(
     },
   ];
   const seeded = seedGlobalEntitiesFromLocal(locals);
-  // same name merged; 齐天大圣 as separate local name stays until global merge
+  // near same name merged; 齐天大圣 as separate local name stays until global merge
   assert.equal(seeded.length, 2);
   const wukong = seeded.find((e) => e.name === "孙悟空");
   assert.ok(wukong);
   assert.ok(wukong!.aliases.includes("齐天大圣"));
   assert.ok(wukong!.aliases.includes("美猴王"));
   assert.equal(wukong!.anchors?.length, 2);
+}
+
+// --- seed: far same-name (Δunit > 5) stay separate for global LLM ---
+{
+  const locals = [
+    {
+      name: "李叔",
+      aliases: [],
+      unitIndex: 0,
+      anchors: [{ offset: 0, unitIndex: 0 }],
+    },
+    {
+      name: "李叔",
+      aliases: ["李叔叔"],
+      unitIndex: 3,
+      anchors: [{ offset: 300, unitIndex: 3 }],
+    },
+    {
+      name: "李叔",
+      aliases: [],
+      unitIndex: 10,
+      anchors: [{ offset: 1000, unitIndex: 10 }],
+    },
+  ];
+  const seeded = seedGlobalEntitiesFromLocal(locals);
+  // 0–3 linked (Δ=3≤5); 10 is Δ=7 from 3 → second cluster
+  assert.equal(seeded.length, 2);
+  const near = seeded.find((e) => e.name === "李叔");
+  const far = seeded.find((e) => e.name === "李叔@u10");
+  assert.ok(near);
+  assert.ok(far);
+  assert.equal(near!.anchors?.length, 2);
+  assert.ok(near!.aliases.includes("李叔叔") || near!.surfaces?.includes("李叔叔"));
+  assert.equal(far!.anchors?.length, 1);
+  // far cluster must not claim bare surface (avoids mergeResolvedEntities collapse)
+  assert.ok(!(far!.surfaces || []).includes("李叔"));
+  assert.ok((far!.surfaces || []).includes("李叔@u10"));
+}
+
+// --- seed: transitive chain 0–5–10 with D=5 → one entity ---
+{
+  const locals = [0, 5, 10].map((u) => ({
+    name: "孙悟空",
+    aliases: [] as string[],
+    unitIndex: u,
+    anchors: [{ offset: u * 100, unitIndex: u }],
+  }));
+  const seeded = seedGlobalEntitiesFromLocal(locals);
+  assert.equal(seeded.length, 1);
+  assert.equal(seeded[0].name, "孙悟空");
+  assert.equal(seeded[0].anchors?.length, 3);
+}
+
+// --- seed: gap 6 > D=5 → two entities ---
+{
+  const locals = [
+    {
+      name: "王大爷",
+      aliases: [],
+      unitIndex: 0,
+      anchors: [{ offset: 0, unitIndex: 0 }],
+    },
+    {
+      name: "王大爷",
+      aliases: [],
+      unitIndex: 6,
+      anchors: [{ offset: 600, unitIndex: 6 }],
+    },
+  ];
+  const seeded = seedGlobalEntitiesFromLocal(locals);
+  assert.equal(seeded.length, 2);
+  assert.ok(seeded.some((e) => e.name === "王大爷"));
+  assert.ok(seeded.some((e) => e.name === "王大爷@u6"));
+}
+
+// --- post-coref: leftover 周航@u23 must collapse into 周航 (no UI leak) ---
+{
+  const roster: ResolvedEntity[] = [
+    ent("周航", ["航仔"], [{ offset: 0 }, { offset: 100 }]),
+    {
+      name: "周航@u23",
+      aliases: [],
+      surfaces: ["周航@u23"],
+      anchors: [{ offset: 2300, unitIndex: 23 }],
+      role: "supporting",
+      briefDescription: "同名远距簇 surface「周航」u@23；与近距同名是否同一人由全局判定",
+    },
+    ent("王铎@u23", [], [{ offset: 2400 }]),
+  ];
+  const collapsed = collapseTechnicalFarSameNameKeys(roster);
+  assert.equal(collapsed.length, 2);
+  const zhou = collapsed.find((e) => e.name === "周航");
+  const wang = collapsed.find((e) => e.name === "王铎");
+  assert.ok(zhou);
+  assert.ok(wang);
+  assert.ok(!collapsed.some((e) => e.name.includes("@u")));
+  assert.ok((zhou!.aliases || []).includes("航仔"));
+  assert.ok((zhou!.anchors?.length || 0) >= 2);
+  assert.ok(!/同名远距簇/.test(zhou!.briefDescription || ""));
+}
+
+// --- near cross-name pairs: candidates for alias analysis (not auto-merge) ---
+{
+  const locals = [
+    {
+      name: "周伯彦",
+      aliases: ["周总"],
+      unitIndex: 2,
+      unitLabel: "第3章",
+      anchors: [{ offset: 200, unitIndex: 2 }],
+    },
+    {
+      name: "周屿的父亲",
+      aliases: ["父亲"],
+      unitIndex: 3,
+      unitLabel: "第4章",
+      anchors: [{ offset: 300, unitIndex: 3 }],
+    },
+    {
+      name: "孙悟空",
+      aliases: [],
+      unitIndex: 0,
+      anchors: [{ offset: 0, unitIndex: 0 }],
+    },
+    {
+      name: "齐天大圣",
+      aliases: ["孙悟空"],
+      unitIndex: 1,
+      anchors: [{ offset: 100, unitIndex: 1 }],
+    },
+    // far: should not pair with D=5 if gap > 5
+    {
+      name: "路人甲",
+      aliases: [],
+      unitIndex: 20,
+      anchors: [{ offset: 2000, unitIndex: 20 }],
+    },
+  ];
+  const pairs = listNearCrossNameAliasCandidates(locals, {
+    maxUnitDistance: 5,
+    limit: 20,
+  });
+  assert.ok(pairs.some((p) => p.nameA.includes("周") && p.nameB.includes("周")));
+  const fatherPair = pairs.find(
+    (p) =>
+      (p.nameA === "周伯彦" && p.nameB === "周屿的父亲") ||
+      (p.nameB === "周伯彦" && p.nameA === "周屿的父亲"),
+  );
+  assert.ok(fatherPair, "near 周伯彦↔周屿的父亲 should be listed");
+  assert.equal(fatherPair!.dist, 1);
+  const wukongPair = pairs.find(
+    (p) =>
+      (p.nameA === "孙悟空" && p.nameB === "齐天大圣") ||
+      (p.nameB === "孙悟空" && p.nameA === "齐天大圣"),
+  );
+  assert.ok(wukongPair);
+  assert.ok(
+    wukongPair!.reasons.some((r) => r.includes("表面含") || r.includes("共享")),
+  );
+  assert.ok(!pairs.some((p) => p.nameA === "路人甲" || p.nameB === "路人甲"));
+}
+
+// --- relation primary names flagged for global agent ---
+{
+  const roster: ResolvedEntity[] = [
+    ent("周屿", ["屿哥"], [{ offset: 0 }]),
+    ent("女朋友", ["女友"], [{ offset: 100 }]),
+    ent("大儿子", [], [{ offset: 200 }]),
+  ];
+  const bad = listRelationPrimaryNames(roster);
+  assert.equal(bad.length, 2);
+  assert.ok(bad.some((e) => e.name === "女朋友"));
+  assert.ok(bad.some((e) => e.name === "大儿子"));
+  const msg = formatRelationPrimariesForPrompt(roster);
+  assert.ok(msg.includes("lookup"));
+  assert.ok(msg.includes("女朋友"));
+  assert.ok(!formatRelationPrimariesForPrompt([ent("周屿", [])]));
+}
+
+// --- normalize does not re-pick names; validate catches bad primaries ---
+{
+  const {
+    normalizeResolvedEntities,
+    validateSubmitEntities,
+  } = require("../../src/core/extractor/character-entity-types") as typeof import("../../src/core/extractor/character-entity-types");
+  const kept = normalizeResolvedEntities([
+    { name: "女朋友", aliases: ["裴冉"] },
+    { name: "周航", aliases: ["弟弟"] },
+  ]);
+  // Agent name preserved (no silent orient)
+  assert.equal(kept.find((e) => e.aliases?.includes("裴冉"))?.name, "女朋友");
+  assert.equal(kept.find((e) => e.name === "周航")?.name, "周航");
+  const issues = validateSubmitEntities(kept);
+  assert.ok(issues.some((x) => x.includes("女朋友") || x.includes("悬空")));
+  assert.ok(
+    !validateSubmitEntities([
+      { name: "裴冉", aliases: ["女朋友"] },
+      { name: "周航", aliases: ["弟弟"] },
+    ]).length,
+  );
+  assert.ok(
+    validateSubmitEntities([
+      { name: "周屿", aliases: [] },
+      { name: "周屿", aliases: ["屿哥"] },
+    ]).some((x) => x.includes("重复")),
+  );
+  assert.ok(
+    validateSubmitEntities([{ name: "", aliases: [] }]).some((x) =>
+      x.includes("空主名"),
+    ),
+  );
+}
+
+// --- near candidates boost 女朋友↔许栀 ---
+{
+  const locals = [
+    {
+      name: "女朋友",
+      aliases: [] as string[],
+      unitIndex: 2,
+      anchors: [{ offset: 200, unitIndex: 2 }],
+    },
+    {
+      name: "许栀",
+      aliases: ["许老师"],
+      unitIndex: 3,
+      anchors: [{ offset: 300, unitIndex: 3 }],
+    },
+  ];
+  const pairs = listNearCrossNameAliasCandidates(locals, { maxUnitDistance: 5 });
+  assert.ok(pairs.length >= 1);
+  assert.ok(pairs[0].reasons.some((r) => r.includes("关系称谓")));
 }
 
 console.log("character-entity-ops.test.ts OK");

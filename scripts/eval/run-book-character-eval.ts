@@ -79,15 +79,16 @@ async function main() {
   }
   console.log(`  text length=${novel.text.length}`);
 
-  // 2) Character job
-  console.log(`[2/3] Start character extract job (forceRefresh)...`);
+  // 2) Character roster only (gold compares mustFind names, not detail/rels)
+  console.log(`[2/3] Start character roster extract (forceRefresh, rosterOnly)...`);
   const job = startCharacterExtractJob({
     userId: USER,
     novelId: book.novelId,
     forceRefresh: true,
+    rosterOnly: true,
     text: novel.text,
   });
-  console.log(`  jobId=${job.id} units=${job.total}`);
+  console.log(`  jobId=${job.id} units=${job.total} rosterOnly=true`);
 
   const t0 = Date.now();
   while (true) {

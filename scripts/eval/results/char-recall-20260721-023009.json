@@ -1,0 +1,77 @@
+{
+  "ranAt": "2026-07-20T18:30:09.846Z",
+  "codeVersion": {
+    "commit": "8252c16cf76d12e0ae6846995fc7a6b78a347c14",
+    "commitShort": "8252c16",
+    "branch": "master",
+    "dirty": true,
+    "packageVersion": "0.1.0",
+    "describe": "8252c16-dirty"
+  },
+  "dbPath": "C:\\Users\\57864\\Repositories\\novel-character-sim\\data\\eval\\novels.db",
+  "userIdFilter": "guest_b2e7023ce0bf4198b25e5dd536830c4e",
+  "goldFilter": "novel_ew7ku6",
+  "includePublic": false,
+  "passBars": {
+    "short": 0.9,
+    "long": 0.85
+  },
+  "books": [
+    {
+      "goldId": "novel_ew7ku6",
+      "title": "欲孽灼心",
+      "novelFound": true,
+      "userIdUsed": "guest_b2e7023ce0bf4198b25e5dd536830c4e",
+      "tier": "short",
+      "passBar": 0.9,
+      "mustFindCount": 17,
+      "rosterCount": 60,
+      "hit": [
+        "周屿",
+        "秦予嫣",
+        "许栀",
+        "周航",
+        "周伯彦",
+        "王铎",
+        "张达",
+        "肖诺",
+        "裴冉",
+        "黑仔",
+        "老吴",
+        "阿龙",
+        "王建国",
+        "短发大叔",
+        "长脸大叔",
+        "老阿伯",
+        "果园老头"
+      ],
+      "miss": [],
+      "recall": 1,
+      "passed": true,
+      "extraSample": [
+        "女朋友",
+        "予嫣姐",
+        "姐姐",
+        "嫂子",
+        "妹子",
+        "屿仔",
+        "小兄弟",
+        "男朋友",
+        "大儿子",
+        "小鬼",
+        "黑瘦小鬼",
+        "小滑头",
+        "雄小鬼",
+        "后妈",
+        "小妈"
+      ]
+    }
+  ],
+  "summary": {
+    "scored": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "allPassed": true
+  }
+}

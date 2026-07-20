@@ -64,25 +64,9 @@ function rebuildLabels(
 ): ResolvedEntity {
   const uniq = Array.from(new Set(surfaces.map((s) => s.trim()).filter(Boolean)));
   const hint = (nameHint || "").trim();
-  // Honor explicit keep/new_name when present in the surface set
-  let name =
-    (hint && uniq.some((s) => norm(s) === norm(hint)) ? hint : "") ||
-    uniq[0] ||
-    hint ||
-    "未命名";
-  const TITLEISH = /小姐|少爷|大嫂|嫂子|夫人|太太|总$/;
-  for (const s of uniq) {
-    if (norm(s) === norm(name)) continue;
-    // Prefer longer non-title form over short title-only keep only when hint empty
-    if (
-      !TITLEISH.test(s) &&
-      TITLEISH.test(name) &&
-      s.length >= 2 &&
-      s.length <= 8
-    ) {
-      name = s;
-    }
-  }
+  // Honor agent keep/new_name; do not re-pick primary via soft orient
+  let name = hint && uniq.some((s) => norm(s) === norm(hint)) ? hint : "";
+  if (!name) name = uniq[0] || hint || "未命名";
   const nk = norm(name);
   const aliases = uniq.filter((s) => norm(s) !== nk);
   return {

@@ -38,6 +38,51 @@ export function isFirstOrSecondPersonDeictic(s: string): boolean {
   return false;
 }
 
+/** Bare pronouns / generics — never a character name. */
+export function isBarePronounOrGeneric(s: string): boolean {
+  const t = (s || "").replace(/\s+/g, "").trim();
+  if (!t) return true;
+  return /^(他|她|它|他们|她们|它们|我|你|您|咱|俺|有人|众人|那人|这人|谁|某人)$/.test(
+    t,
+  );
+}
+
+/**
+ * Unanchored relation / role label used as a sole `name`.
+ * These need a proper name or stable epithet in the same row (aliases), or must be dropped.
+ * Intentionally only matches **whole-string** pure roles (许老师 / 周屿的父亲 are NOT pure).
+ */
+export function isUnanchoredRelationLabel(s: string): boolean {
+  const t = (s || "").replace(/\s+/g, "").trim();
+  if (!t) return true;
+  // Speaker-relative kinship already covered elsewhere; bare 他爸-style
+  if (/^(他|她|我|你|您|俺|咱)(的)?(爸|妈|爹|父|母|哥|姐|弟|妹|儿子|女儿|老公|老婆)/.test(t)) {
+    return true;
+  }
+  // Pure relation role with no name stem (whole string)
+  if (
+    /^(小|大|老)?(儿子|女儿|孩子|孙子|孙女|侄子|侄女)$/.test(t) ||
+    /^(男|女)?朋友$/.test(t) ||
+    /^(老公|老婆|丈夫|妻子|男友|女友)$/.test(t) ||
+    /^(弟弟|哥哥|姐姐|妹妹|父亲|母亲|爸爸|妈妈|爸|妈|爹|娘|后妈|继母|小妈)$/.test(
+      t,
+    ) ||
+    /^(老师|同学|总|经理|主任)$/.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** True if this string must not be a stage-1 primary `name` alone. */
+export function isInvalidUnitPrimaryName(s: string): boolean {
+  return (
+    isBarePronounOrGeneric(s) ||
+    isFirstOrSecondPersonDeictic(s) ||
+    isUnanchoredRelationLabel(s)
+  );
+}
+
 /** Issues like `周伯彦.alias=我爸` for tool error messages */
 export function findFirstSecondPersonAliasIssues(
   raw: ResolvedEntity[] | undefined | null,
@@ -63,52 +108,90 @@ export function nameKeyEntity(name: string): string {
   return String(name || "").replace(/\s+/g, "").trim();
 }
 
+/**
+ * Light clean only — **does not** re-pick primary names or merge people.
+ * Name choice / coref is the global agent's job; submit validates structure.
+ */
 export function normalizeResolvedEntities(
   raw: ResolvedEntity[] | undefined | null,
 ): ResolvedEntity[] {
   if (!raw?.length) return [];
-  const out: ResolvedEntity[] = [];
-  const seen = new Set<string>();
+  const cleaned: ResolvedEntity[] = [];
   for (const e of raw) {
     const name = (e.name || "").trim();
-    // Allow 「周屿的母亲」; skip empty / 1st-2nd person as name
-    if (!name || name.length > 24) continue;
-    if (isFirstOrSecondPersonDeictic(name)) continue;
-    const key = nameKeyEntity(name);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    // Aliases: only keep third-person (drop 我/你… if any slipped past reject)
+    // Keep empty/bad names so validateSubmitEntities can report them
     const aliases = Array.from(
       new Set(
         (e.aliases || [])
-          .map((a) => String(a).trim())
-          .filter(
-            (a) =>
-              a &&
-              nameKeyEntity(a) !== key &&
-              !isFirstOrSecondPersonDeictic(a),
-          ),
+          .map((a) => String(a || "").trim())
+          .filter((a) => a && nameKeyEntity(a) !== nameKeyEntity(name)),
       ),
     );
-    // surfaces: prefer non-deictic for stable labels
     const surfaces = Array.from(
       new Set(
         [name, ...aliases, ...(e.surfaces || [])]
-          .map((s) => String(s).trim())
-          .filter((s) => s && !isFirstOrSecondPersonDeictic(s)),
+          .map((s) => String(s || "").trim())
+          .filter(Boolean),
       ),
     );
     const anchors = normalizeAnchors((e as any).anchors);
-    out.push({
+    cleaned.push({
       name,
       aliases,
       role: e.role || "supporting",
       briefDescription: (e.briefDescription || "").trim() || undefined,
-      surfaces,
+      surfaces: surfaces.length ? surfaces : undefined,
       anchors: anchors.length ? anchors : undefined,
     });
   }
-  return out;
+  return cleaned;
+}
+
+/**
+ * Program checks only — agent must fix; no silent rewrite.
+ * - empty primary name
+ * - duplicate primary names (within the list)
+ * - suspended deictic / relation as primary name
+ * - 1st/2nd-person deictics in name or aliases
+ */
+export function validateSubmitEntities(
+  entities: ResolvedEntity[] | undefined | null,
+): string[] {
+  const issues: string[] = [];
+  if (!entities?.length) return issues;
+  const seen = new Map<string, number>();
+  for (let i = 0; i < entities.length; i++) {
+    const e = entities[i];
+    const name = (e?.name || "").trim();
+    if (!name) {
+      issues.push(`第${i + 1}行空主名`);
+      continue;
+    }
+    if (name.length > 24) {
+      issues.push(`主名过长「${name.slice(0, 12)}…」`);
+    }
+    const key = nameKeyEntity(name);
+    if (seen.has(key)) {
+      issues.push(`主名重复「${name}」`);
+    } else {
+      seen.set(key, i);
+    }
+    if (isInvalidUnitPrimaryName(name)) {
+      issues.push(
+        `主名是悬空指代「${name}」（须 merge 到真实实体，不能单独作 name）`,
+      );
+    }
+    if (isFirstOrSecondPersonDeictic(name)) {
+      issues.push(`主名含第一/二人称「${name}」`);
+    }
+    for (const a of e.aliases || []) {
+      const al = String(a || "").trim();
+      if (al && isFirstOrSecondPersonDeictic(al)) {
+        issues.push(`${name} 的 alias「${al}」含第一/二人称`);
+      }
+    }
+  }
+  return issues;
 }
 
 function claimedKeysOf(e: ResolvedEntity): Set<string> {

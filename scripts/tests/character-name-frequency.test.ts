@@ -332,7 +332,10 @@ export async function runCharacterNameFrequencyTests(): Promise<void> {
       assert.ok(!issues.some((x) => x.includes("屿哥")));
     });
 
-    test("normalize keeps only third-person aliases", () => {
+    test("normalize preserves agent names; validate catches deictic aliases", () => {
+      const {
+        validateSubmitEntities,
+      } = require("../../src/core/extractor/character-entity-types") as typeof import("../../src/core/extractor/character-entity-types");
       const ents = normalizeResolvedEntities([
         {
           name: "周伯彦",
@@ -341,9 +344,12 @@ export async function runCharacterNameFrequencyTests(): Promise<void> {
         },
       ]);
       assert.equal(ents.length, 1);
+      assert.equal(ents[0].name, "周伯彦");
       assert.ok(ents[0].aliases.includes("周总"));
-      assert.ok(ents[0].aliases.includes("周屿的父亲"));
-      assert.ok(!ents[0].aliases.includes("我爸"));
+      // No silent strip — agent must fix; validate reports 我爸
+      assert.ok(ents[0].aliases.includes("我爸"));
+      const issues = validateSubmitEntities(ents);
+      assert.ok(issues.some((x) => x.includes("我爸")), issues.join(","));
     });
 
     test("mergeResolvedEntities accumulates batches by name", () => {

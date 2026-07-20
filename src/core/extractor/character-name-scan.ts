@@ -1,6 +1,6 @@
 /**
  * Flash-friendly per-unit **character mention** scan → frequency filter → roster.
- * Step 1 finds character *referents* (names, epithets, kinship labels…), not only proper names.
+ * Step 1: proper names / nicknames / titles — not suspended deictics as primary name.
  * Does NOT invent personality/relationships.
  *
  * Throughput: consecutive units are packed into one LLM call under a char/unit
@@ -23,38 +23,39 @@ import {
   type UnitNameHit,
   type FilterByFrequencyResult,
 } from "./character-name-aggregate";
+import { sanitizeUnitNameHit } from "./character-unit-hit-sanitize";
 
 const UNIT_NAME_SCHEMA = {
   name: "unit_character_mentions",
   description:
     "Characters in this window with LOCAL coref: one row per person. " +
-    "Proper names, nicknames, titles, stable third-person kinship/roles. " +
-    "Merge same-person surfaces into name+aliases within the window. " +
-    "No bare pronouns (他/她) or deictic kinship (他爸) as-is.",
+    "name = proper name / nickname / title (prefer real name). " +
+    "Never name=bare pronoun, 他爸, 小儿子, 女朋友, or other unanchored relation. " +
+    "Relation words only as aliases of a named person. Merge same-person in-window.",
   parameters: {
     type: "object",
     properties: {
       characters: {
         type: "array",
         description:
-          "One row per person in this window only. Same person must not be split " +
-          "(e.g. 孙悟空 + 齐天大圣 → one row). Exclude 他/她/他爸/有人. " +
-          "Do not output offsets; program fills anchors from the text.",
+          "One row per person. Same person must not be split " +
+          "(孙悟空 + 齐天大圣 → one row). Exclude 他/有人/小儿子/女朋友 as sole name. " +
+          "Do not output offsets.",
         items: {
           type: "object",
           properties: {
             name: {
               type: "string",
               description:
-                "Best form in this window (prefer real name e.g. 孙悟空; title alone OK). " +
-                "Never bare 他/她 or 他爸 alone.",
+                "Prefer real name (孙悟空/周屿). Title alone OK (齐天大圣). " +
+                "Never 他/她/他爸/小儿子/女朋友 alone.",
             },
             aliases: {
               type: "array",
               items: { type: "string" },
               description:
-                "Other forms of the SAME person in THIS window only " +
-                "(e.g. 齐天大圣, 美猴王 for 孙悟空). Empty if none.",
+                "Other forms of the SAME person in THIS window " +
+                "(齐天大圣, 小儿子 if bound to 周屿). Empty if none.",
             },
           },
           required: ["name"],
@@ -103,12 +104,14 @@ function normalizeHits(
   characters: { name: string; aliases?: string[] }[] | undefined,
 ): UnitNameHit[] {
   return (characters || [])
-    .map((c) => ({
-      name: (c.name || "").trim(),
-      aliases: (c.aliases || []).map((a) => String(a).trim()).filter(Boolean),
-      count: 1 as const,
-    }))
-    .filter((c) => c.name.length >= 1 && c.name.length <= 24);
+    .map((c) =>
+      sanitizeUnitNameHit({
+        name: (c.name || "").trim(),
+        aliases: (c.aliases || []).map((a) => String(a).trim()).filter(Boolean),
+        count: 1,
+      }),
+    )
+    .filter((c): c is UnitNameHit => !!c);
 }
 
 /** Build labeled multi-section body for one LLM call. */

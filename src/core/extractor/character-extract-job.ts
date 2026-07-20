@@ -2,7 +2,10 @@
  * Async character extraction job — pipeline A:
  *   unit surface scan (parallel map)
  *   → real coref agent (tools + Admin/md prompt)
- *   → entity frequency → detail → relationships
+ *   → entity frequency → gate
+ *   → (optional) detail → relationships
+ *
+ * Gold / roster eval should use `rosterOnly: true` (skip detail + relationships).
  */
 import { randomUUID } from "node:crypto";
 import { createLLMProvider } from "@/core/llm/factory";
@@ -14,16 +17,17 @@ import { scanUnitHitsWithLlm } from "@/core/extractor/character-name-scan";
 import { countResolvedEntities } from "@/core/extractor/character-entity-frequency";
 import { gateRosterWithLlm } from "@/core/extractor/character-roster-gate";
 import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
-import { buildLocalEntitiesFromUnitHits } from "@/core/extractor/character-local-entities";
+import {
+  buildLocalEntitiesFromUnitHits,
+  collapseTechnicalFarSameNameKeys,
+} from "@/core/extractor/character-local-entities";
+import { listRelationPrimaryNames } from "@/core/extractor/character-entity-coverage";
 import {
   beginCharacterExtractWorkspace,
   clearCharacterExtractWorkspace,
   getCharacterExtractWorkspace,
 } from "@/core/extractor/character-extract-workspace";
-import {
-  consolidateRawCharacters,
-  sanitizeAliasesAgainstRoster,
-} from "@/core/extractor/character-name-consolidate";
+import { sanitizeUnitNameHit } from "@/core/extractor/character-unit-hit-sanitize";
 
 import { extractJSON, isChinese, novelFingerprint } from "@/lib/utils";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
@@ -75,6 +79,11 @@ export interface CharacterExtractJob {
   status: CharJobPhase;
   phase: CharJobPhase;
   forceRefresh: boolean;
+  /**
+   * Stop after roster (scan → coref → count → gate → save name/aliases).
+   * Skips character detail and relationships — use for gold list eval.
+   */
+  rosterOnly?: boolean;
   total: number;
   completed: number;
   failedUnitIds: string[];
@@ -259,25 +268,28 @@ export function cancelCharacterExtractJob(jobId: string): boolean {
   return true;
 }
 
-/** Mentions = names + epithets + stable kinship/role (not pronouns / 他爸). */
+/** Mentions = names / nicknames / titles — not suspended deictics as primary name. */
 const UNIT_SCHEMA = {
   name: "unit_character_mentions",
   description:
-    "Specific character mentions: proper names, nicknames, stable third-person " +
-    "kinship/role/epithets. Exclude bare pronouns (他/她/它) and deictic kinship (他爸).",
+    "Character mentions with local coref: one row per person. " +
+    "name = proper name / nickname / title. Never name=他/他爸/小儿子/女朋友 alone; " +
+    "those only as aliases of a named person.",
   parameters: {
     type: "object",
     properties: {
       characters: {
         type: "array",
-        description: "Exclude 他/她/它/他爸/我爸/有人 as surfaces.",
+        description:
+          "Exclude bare pronouns and unanchored relation labels as sole name " +
+          "(他/有人/小儿子/女朋友). Prefer real names.",
         items: {
           type: "object",
           properties: {
             name: {
               type: "string",
               description:
-                "Proper name OR stable referent (周屿的母亲). Never bare 他/它/他爸.",
+                "Prefer real name (周屿). Title OK (齐天大圣). Never 他/他爸/小儿子/女朋友 alone.",
             },
             aliases: { type: "array", items: { type: "string" } },
           },
@@ -290,7 +302,7 @@ const UNIT_SCHEMA = {
 };
 
 // Bump when unit prompt/schema/batching changes so name-unit cache invalidates
-const PROMPT_VERSION = "char-mentions-unit-v5-batch";
+const PROMPT_VERSION = "char-mentions-unit-v6-no-suspended-name";
 
 async function mapPool<T, R>(
   items: T[],
@@ -330,12 +342,14 @@ async function extractUnitNames(
       maxTokens: 8192,
     });
     return (result.characters || [])
-      .map((c) => ({
-        name: (c.name || "").trim(),
-        aliases: (c.aliases || []).map(String).filter(Boolean),
-        count: 1,
-      }))
-      .filter((c) => c.name.length >= 1 && c.name.length <= 24);
+      .map((c) =>
+        sanitizeUnitNameHit({
+          name: (c.name || "").trim(),
+          aliases: (c.aliases || []).map(String).filter(Boolean),
+          count: 1,
+        }),
+      )
+      .filter((c): c is UnitNameHit => !!c);
   } catch {
     try {
       const raw = await llm.chat(
@@ -353,12 +367,14 @@ async function extractUnitNames(
         characters?: { name: string; aliases?: string[] }[];
       }>(raw);
       return (parsed?.characters || [])
-        .map((c) => ({
-          name: (c.name || "").trim(),
-          aliases: c.aliases || [],
-          count: 1,
-        }))
-        .filter((c) => c.name.length >= 1 && c.name.length <= 24);
+        .map((c) =>
+          sanitizeUnitNameHit({
+            name: (c.name || "").trim(),
+            aliases: c.aliases || [],
+            count: 1,
+          }),
+        )
+        .filter((c): c is UnitNameHit => !!c);
     } catch {
       return [];
     }
@@ -374,6 +390,8 @@ export function startCharacterExtractJob(input: {
   branchId?: string;
   forceRefresh?: boolean;
   text?: string;
+  /** Skip detail + relationships; save roster (name/aliases) only */
+  rosterOnly?: boolean;
 }): CharacterExtractJob {
   const branchId = input.branchId || "main";
   let text = (input.text || "").trim();
@@ -390,6 +408,7 @@ export function startCharacterExtractJob(input: {
   }
 
   const id = `chjob_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  const rosterOnly = !!input.rosterOnly;
   const job: CharacterExtractJob = {
     id,
     userId: input.userId,
@@ -398,10 +417,13 @@ export function startCharacterExtractJob(input: {
     status: "queued",
     phase: "queued",
     forceRefresh: !!input.forceRefresh,
+    rosterOnly,
     total: units.length,
     completed: 0,
     failedUnitIds: [],
-    message: `排队中 · ${units.length} 段`,
+    message: rosterOnly
+      ? `排队中 · 仅名单 · ${units.length} 段`
+      : `排队中 · ${units.length} 段`,
     contentFp: novelFingerprint(text),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -579,7 +601,8 @@ async function runCharacterJob(
     {
       prompt:
         `阶段1已产出 ${localEntities.length} 条局部实体、${catalog.stats.length} 个 surface。` +
-        `请 list_local_entities，跨窗 merge/split，submit 后处理未覆盖。name=真名优先，aliases=称谓外号。`,
+        `请 list_near_alias_candidates → lookup → merge；` +
+        `主名禁止女朋友/弟弟/他爸等悬空指代，须消解到真实实体；一人一行。`,
       novelId: job.novelId,
       branchId: job.branchId,
       userId: job.userId,
@@ -595,18 +618,47 @@ async function runCharacterJob(
     return;
   }
 
-  const entities =
+  const rawEntities =
     getCharacterExtractWorkspace(job.userId, job.novelId, job.branchId)
       ?.entities || [];
 
-  if (!entities.length) {
+  if (!rawEntities.length) {
     const hint = agentResult.content || "无详情";
     clearCharacterExtractWorkspace(job.userId, job.novelId, job.branchId);
     throw new Error(`指代消解 Agent 未提交实体：${hint.slice(0, 200)}`);
   }
 
+  // Agent may have only "temp-saved" roster with 女朋友/弟弟 as name — do not proceed
+  if (
+    /未完成|悬空指代/.test(agentResult.content || "") ||
+    listRelationPrimaryNames(rawEntities).length > 0
+  ) {
+    const left = listRelationPrimaryNames(rawEntities)
+      .map((e) => e.name)
+      .join("、");
+    clearCharacterExtractWorkspace(job.userId, job.novelId, job.branchId);
+    throw new Error(
+      `指代消解未完成：主名仍含悬空指代（${left || "见 agent 输出"}）。` +
+        `须 merge 到真实实体后再提交。（${(agentResult.content || "").slice(0, 180)}）`,
+    );
+  }
+
+  // Seed may leave `周航@u23` when global agent skips far same-name merge.
+  // Collapse technical ids before gate/save so UI never shows @uN rows.
+  const entities = collapseTechnicalFarSameNameKeys(rawEntities);
+  const wsCollapse = getCharacterExtractWorkspace(
+    job.userId,
+    job.novelId,
+    job.branchId,
+  );
+  if (wsCollapse) wsCollapse.entities = entities;
+
   console.log(
-    `[char-job] ${jobId} coref agent done entities=${entities.length} trail=${agentResult.messages?.length || 0}`,
+    `[char-job] ${jobId} coref agent done entities=${rawEntities.length}` +
+      (entities.length !== rawEntities.length
+        ? ` → collapsed ${entities.length}`
+        : "") +
+      ` trail=${agentResult.messages?.length || 0}`,
   );
 
   job.phase = "counting";
@@ -639,24 +691,24 @@ async function runCharacterJob(
     }
     return undefined;
   };
-  let rawList = gated.kept.map((agg) => {
-    const ent = findEntity(agg.name);
-    // Entity from list agent already third-person aliases only
-    const aliases =
-      ent?.aliases?.length
-        ? ent.aliases
-        : agg.aliases.length
-          ? agg.aliases
-          : [];
-    return {
-      name: agg.name,
-      aliases,
-      role: ent?.role || "supporting",
-      briefDescription: ent?.briefDescription || "",
-    };
-  });
-
-  rawList = sanitizeAliasesAgainstRoster(consolidateRawCharacters(rawList));
+  // Trust global agent primary names — no consolidate/orient rewrite
+  const rawList = gated.kept
+    .map((agg) => {
+      const ent = findEntity(agg.name);
+      const aliases =
+        ent?.aliases?.length
+          ? ent.aliases
+          : agg.aliases.length
+            ? agg.aliases
+            : [];
+      return {
+        name: (agg.name || "").trim(),
+        aliases: aliases.map((a) => String(a).trim()).filter(Boolean),
+        role: ent?.role || "supporting",
+        briefDescription: ent?.briefDescription || "",
+      };
+    })
+    .filter((c) => c.name.length >= 1);
 
   if (!rawList.length) {
     throw new Error("名单 LLM gate 后为空");
@@ -671,6 +723,87 @@ async function runCharacterJob(
       (gated.fallbackAll ? " (fallback keep all)" : "") +
       (reasonSample ? ` sample=[${reasonSample}]` : ""),
   );
+
+  // --- Gold / list-only: save name+aliases roster, skip detail & relationships ---
+  if (job.rosterOnly) {
+    const profiles = rawList.map((raw) => ({
+      id: randomUUID(),
+      name: raw.name,
+      aliases: Array.from(new Set([...(raw.aliases || [])])),
+      appearance: { summary: raw.briefDescription || "" },
+      personality: {
+        traits: [] as string[],
+        description: raw.briefDescription || "",
+        decisionStyle: "",
+        underPressure: "",
+      },
+      drive: {
+        goal: "",
+        motivation: "",
+        fear: "",
+        weakness: "",
+        bottomLine: "",
+        secret: "",
+      },
+      behavior: {
+        patterns: [] as string[],
+        habits: [] as string[],
+        attitudeToAuthority: "",
+      },
+      worldview: "",
+      values: [] as string[],
+      speakingStyle: {
+        description: "",
+        catchphrases: [] as string[],
+        sentenceStyle: "",
+        vocabulary: "",
+        emotionalExpression: "",
+      },
+      voice: { description: "" },
+      background: { origin: "", keyEvents: [] as string[], description: "" },
+      relationships: [],
+    }));
+
+    saveCharacters(job.userId, job.novelId, profiles);
+    try {
+      saveGenerationLog({
+        id: randomUUID(),
+        userId: job.userId,
+        novelId: job.novelId,
+        category: "extract",
+        label: "角色名单（扫名→消解→gate，无详情/关系）",
+        inputSummary: fullText.slice(0, 200),
+        outputPreview: profiles.map((c) => c.name).join(", "),
+        fullOutput: JSON.stringify({
+          jobId,
+          rosterOnly: true,
+          surfaces: catalog.stats.length,
+          entities: entities.length,
+          kept: rawList.length,
+          failedUnits: job.failedUnitIds,
+          names: profiles.map((c) => c.name),
+        }),
+      });
+    } catch {
+      /* ignore */
+    }
+
+    clearCharacterExtractWorkspace(job.userId, job.novelId, job.branchId);
+    job.characterCount = profiles.length;
+    job.phase = "done";
+    job.status = "done";
+    job.message =
+      `名单完成 ${profiles.length} 人（跳过详情/关系）` +
+      (job.failedUnitIds.length
+        ? ` · ${job.failedUnitIds.length} 段扫名失败已跳过`
+        : "") +
+      (gated.fallbackAll ? " · gate回退全保留" : " · LLM名单筛选");
+    touch(job);
+    console.log(
+      `[char-job] ${jobId} roster-only done chars=${profiles.length}`,
+    );
+    return;
+  }
 
   job.phase = "detail";
   job.status = "detail";

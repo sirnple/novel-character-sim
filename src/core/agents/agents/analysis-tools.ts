@@ -765,7 +765,7 @@ export const analysisDomainTools: ToolDefinition[] = [
     description:
       "【角色列表】LLM 分段：扫角色 + **窗内局部消解**，写入 catalog 与 localEntities；" +
       "surface 带锚点 a@offset。成功含「角色指称已扫描」。" +
-      "之后 list_local_entities → lookup → submit（merge/split）。" +
+      "之后 list_near_alias_candidates → list_local_entities → lookup → submit（merge/split）。" +
       "有 catalog 且未 forceRefresh 则复用。",
     parameters: {
       type: "object",
@@ -808,7 +808,7 @@ export const analysisDomainTools: ToolDefinition[] = [
           `${head}\n` +
           `units=${unitCount} surfaces=${surfaceCount} localEntities=${localN}（锚点=扫名窗 u@）\n` +
           `前 ${Math.min(30, topLines.length)} 个 surface：\n${top}\n` +
-          `全书消解：list_local_entities → lookup(u@) → submit merge/split；补漏 list_uncovered_surfaces。`
+          `全书消解：list_near_alias_candidates → list_local_entities → lookup(u@) → submit merge/split；补漏 list_uncovered_surfaces。`
         );
       };
 

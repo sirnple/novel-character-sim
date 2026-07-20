@@ -56,8 +56,8 @@ export function beginCharacterExtractWorkspace(
   },
 ): void {
   const locals = data.localEntities || [];
-  // Seed global roster from local name-key merge so stage-2 starts from
-  // in-window coref, not an empty list.
+  // Program coref: same name within D units → one row; far same-name /
+  // different names left for the global agent (see seedGlobalEntitiesFromLocal).
   const seeded =
     locals.length > 0 ? seedGlobalEntitiesFromLocal(locals) : null;
   store().set(key(userId, novelId, branchId), {

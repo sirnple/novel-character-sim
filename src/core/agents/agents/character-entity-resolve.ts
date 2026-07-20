@@ -11,6 +11,7 @@ import { analysisDomainTools } from "./analysis-tools";
 import { getCharacterExtractWorkspace } from "@/core/extractor/character-extract-workspace";
 import { seedGlobalEntitiesFromLocal } from "@/core/extractor/character-local-entities";
 import { SUBMIT_ENTITIES_OK } from "@/core/extractor/character-entity-types";
+import { listRelationPrimaryNames } from "@/core/extractor/character-entity-coverage";
 import {
   getNovelAnalysisWorkspace,
   patchNovelAnalysisWorkspace,
@@ -35,6 +36,7 @@ const characterListLoop = makeLoopAgent({
     [
       "scan_character_mentions",
       "list_local_entities",
+      "list_near_alias_candidates",
       "list_uncovered_surfaces",
       "list_surface_candidates",
       "lookup_surface",
@@ -54,8 +56,8 @@ const characterListLoop = makeLoopAgent({
 /** 子 Agent：工具循环由模型调度；成功后校验 workspace 实体 */
 export const characterEntityResolveAgent: AgentDef = {
   execute: async (ctx, llm, onChunk, onTrail) => {
-    // Clear draft membership from prior analysis; re-seed global roster from
-    // local entities so each run starts from stage-1 coref (not stale submit).
+    // Re-seed from local entities: program near same-name coref (D=5), not
+    // stale submit. Far same-name + different names remain for this agent.
     const branchId = ctx.branchId || "main";
     const existing = getCharacterExtractWorkspace(
       ctx.userId,
@@ -86,6 +88,19 @@ export const characterEntityResolveAgent: AgentDef = {
           `analyze_character_list 失败：未成功 submit_character_entities。` +
           `请先 scan_character_mentions 建 catalog，再 list/消解并 submit。` +
           `（${result.content.slice(0, 200)}）`,
+        messages: result.messages,
+      };
+    }
+
+    // Suspended deictics as primary name = incomplete global coref
+    const relationLeft = listRelationPrimaryNames(entities);
+    if (relationLeft.length) {
+      const names = relationLeft.map((e) => e.name).join("、");
+      return {
+        content:
+          `analyze_character_list 未完成：仍有悬空指代作 name（${names}）。` +
+          `必须 lookup 锚点并 merge 到真实实体后，再 submit 至「角色实体已存」。` +
+          `（${result.content.slice(0, 160)}）`,
         messages: result.messages,
       };
     }

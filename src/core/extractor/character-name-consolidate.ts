@@ -1,9 +1,9 @@
 /**
  * Post-process character list: merge split surfaces and orient name vs aliases.
  *
- * name    = 真实姓名 (e.g. 孙悟空, 猪八戒)
- * aliases = 封号/外号/法号/绰号 (e.g. 齐天大圣, 美猴王, 天蓬元帅) — never another person
- *         · 仅第三人称稳定指称；剔除 我爸/你妈 等第一二人称指示语
+ * Policy for `name` among one person's surfaces (no hard-coded title lexicon):
+ * - If a clearly more name-like form exists (soft structural score) → use it
+ * - Otherwise pick the best-scoring form; other labels stay aliases
  *
  * Safety: only merge on name↔name string relatedness. Cross-character alias
  * pollution is stripped by sanitizeAliasesAgainstRoster.
@@ -40,16 +40,6 @@ function countOf(
   return counts[k] ?? 0;
 }
 
-/** Common title / epithet markers — high score = more like 封号 not 真名 */
-const TITLE_MARKERS =
-  /女王|女帝|女皇|魔王|魔帝|魔尊|魔神|圣女|圣子|圣主|宗主|掌门|城主|盟主|教主|岛主|剑圣|剑神|战神|战圣|杀神|死神|帝君|天尊|至尊|殿下|陛下|阁下|公子|小姐|夫人|大侠|少侠|魔头|妖王|妖帝|龙王|虎王|狼王|巨熊|血魔|修罗|阎罗|判官|阁主|帮主|舵主|元帅|将军|元君|真人|上人|仙尊|仙帝/;
-
-const SURNAME_1 = new Set(
-  "赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜戚谢邹喻柏水窦章云苏潘葛范彭郎鲁韦昌马苗凤花方俞任袁柳唐罗毕郝安常乐于时傅皮齐康伍余元卜顾孟平黄和穆萧尹姚邵汪祁毛禹狄米贝明戴谈宋茅庞熊纪舒项祝董梁杜阮蓝闵席季贾路江童颜郭梅盛林钟徐邱骆高夏蔡田樊胡凌霍虞万柯管卢莫房丁邓郁单洪包诸左石崔龚程邢陆荣翁荀羊甄封储井段巫乌焦车侯班秋仲伊宫宁仇甘祖武符刘景詹龙叶司韶黎薄白蒲从鄂索咸籍赖卓蔺屠蒙池乔阴翟谭贡劳逄姬申冉桑桂牛寿通边燕浦尚农温庄晏柴阎连习宦鱼容向古易戈廖庾居衡步都耿满弘匡国文寇欧利蔚越隆聂晁勾融冷辛简饶空曾沙鞠丰巢关蒯查荆红游权盖晋楚闫岳帅缑有琴商牟佘伯赏墨哈年爱阳佟洛叶甘武".split(
-    "",
-  ),
-);
-
 /** One surface is a short form of the other (prefix/suffix containment). */
 export function isNameSurfaceOf(a: string, b: string): boolean {
   const x = norm(a);
@@ -74,32 +64,37 @@ export function isNameSurfaceOf(a: string, b: string): boolean {
   return false;
 }
 
-/** Higher = more likely a title/epithet, lower = more likely a real personal name. */
+/**
+ * Soft structural score only — no title/role/kinship vocabulary lists.
+ * Lower = more like a compact personal name; higher = more like a long label.
+ * Policy: if a clearly more name-like surface exists, pick it; else lowest score wins.
+ */
 export function titleLikenessScore(s: string): number {
   const x = norm(s);
   if (!x) return 99;
   let score = 0;
-  if (TITLE_MARKERS.test(x)) score += 8;
-  // Pure title-ish length with marker already heavy; bare 2-char with 王/帝 etc.
-  if (/^[一-鿿]{2,6}(王|帝|尊|圣|主|后)$/.test(x)) score += 4;
-  // Has CJK surname + 1–2 given → real name pattern
-  if (x.length >= 2 && x.length <= 4 && SURNAME_1.has(x[0])) score -= 5;
-  // Short personal-looking 2–4 CJK without title markers
-  if (/^[一-鿿]{2,4}$/.test(x) && !TITLE_MARKERS.test(x)) {
-    score -= 2;
-  }
-  // Long epithet-like form without surname
-  if (x.length >= 4 && !SURNAME_1.has(x[0]) && TITLE_MARKERS.test(x)) {
-    score += 3;
-  }
+  // Compact 2–3 forms often personal names; longer often titles/phrases
+  if (x.length <= 1) score += 4;
+  else if (x.length === 2 || x.length === 3) score -= 3;
+  else if (x.length === 4) score -= 1;
+  else score += Math.min(6, x.length - 4);
+  // Relational compound shape "A的B" (structure only, no kinship lexicon)
+  if (x.includes("的")) score += 5;
+  if (/[\s·•]/.test(String(s || ""))) score += 2;
   return score;
 }
 
+/** Lazy import avoids circular init with character-entity-types.normalize */
+function isSuspendedPrimaryLabel(s: string): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const m = require("./character-entity-types") as typeof import("./character-entity-types");
+  return m.isInvalidUnitPrimaryName(s);
+}
+
 /**
- * Prefer real personal name over title/epithet.
- * - 孙悟空 beats 齐天大圣 / 美猴王
- * - 孙悟空 beats 悟空 when longer is surname+name
- * - 猪八戒 beats 天蓬元帅
+ * Prefer the more name-like surface among two labels of the same person.
+ * - Never promote suspended deictics (女朋友/弟弟/他爸) over a solid label
+ * - Else soft structural score / containment
  */
 export function preferRealName(a: string, b: string): string {
   const x = a.trim();
@@ -109,35 +104,31 @@ export function preferRealName(a: string, b: string): string {
   if (!nx) return y;
   if (!ny) return x;
 
+  // Hard rule: solid entity label always beats suspended relation/deictic
+  const xSus = isSuspendedPrimaryLabel(x);
+  const ySus = isSuspendedPrimaryLabel(y);
+  if (xSus && !ySus) return y;
+  if (ySus && !xSus) return x;
+
   const sx = titleLikenessScore(nx);
   const sy = titleLikenessScore(ny);
   if (sx !== sy) return sx < sy ? x : y;
 
-  // Containment: longer ends with shorter
   if (nx.length !== ny.length) {
     const longer = nx.length > ny.length ? x : y;
     const shorter = nx.length > ny.length ? y : x;
     const L = norm(longer);
     const S = norm(shorter);
-    if (L.endsWith(S)) {
-      // Surname+given (孙悟空) vs given (悟空) → full real name
-      if (SURNAME_1.has(L[0]) && L.length <= S.length + 2) return longer;
-      // Title-like longer form → prefer shorter personal name if shorter is cleaner
-      if (titleLikenessScore(L) > titleLikenessScore(S)) return shorter;
+    if (L.endsWith(S) || L.startsWith(S)) {
+      if (titleLikenessScore(L) > titleLikenessScore(S) + 2) return shorter;
       return longer;
     }
   }
 
-  // Tie: prefer form with surname and 2–4 chars
-  const cjkName = (s: string) => {
-    const n = norm(s);
-    return n.length >= 2 && n.length <= 4 && SURNAME_1.has(n[0]) ? 1 : 0;
-  };
-  if (cjkName(x) !== cjkName(y)) return cjkName(x) > cjkName(y) ? x : y;
-
-  // Prefer slightly longer among equally personal (孙悟空 vs 悟空 already handled)
   if (nx.length !== ny.length && Math.abs(nx.length - ny.length) <= 2) {
-    return nx.length > ny.length ? x : y;
+    const mid = (n: string) =>
+      n.length >= 2 && n.length <= 4 ? Math.abs(3 - n.length) : 9;
+    if (mid(nx) !== mid(ny)) return mid(nx) < mid(ny) ? x : y;
   }
   return nx.localeCompare(ny, "zh") <= 0 ? x : y;
 }
@@ -153,7 +144,9 @@ export function preferEpithetForm(a: string, b: string): string {
 }
 
 /**
- * Within one character: real name in `name`, titles/nicknames in aliases.
+ * Within one character: pick `name` among surfaces.
+ * Suspended deictics never win when any solid surface exists
+ * (fixes both submit normalize and post-gate consolidate).
  */
 export function orientNameAndAliases<T extends ConsolidatableCharacter>(
   c: T,
@@ -168,27 +161,30 @@ export function orientNameAndAliases<T extends ConsolidatableCharacter>(
   const surfaces = [name, ...aliases];
   let canonical = name;
 
-  for (const s of surfaces) {
-    if (norm(s) === norm(canonical)) continue;
-    // Always prefer more real-name-like surface
-    if (
-      titleLikenessScore(s) < titleLikenessScore(canonical) ||
-      isNameSurfaceOf(canonical, s) ||
-      isNameSurfaceOf(s, canonical)
-    ) {
+  // Prefer any solid label over suspended deictic first
+  const solid = surfaces.filter((s) => s && !isSuspendedPrimaryLabel(s));
+  if (solid.length) {
+    canonical = solid[0];
+    for (const s of solid) {
+      if (norm(s) === norm(canonical)) continue;
+      canonical = preferRealName(canonical, s);
+    }
+  } else {
+    // Only suspended labels — soft pick among them (still bad; caller may drop)
+    for (const s of surfaces) {
+      if (!s || norm(s) === norm(canonical)) continue;
       canonical = preferRealName(canonical, s);
     }
   }
 
-  // Weak frequency tie-break only among equally real-name-like surfaces
-  if (counts) {
+  // Frequency tie-break only among solid surfaces (never promote suspended via freq)
+  if (counts && solid.length) {
     let best = canonical;
     let bestCount = countOf(canonical, counts);
     const baseTitle = titleLikenessScore(canonical);
-    for (const s of surfaces) {
+    for (const s of solid) {
       if (norm(s) === norm(best)) continue;
-      // Never promote a much more title-like form via frequency
-      if (titleLikenessScore(s) > baseTitle + 1) continue;
+      if (titleLikenessScore(s) > baseTitle) continue;
       const n = countOf(s, counts);
       if (
         titleLikenessScore(s) <= baseTitle &&
@@ -198,7 +194,13 @@ export function orientNameAndAliases<T extends ConsolidatableCharacter>(
         bestCount = Math.max(bestCount, n);
       }
     }
-    canonical = preferRealName(canonical, best);
+    if (!isSuspendedPrimaryLabel(best)) canonical = preferRealName(canonical, best);
+  }
+
+  // Final guard
+  if (isSuspendedPrimaryLabel(canonical)) {
+    const alt = surfaces.find((s) => s && !isSuspendedPrimaryLabel(s));
+    if (alt) canonical = alt;
   }
 
   const rest = surfaces

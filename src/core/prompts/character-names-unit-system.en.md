@@ -1,9 +1,9 @@
 ---
 name: character_names_unit
-description: "Per unit: list characters + local coref (names/titles; no personality)"
+description: "Per unit: list characters + local coref (no suspended deictics as name)"
 tools: []
 ---
-You are a text annotator. Task: find **every character** in this passage and do **local coreference within the window** — one row per person.
+You are a text annotator. Find **every specific person** in this passage and do **local coreference within the window** — one row per person.
 
 ## Unit label
 {{unitLabel}}
@@ -13,21 +13,34 @@ You are a text annotator. Task: find **every character** in this passage and do 
 {{unitText}}
 
 ## Goal
-1. List all **specific people** (proper names, nicknames, titles, stable third-person kinship/roles).  
-2. **Local coref**: if two surfaces in this window are the same person, **merge into one row** (`name` + `aliases`).  
-3. **No book-wide coref** across other chapters.  
-4. **Output strings only** (`name` / `aliases`). Occurrence **anchors (offsets)** are filled by the program via text search — do not invent offsets.
+1. List specific people: proper names, nicknames, titles, identifiable job forms (e.g. "Manager Zhou").  
+2. **Local coref**: same person in this window → one row (`name` + `aliases`).  
+3. **No book-wide coref**.  
+4. Strings only (`name` / `aliases`).
 
-Examples (must merge in-window):
-- "Sun Wukong" + "Great Sage Equal to Heaven" + "Monkey King" → one row: name=Sun Wukong, aliases=["Great Sage…","Monkey King"]  
-- Only a title appears → name=title, aliases=[] (OK; global stage may upgrade later)
+## What may be `name` (hard rules)
+- **`name` must stand alone** as a referent: prefer real name; else nickname/title/job form that still points to a fixed individual.  
+- **Never** use **suspended deictics / unanchored relation labels** as the only `name` of a row.
 
-## Must exclude
-Bare pronouns/generics; speaker-relative kinship only unless rewritten to a stable third-person label; non-persons.
+### Forbidden as sole `name`
+| Type | Examples | Correct |
+|------|----------|---------|
+| Pronouns/generics | he, she, I, you, someone | **omit** |
+| Speaker-relative kinship | his dad, my mom | bind to a person in-window → **aliases**; else **omit** |
+| Bare relation roles | "the girlfriend", "little son", "younger brother" with no name in window | if "Zhou Yu" present → **aliases**; alone → **omit** |
+| Bare job word | "teacher" alone | **omit** ("Teacher Xu" OK) |
+
+### Allowed as `name`
+- Real names; stable nicknames/titles; named job forms.
+
+Examples:
+- "Zhou Yu" also called "little son" → `name=Zhou Yu`, `aliases=["little son"]`  
+- Only "his girlfriend", no proper name → **do not emit** a row  
+- Title only (Great Sage) → `name=Great Sage` OK  
 
 ## Rules
-1. **One person, one row.** Prefer real name for `name`; titles go in `aliases` when the same person.  
-2. **Do not** emit real name and title as two rows when this window shows they are the same person.  
-3. Never invent a proper name.  
-4. **No global coreference** — only this window's text.  
-5. Strings only — no personality/plot.
+1. One person, one row. Prefer real name for `name`.  
+2. Do not split same-person name vs title in this window.  
+3. Never invent names; never invent a row from bare relation words.  
+4. This window only.  
+5. No personality/plot.

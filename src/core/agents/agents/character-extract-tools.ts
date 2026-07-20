@@ -16,6 +16,7 @@ import {
 import {
   findFirstSecondPersonAliasIssues,
   normalizeResolvedEntities,
+  validateSubmitEntities,
   SUBMIT_ENTITIES_OK,
   type ResolvedEntity,
 } from "@/core/extractor/character-entity-types";
@@ -35,13 +36,22 @@ import {
   formatBatchOverflowNotice,
 } from "../batch-tool-limits";
 import type { CharacterProfile } from "@/types";
-import { formatLocalEntitiesForPrompt } from "@/core/extractor/character-local-entities";
+import {
+  formatLocalEntitiesForPrompt,
+  formatNearCrossNameCandidatesForPrompt,
+  listNearCrossNameAliasCandidates,
+  DEFAULT_SAME_NAME_UNIT_DISTANCE,
+} from "@/core/extractor/character-local-entities";
 import {
   formatUncoveredForPrompt,
   listUncoveredSurfaces,
   claimedSurfaceSet,
 } from "@/core/extractor/character-entity-coverage";
-import { parseEntityOps } from "@/core/extractor/character-entity-ops";
+import {
+  applyEntityOps,
+  parseEntityOps,
+} from "@/core/extractor/character-entity-ops";
+import { mergeResolvedEntities } from "@/core/extractor/character-entity-types";
 
 /**
  * Stage roster entities as profiles in analysis workspace (DB only on finish).
@@ -244,6 +254,52 @@ export const characterExtractTools: ToolDefinition[] = [
       const locals = ws.localEntities || [];
       return {
         content: formatLocalEntitiesForPrompt(locals, { offset, limit }),
+        messages: [],
+      };
+    },
+  },
+  {
+    name: "list_near_alias_candidates",
+    description:
+      "列出**近距异名**对（不同 name、unit 间距≤D）：最可能是「另一称呼/aliases」的候选。" +
+      "含：同窗分列、邻窗异名、关系称谓↔姓名、一方 aliases 含另一方、共享表面。" +
+      "对「女朋友/大儿子」等：lookup 锚点，对比已有角色后 merge keep=真名 absorb=关系称谓。" +
+      "优先处理本列表。",
+    parameters: {
+      type: "object",
+      properties: {
+        maxUnitDistance: {
+          type: "number",
+          description: `近距阈值，默认 ${DEFAULT_SAME_NAME_UNIT_DISTANCE}`,
+        },
+        limit: { type: "number", description: "最多返回对数，默认 60，最大 100" },
+      },
+      required: [],
+    },
+    execute: async (args, ctx) => {
+      const { userId, novelId, branchId } = wsKey(ctx);
+      const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
+      if (!ws) {
+        return { content: "无工作区。请先 scan_character_mentions。", messages: [] };
+      }
+      const maxUnitDistance = Math.max(
+        0,
+        Math.floor(
+          Number(args.maxUnitDistance) || DEFAULT_SAME_NAME_UNIT_DISTANCE,
+        ),
+      );
+      const limit = Math.min(
+        100,
+        Math.max(1, Math.floor(Number(args.limit) || 60)),
+      );
+      const items = listNearCrossNameAliasCandidates(ws.localEntities || [], {
+        maxUnitDistance,
+        limit,
+      });
+      return {
+        content: formatNearCrossNameCandidatesForPrompt(items, {
+          maxUnitDistance,
+        }),
         messages: [],
       };
     },
@@ -731,18 +787,6 @@ export const characterExtractTools: ToolDefinition[] = [
           : args.ops,
       );
 
-      const deicticIssues = findFirstSecondPersonAliasIssues(raw);
-      if (deicticIssues.length) {
-        return {
-          content:
-            `未写入：name/aliases 含第一或二人称指示语，请改成第三人称稳定称呼后重交 submit_character_entities。\n` +
-            `问题：${deicticIssues.slice(0, 20).join("；")}` +
-            (deicticIssues.length > 20 ? `…共${deicticIssues.length}处` : "") +
-            `\n正确例：孙悟空 aliases=["齐天大圣"]；错误例：aliases=["我爸"]。`,
-          messages: [],
-        };
-      }
-
       let entities = normalizeResolvedEntities(raw);
       if (!entities.length && !ops.length) {
         return {
@@ -752,9 +796,49 @@ export const characterExtractTools: ToolDefinition[] = [
         };
       }
 
+      // Program validates only — does not re-pick names or merge people.
+      // Agent must fix empty/duplicate/suspended primary names.
+      const deicticIssues = findFirstSecondPersonAliasIssues(entities);
+      const structIssues = validateSubmitEntities(entities);
+      const issues = Array.from(new Set([...deicticIssues, ...structIssues]));
+      if (issues.length) {
+        return {
+          content:
+            `未写入：请修正后重交 submit_character_entities。\n` +
+            `问题：${issues.slice(0, 24).join("；")}` +
+            (issues.length > 24 ? `…共${issues.length}处` : "") +
+            `\n要求：主名非空且不重复；主名不能是女朋友/弟弟/他爸等悬空指代；` +
+            `aliases 禁止我爸/你妈；悬空指代须 merge 到真实实体。`,
+          messages: [],
+        };
+      }
+
       const cws = getCharacterExtractWorkspace(userId, novelId, branchId);
       entities = enrichEntitiesWithCatalogAnchors(entities, cws?.catalog);
       const withAnchors = entities.filter((e) => (e.anchors?.length || 0) > 0).length;
+
+      // Preview full roster after ops+upsert; validate again before write
+      const base = cws?.entities || [];
+      let preview = base;
+      if (ops.length) {
+        preview = applyEntityOps(preview, ops).entities;
+      }
+      if (entities.length) {
+        preview = mergeResolvedEntities(preview, entities);
+      }
+      const fullIssues = validateSubmitEntities(preview);
+      const fullDeictic = findFirstSecondPersonAliasIssues(preview);
+      const fullAll = Array.from(new Set([...fullIssues, ...fullDeictic]));
+      if (fullAll.length) {
+        return {
+          content:
+            `未写入：合并后名单仍有问题。\n` +
+            `问题：${fullAll.slice(0, 24).join("；")}` +
+            (fullAll.length > 24 ? `…共${fullAll.length}处` : "") +
+            `\n请 lookup 锚点，merge 悬空指代到真实实体，消除重复主名后再 submit。`,
+          messages: [],
+        };
+      }
 
       const result = saveResolvedEntities(userId, novelId, branchId, entities, {
         ops,
