@@ -1,6 +1,6 @@
 "use client";
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Bot, Send, Loader2, Wrench, HelpCircle, Zap } from "lucide-react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { Bot, Send, Loader2, Wrench, HelpCircle, Zap, Check } from "lucide-react";
 import Markdown from "@/components/markdown";
 import { useNovel } from "@/lib/novel-context";
 import { notifyLibrariesRefresh } from "@/lib/library-events";
@@ -41,6 +41,68 @@ const ANALYSIS_AGENT_TYPES = new Set([
 
 function isSubAgentToolName(name: string) {
   return WRITE_AGENT_TYPES.has(name) || ANALYSIS_AGENT_TYPES.has(name);
+}
+
+/** Floating chip strip: jump to sub-agent cards without reordering chat history. */
+function SubAgentRunChips(props: {
+  chips: Array<{
+    toolCallId: string;
+    tool: string;
+    status: "running" | "done";
+    progress?: string;
+  }>;
+  onJump: (toolCallId: string) => void;
+}) {
+  if (!props.chips.length) return null;
+  const runningN = props.chips.filter((c) => c.status === "running").length;
+  const doneN = props.chips.length - runningN;
+  return (
+    <div className="shrink-0 border-t border-border/60 bg-card/95 backdrop-blur-sm px-2.5 py-2">
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-[10px] uppercase tracking-wider text-fog font-medium">
+          子 Agent
+        </span>
+        <span className="text-[10px] text-muted-foreground tabular-nums">
+          {runningN > 0
+            ? `${runningN} 进行中${doneN ? ` · ${doneN} 已完成` : ""}`
+            : `${doneN} 已完成 · 点击跳转`}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1.5 max-h-[4.5rem] overflow-y-auto custom-scrollbar">
+        {props.chips.map((c) => {
+          const label = toolLabel(c.tool);
+          const running = c.status === "running";
+          return (
+            <button
+              key={c.toolCallId}
+              type="button"
+              title={
+                running
+                  ? `${label} 进行中${c.progress ? ` · ${c.progress}` : ""} · 点击定位`
+                  : `${label} 已完成 · 点击定位`
+              }
+              onClick={() => props.onJump(c.toolCallId)}
+              className={`inline-flex items-center gap-1 max-w-[11rem] px-2 py-1 rounded-full text-[11px] border transition-colors ${
+                running
+                  ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
+                  : "border-emerald-500/35 bg-emerald-500/10 text-emerald-300/90 hover:bg-emerald-500/15"
+              }`}
+            >
+              {running ? (
+                <Loader2 className="w-2.5 h-2.5 animate-spin shrink-0" />
+              ) : (
+                <Check className="w-2.5 h-2.5 shrink-0" />
+              )}
+              <span className="truncate">{label}</span>
+              {running && c.progress ? (
+                <span className="tabular-nums opacity-80 shrink-0">{c.progress}</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -645,6 +707,72 @@ export default function AgentPanel({
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  /** Keep completed sub-agent chips visible briefly after the last one finishes. */
+  const [lingerSubAgentChips, setLingerSubAgentChips] = useState(false);
+  const subAgentChipSource = useMemo(() => {
+    return messages.filter(
+      (m) =>
+        m.role === "tool" &&
+        m.metadata?.toolCallId &&
+        isSubAgentToolName(m.metadata?.tool || "") &&
+        (m.metadata?.status === "running" || m.metadata?.status === "done"),
+    );
+  }, [messages]);
+  const hasRunningSubAgent = subAgentChipSource.some(
+    (m) => m.metadata?.status === "running",
+  );
+  useEffect(() => {
+    if (hasRunningSubAgent) {
+      setLingerSubAgentChips(true);
+      return;
+    }
+    if (!lingerSubAgentChips) return;
+    const t = window.setTimeout(() => setLingerSubAgentChips(false), 12_000);
+    return () => window.clearTimeout(t);
+  }, [hasRunningSubAgent, lingerSubAgentChips]);
+
+  const subAgentChips = useMemo(() => {
+    const show =
+      hasRunningSubAgent ||
+      (lingerSubAgentChips && subAgentChipSource.length > 0) ||
+      (status === "generating" && subAgentChipSource.length > 0);
+    if (!show) return [];
+    return subAgentChipSource.map((m) => {
+      const running = m.metadata?.status === "running";
+      const p = running ? parseToolProgress(m.content) : null;
+      return {
+        toolCallId: m.metadata!.toolCallId as string,
+        tool: m.metadata?.tool || "agent",
+        status: (running ? "running" : "done") as "running" | "done",
+        progress: p ? `${p.done}/${p.total}` : undefined,
+      };
+    });
+  }, [
+    hasRunningSubAgent,
+    lingerSubAgentChips,
+    subAgentChipSource,
+    status,
+  ]);
+
+  const jumpToToolCard = useCallback((toolCallId: string) => {
+    stickToBottomRef.current = false;
+    const root = messagesScrollRef.current;
+    if (!root) return;
+    const safe =
+      typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape(toolCallId)
+        : toolCallId.replace(/"/g, '\\"');
+    const el = root.querySelector(
+      `[data-tool-call-id="${safe}"]`,
+    ) as HTMLElement | null;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-2", "ring-primary/50");
+    window.setTimeout(() => {
+      el.classList.remove("ring-2", "ring-primary/50");
+    }, 1600);
+  }, []);
 
   useEffect(() => {
     if (!stickToBottomRef.current) return;
@@ -1326,7 +1454,11 @@ export default function AgentPanel({
 
             const isSubAgentCard = isSubAgentToolName(msg.metadata?.tool || "");
             return (
-              <div key={msg.id} className={`${isDone && isReview && !hasFindings ? "py-1" : "bg-secondary/20 border border-border/50 rounded-lg p-2"}`}>
+              <div
+                key={msg.id}
+                data-tool-call-id={msg.metadata?.toolCallId || undefined}
+                className={`transition-shadow ${isDone && isReview && !hasFindings ? "py-1" : "bg-secondary/20 border border-border/50 rounded-lg p-2"}`}
+              >
                 <div className="flex items-center gap-2">
                   {isDone && isReview && !hasFindings ? (
                     <span className="text-xs text-green-600">✓ {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}</span>
@@ -1443,6 +1575,9 @@ export default function AgentPanel({
         })}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Sub-agent run chips: no history reorder — jump to card in transcript */}
+      <SubAgentRunChips chips={subAgentChips} onJump={jumpToToolCard} />
 
       {/* Status only — accept via ask_question + master accept_continuation */}
       {!isAnalysis && branchId && novelId && (fsStatus?.hasProseDraft || fsStatus?.hasRealization) && (
