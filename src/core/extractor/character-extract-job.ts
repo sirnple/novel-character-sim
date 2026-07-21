@@ -23,6 +23,20 @@ import {
 } from "@/core/extractor/character-local-entities";
 import { listRelationPrimaryNames } from "@/core/extractor/character-entity-coverage";
 import {
+  foldSafeEntityRedundancies,
+  formatDualHangBlockForSubmit,
+  listBlockingConsistencyIssues,
+} from "@/core/extractor/character-entity-consistency";
+import {
+  formatUnresolvedCrossNameBlock,
+  listUnresolvedCrossNamePairs,
+} from "@/core/extractor/character-cross-name";
+import { ensureCrossNameCandidates } from "@/core/extractor/character-extract-workspace";
+import {
+  consolidateRawCharacters,
+  surfaceCountsFromRoster,
+} from "@/core/extractor/character-name-consolidate";
+import {
   beginCharacterExtractWorkspace,
   clearCharacterExtractWorkspace,
   getCharacterExtractWorkspace,
@@ -634,7 +648,7 @@ async function runCharacterJob(
 
   // Agent may have only "temp-saved" roster with 女朋友/弟弟 as name — do not proceed
   if (
-    /未完成|悬空指代/.test(agentResult.content || "") ||
+    /未完成|悬空指代|双挂|异名未处理/.test(agentResult.content || "") ||
     listRelationPrimaryNames(rawEntities).length > 0
   ) {
     const left = listRelationPrimaryNames(rawEntities)
@@ -648,14 +662,42 @@ async function runCharacterJob(
   }
 
   // Seed may leave `周航@u23` when global agent skips far same-name merge.
-  // Collapse technical ids before gate/save so UI never shows @uN rows.
-  const entities = collapseTechnicalFarSameNameKeys(rawEntities);
+  // Collapse technical ids + safe short-name/unambiguous alias folds before gate.
+  let entities = collapseTechnicalFarSameNameKeys(rawEntities);
+  entities = foldSafeEntityRedundancies(entities).entities;
+  const dualLeft = listBlockingConsistencyIssues(entities);
+  if (dualLeft.length) {
+    clearCharacterExtractWorkspace(job.userId, job.novelId, job.branchId);
+    throw new Error(
+      `指代消解未完成：主名/别名双挂。\n` +
+        formatDualHangBlockForSubmit(entities, { limit: 20 }) +
+        `\n须 merge 或清理误挂 aliases。`,
+    );
+  }
   const wsCollapse = getCharacterExtractWorkspace(
     job.userId,
     job.novelId,
     job.branchId,
   );
   if (wsCollapse) wsCollapse.entities = entities;
+  const crossCands = ensureCrossNameCandidates(
+    job.userId,
+    job.novelId,
+    job.branchId,
+  );
+  const crossLeft = listUnresolvedCrossNamePairs(
+    crossCands,
+    entities,
+    wsCollapse?.pairResolutions,
+  );
+  if (crossLeft.length) {
+    clearCharacterExtractWorkspace(job.userId, job.novelId, job.branchId);
+    throw new Error(
+      `指代消解未完成：异名怀疑未处理。\n` +
+        formatUnresolvedCrossNameBlock(crossLeft, 20) +
+        `\n须 merge 或 resolve_cross_name_pair(distinct|uncertain)。`,
+    );
+  }
 
   console.log(
     `[char-job] ${jobId} coref agent done entities=${rawEntities.length}` +
@@ -695,8 +737,9 @@ async function runCharacterJob(
     }
     return undefined;
   };
-  // Trust global agent primary names — no consolidate/orient rewrite
-  const rawList = gated.kept
+  // Gate keep-list, then program consolidate short-name dual primaries
+  // (雪棠⊂洛雪棠) and sanitize aliases that collide with other primaries.
+  const preConsolidate = gated.kept
     .map((agg) => {
       const ent = findEntity(agg.name);
       const aliases =
@@ -714,9 +757,20 @@ async function runCharacterJob(
     })
     .filter((c) => c.name.length >= 1);
 
-  if (!rawList.length) {
+  if (!preConsolidate.length) {
     throw new Error("名单 LLM gate 后为空");
   }
+
+  const surfaceCounts = surfaceCountsFromRoster(
+    counted.map((c) => ({
+      name: c.name,
+      aliases: c.aliases,
+      mentions: c.mentions,
+    })),
+  );
+  const rawList = consolidateRawCharacters(preConsolidate, {
+    surfaceCounts,
+  });
 
   const reasonSample = Object.entries(gated.reasons)
     .slice(0, 8)

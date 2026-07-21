@@ -194,16 +194,11 @@ export function validateSubmitEntities(
   return issues;
 }
 
-function claimedKeysOf(e: ResolvedEntity): Set<string> {
-  const s = new Set<string>();
-  for (const x of [e.name, ...(e.aliases || []), ...(e.surfaces || [])]) {
-    const k = nameKeyEntity(x);
-    if (k) s.add(k);
-  }
-  return s;
-}
-
-function unionEntity(a: ResolvedEntity, b: ResolvedEntity): ResolvedEntity {
+/** Exported for consistency fold / ops that union two person rows. */
+export function unionResolvedEntity(
+  a: ResolvedEntity,
+  b: ResolvedEntity,
+): ResolvedEntity {
   const aliases = Array.from(
     new Set([...(a.aliases || []), ...(b.aliases || [])].filter(Boolean)),
   );
@@ -229,7 +224,10 @@ function unionEntity(a: ResolvedEntity, b: ResolvedEntity): ResolvedEntity {
   if (ka && kb && ka !== kb) {
     if (kb.includes(ka) && kb.length > ka.length) name = b.name;
     else if (ka.includes(kb) && ka.length > kb.length) name = a.name;
-    else if ((b.role === "protagonist" || b.role === "antagonist") && a.role === "supporting")
+    else if (
+      (b.role === "protagonist" || b.role === "antagonist") &&
+      a.role === "supporting"
+    )
       name = b.name;
   }
   const nameKey = nameKeyEntity(name);
@@ -250,9 +248,9 @@ function unionEntity(a: ResolvedEntity, b: ResolvedEntity): ResolvedEntity {
 }
 
 /**
- * Merge batch into roster by **name key**, then collapse entities that share
- * any claimed surface (name/alias/surface). Shared surface means the agent
- * already treated them as the same label set — not string kinship heuristics.
+ * Merge batch into roster by **name key** only.
+ * Cross-name alias / short-name folds live in `foldSafeEntityRedundancies`
+ * (character-entity-consistency) so polluted shared aliases cannot mega-merge.
  */
 export function mergeResolvedEntities(
   prev: ResolvedEntity[] | null | undefined,
@@ -271,35 +269,9 @@ export function mergeResolvedEntities(
       byKey.set(k, e);
       continue;
     }
-    byKey.set(k, unionEntity(old, e));
+    byKey.set(k, unionResolvedEntity(old, e));
   }
-
-  // Collapse when two different name-keys share a surface claim
-  let list = Array.from(byKey.values());
-  let changed = true;
-  while (changed) {
-    changed = false;
-    outer: for (let i = 0; i < list.length; i++) {
-      const ki = claimedKeysOf(list[i]);
-      for (let j = i + 1; j < list.length; j++) {
-        const kj = claimedKeysOf(list[j]);
-        let hit = false;
-        for (const x of Array.from(ki)) {
-          if (kj.has(x)) {
-            hit = true;
-            break;
-          }
-        }
-        if (!hit) continue;
-        const merged = unionEntity(list[i], list[j]);
-        list = list.filter((_, idx) => idx !== i && idx !== j);
-        list.push(merged);
-        changed = true;
-        break outer;
-      }
-    }
-  }
-  return list;
+  return Array.from(byKey.values());
 }
 
 export const SUBMIT_ENTITIES_OK = "角色实体已存";

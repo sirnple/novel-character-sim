@@ -992,13 +992,20 @@ export const analysisDomainTools: ToolDefinition[] = [
       "【角色列表】LLM 分段：扫角色 + **窗内局部消解**，写入 catalog 与 localEntities；" +
       "surface 带锚点 a@offset。成功含「角色指称已扫描」。" +
       "之后 list_near_alias_candidates → list_local_entities → lookup → submit（merge/split）。" +
-      "每次调用均重扫（不复用 catalog）。",
+      "**默认跳过**：本会话已有 catalog/localEntities 时直接返回缓存摘要，不重扫。" +
+      "仅 forceRefresh=true 时全书重扫。submit 被拒（双挂/悬空指代）时禁止重扫，应 merge/清 alias 后重交。",
     parameters: {
       type: "object",
-      properties: {},
+      properties: {
+        forceRefresh: {
+          type: "boolean",
+          description:
+            "true=强制全书重扫；默认 false/省略则复用已有 catalog",
+        },
+      },
       required: [],
     },
-    execute: async (_args, ctx, llm, onChunk) => {
+    execute: async (args, ctx, llm, onChunk) => {
       const { userId, novelId, branchId } = ids(ctx);
       const text = loadText(userId, novelId, branchId);
       if (!text.trim()) {
@@ -1010,8 +1017,11 @@ export const analysisDomainTools: ToolDefinition[] = [
         unitCount: number,
         topLines: string[],
         localEntityCount?: number,
+        skipped?: boolean,
       ) => {
-        const head = `${ANALYSIS_OK.scan}（LLM 分段：扫名+局部消解）`;
+        const head = skipped
+          ? `${ANALYSIS_OK.scan}（已缓存，跳过重扫）`
+          : `${ANALYSIS_OK.scan}（LLM 分段：扫名+局部消解）`;
         const top =
           topLines.length > 0
             ? topLines.map((s, i) => `${i + 1}. ${s}`).join("\n")
@@ -1021,11 +1031,15 @@ export const analysisDomainTools: ToolDefinition[] = [
             ? localEntityCount
             : getCharacterExtractWorkspace(userId, novelId, branchId)
                 ?.localEntities?.length ?? 0;
+        const nextHint = skipped
+          ? `请继续消解：list_near_alias_candidates → merge/submit；` +
+            `勿因双挂/submit 失败再扫。须重扫时 forceRefresh=true。`
+          : `全书消解：list_near_alias_candidates → list_local_entities → lookup(u@) → submit merge/split；补漏 list_uncovered_surfaces。`;
         return (
           `${head}\n` +
           `units=${unitCount} surfaces=${surfaceCount} localEntities=${localN}（锚点=扫名窗 u@）\n` +
           `前 ${Math.min(30, topLines.length)} 个 surface：\n${top}\n` +
-          `全书消解：list_near_alias_candidates → list_local_entities → lookup(u@) → submit merge/split；补漏 list_uncovered_surfaces。`
+          nextHint
         );
       };
 
@@ -1045,6 +1059,24 @@ export const analysisDomainTools: ToolDefinition[] = [
           }
           return bits.join(" ");
         });
+
+      const forceRefresh = args?.forceRefresh === true;
+      const existing = getCharacterExtractWorkspace(userId, novelId, branchId);
+      const hasCatalog =
+        (existing?.catalog?.stats?.length || 0) > 0 &&
+        (existing?.localEntities?.length || 0) > 0;
+      if (hasCatalog && !forceRefresh) {
+        return {
+          content: formatScanSummary(
+            existing!.catalog.stats.length,
+            existing!.unitCount || existing!.localEntities?.length || 0,
+            topSurfaceLines(existing!.catalog.stats),
+            existing!.localEntities?.length ?? 0,
+            true,
+          ),
+          messages: [],
+        };
+      }
 
       if (!llm) {
         return {
@@ -1085,6 +1117,7 @@ export const analysisDomainTools: ToolDefinition[] = [
             unitCount,
             topSurfaceLines(after?.catalog?.stats || []),
             after?.localEntities?.length ?? 0,
+            false,
           ),
           messages: [],
         };

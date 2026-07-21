@@ -16,6 +16,16 @@ import {
 import { SUBMIT_ENTITIES_OK } from "@/core/extractor/character-entity-types";
 import { listRelationPrimaryNames } from "@/core/extractor/character-entity-coverage";
 import {
+  foldSafeEntityRedundancies,
+  formatDualHangBlockForSubmit,
+  listBlockingConsistencyIssues,
+} from "@/core/extractor/character-entity-consistency";
+import {
+  formatUnresolvedCrossNameBlock,
+  listUnresolvedCrossNamePairs,
+} from "@/core/extractor/character-cross-name";
+import { ensureCrossNameCandidates } from "@/core/extractor/character-extract-workspace";
+import {
   getNovelAnalysisWorkspace,
   patchNovelAnalysisWorkspace,
 } from "@/core/extractor/novel-analysis-workspace";
@@ -41,7 +51,9 @@ const characterListLoop = makeLoopAgent({
     [
       "scan_character_mentions",
       "list_local_entities",
+      "list_cross_name_candidates",
       "list_near_alias_candidates",
+      "resolve_cross_name_pair",
       "list_uncovered_surfaces",
       "list_surface_candidates",
       "lookup_surface",
@@ -52,8 +64,8 @@ const characterListLoop = makeLoopAgent({
   ),
   submitTool: "submit_character_entities",
   okMarker: SUBMIT_ENTITIES_OK,
-  // Long books: local list + multi-batch merge/split + uncovered passes
-  maxSteps: 48,
+  // Long books: local list + multi-batch merge/split + dual-primary cleanup
+  maxSteps: 72,
   temperature: 0.25,
   maxTokens: 8192,
 });
@@ -102,6 +114,8 @@ export const characterEntityResolveAgent: AgentDef = {
     // Global agent may leave far same-name technical ids; UI must never show them.
     const beforeN = entities.length;
     entities = collapseTechnicalFarSameNameKeys(entities);
+    const folded = foldSafeEntityRedundancies(entities);
+    entities = folded.entities;
     if (cws) cws.entities = entities;
     if (getNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId)) {
       try {
@@ -129,9 +143,47 @@ export const characterEntityResolveAgent: AgentDef = {
       };
     }
 
+    // Multi-claim primary/alias dual hang (e.g. 雪棠 row + 雪棠 in others' aliases)
+    const dualLeft = listBlockingConsistencyIssues(entities);
+    if (dualLeft.length) {
+      const block = formatDualHangBlockForSubmit(entities, { limit: 20 });
+      return {
+        content:
+          `analyze_character_list 未完成：主名/别名双挂未消解（禁止重扫）。\n` +
+          `${block}\n` +
+          `须按清单 merge 或清理误挂 aliases 后再 submit。` +
+          `（${result.content.slice(0, 100)}）`,
+        messages: result.messages,
+      };
+    }
+
+    // P3: open cross-name pairs without explicit processing
+    const crossCands = ensureCrossNameCandidates(
+      ctx.userId,
+      ctx.novelId,
+      branchId,
+    );
+    const crossLeft = listUnresolvedCrossNamePairs(
+      crossCands,
+      entities,
+      cws?.pairResolutions,
+    );
+    if (crossLeft.length) {
+      return {
+        content:
+          `analyze_character_list 未完成：异名怀疑未处理（禁止重扫）。\n` +
+          `${formatUnresolvedCrossNameBlock(crossLeft, 20)}\n` +
+          `须 merge 或 resolve_cross_name_pair(distinct|uncertain) 后再 submit。` +
+          `（${result.content.slice(0, 80)}）`,
+        messages: result.messages,
+      };
+    }
+
     // Always report workspace total (supports multi-batch submit merge)
     const collapsedNote =
-      beforeN !== entities.length ? `（折叠 @uN ${beforeN}→${entities.length}）` : "";
+      beforeN !== entities.length || folded.log.length
+        ? `（折叠 @uN/安全别名 ${beforeN}→${entities.length}）`
+        : "";
     return {
       content: `角色列表已完成：累计 ${entities.length} 个角色实体（分批已合并）${collapsedNote}。`,
       messages: result.messages,

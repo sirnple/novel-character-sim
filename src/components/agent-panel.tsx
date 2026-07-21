@@ -207,6 +207,8 @@ const TOOL_LABELS: Record<string, string> = {
   enrich_form_draft: "LLM补全章法(旧)",
   submit_form: "提交章法",
   scan_character_mentions: "扫描角色指称",
+  list_cross_name_candidates: "异名怀疑列表",
+  resolve_cross_name_pair: "异名对表态",
   list_surface_candidates: "列出称呼候选",
   lookup_surface: "查称呼上下文(可批)",
   lookup_offset: "按位置读文(可批)",

@@ -377,4 +377,211 @@ function ent(
   assert.ok(pairs[0].reasons.some((r) => r.includes("关系称谓")));
 }
 
+// --- primary/alias consistency: short-name fold + dual-hang block ---
+{
+  const {
+    foldSafeEntityRedundancies,
+    listPrimaryAliasCollisions,
+    listBlockingConsistencyIssues,
+  } = require("../../src/core/extractor/character-entity-consistency") as typeof import("../../src/core/extractor/character-entity-consistency");
+
+  // 雪棠 ⊂ 洛雪棠 as dual primaries → program fold
+  {
+    const { entities, log } = foldSafeEntityRedundancies([
+      ent("雪棠", ["洛大小姐"]),
+      ent("洛雪棠", ["未婚妻"]),
+      ent("李动", []),
+    ]);
+    assert.equal(entities.length, 2, log.join(";"));
+    const x = entities.find((e) => e.name === "洛雪棠" || e.name === "雪棠");
+    assert.ok(x);
+    assert.equal(x!.name, "洛雪棠");
+    assert.ok(
+      (x!.aliases || []).includes("雪棠") ||
+        (x!.surfaces || []).includes("雪棠"),
+    );
+    assert.equal(listBlockingConsistencyIssues(entities).length, 0);
+  }
+
+  // Epithet dual-hang: do NOT silent-merge (pollution risk); block for agent merge
+  {
+    const {
+      formatDualHangBlockForSubmit,
+    } = require("../../src/core/extractor/character-entity-consistency") as typeof import("../../src/core/extractor/character-entity-consistency");
+    const roster = [
+      ent("战女王", []),
+      ent("唐兰嫣", ["战女王", "队长"]),
+      ent("李动", []),
+    ];
+    const { entities } = foldSafeEntityRedundancies(roster);
+    assert.equal(entities.length, 3, "epithet not auto-merged");
+    const issues = listBlockingConsistencyIssues(entities);
+    assert.ok(issues.some((x) => x.includes("战女王")), issues.join(";"));
+    assert.ok(
+      issues.some((x) => x.includes("唐兰嫣") && x.includes("merge keep")),
+      "must name both sides + merge: " + issues.join(";"),
+    );
+    const block = formatDualHangBlockForSubmit(entities);
+    assert.ok(block.includes("双挂清单"));
+    assert.ok(block.includes("战女王"));
+    assert.ok(block.includes("唐兰嫣"));
+    assert.ok(block.includes('keep="唐兰嫣"') || block.includes("keep=唐兰嫣"));
+  }
+
+  // Pollution: 姜璎玑 primary + false claim on 洛清莹 → block, never absorb into 洛清莹
+  {
+    const roster = [
+      ent("姜璎玑", ["魔都女王"]),
+      ent("洛清莹", ["姜璎玑", "雪棠"]),
+      ent("雪棠", []),
+      ent("洛雪棠", ["雪棠"]),
+    ];
+    const folded = foldSafeEntityRedundancies(roster).entities;
+    // 雪棠⊂洛雪棠 folds; 姜 must remain separate primary
+    assert.ok(folded.some((e) => e.name === "姜璎玑"));
+    assert.ok(!folded.some((e) => e.name === "雪棠"));
+    const issues = listBlockingConsistencyIssues(folded);
+    assert.ok(
+      issues.some((x) => x.includes("姜璎玑")),
+      "must block polluted claim on 姜璎玑: " + issues.join(";"),
+    );
+    const col = listPrimaryAliasCollisions(folded);
+    const jiang = col.find((c) => c.primaryName === "姜璎玑");
+    assert.ok(jiang);
+    assert.deepEqual(jiang!.claimedBy, ["洛清莹"]);
+  }
+}
+
+// --- P3 cross-name candidates + resolve ledger ---
+{
+  const {
+    listCrossNameCandidates,
+    listUnresolvedCrossNamePairs,
+    recordCrossNameResolution,
+    recordMergesFromOps,
+    formatUnresolvedCrossNameBlock,
+    crossNamePairKey,
+  } = require("../../src/core/extractor/character-cross-name") as typeof import("../../src/core/extractor/character-cross-name");
+
+  const locals = [
+    {
+      name: "战女王",
+      aliases: [] as string[],
+      unitIndex: 2,
+      unitLabel: "第3章",
+    },
+    {
+      name: "唐兰嫣",
+      aliases: ["战女王"] as string[],
+      unitIndex: 2,
+      unitLabel: "第3章",
+    },
+    {
+      name: "周屿",
+      aliases: ["屿哥"],
+      unitIndex: 0,
+    },
+    {
+      name: "许栀",
+      aliases: [],
+      unitIndex: 10,
+    },
+    {
+      name: "秦予嫣",
+      aliases: [],
+      unitIndex: 10,
+    },
+  ];
+  const items = listCrossNameCandidates(locals, { limit: 40 });
+  assert.ok(
+    items.some(
+      (c) =>
+        (c.nameA === "战女王" || c.nameB === "战女王") &&
+        (c.nameA === "唐兰嫣" || c.nameB === "唐兰嫣"),
+    ),
+    "same-window / local_alias 战女王↔唐兰嫣: " +
+      items.map((c) => c.nameA + "/" + c.nameB).join(","),
+  );
+  const pair = items.find(
+    (c) =>
+      crossNamePairKey(c.nameA, c.nameB) ===
+      crossNamePairKey("战女王", "唐兰嫣"),
+  );
+  assert.ok(pair);
+  assert.ok(
+    pair!.sources.includes("same_window") ||
+      pair!.sources.includes("local_alias"),
+  );
+
+  // cooccur: same unitIndex 10
+  assert.ok(
+    items.some(
+      (c) =>
+        (c.nameA === "许栀" || c.nameB === "许栀") &&
+        (c.nameA === "秦予嫣" || c.nameB === "秦予嫣") &&
+        c.sources.includes("cooccur"),
+    ),
+    "cooccur 许栀↔秦予嫣",
+  );
+
+  const roster = [
+    ent("战女王", []),
+    ent("唐兰嫣", ["队长"]),
+    ent("周屿", ["屿哥"]),
+  ];
+  let unresolved = listUnresolvedCrossNamePairs(items, roster, {});
+  assert.ok(
+    unresolved.some(
+      (u) =>
+        crossNamePairKey(u.candidate.nameA, u.candidate.nameB) ===
+        crossNamePairKey("战女王", "唐兰嫣"),
+    ),
+  );
+
+  // uncertain marks processed
+  let ledger = recordCrossNameResolution(
+    {},
+    { nameA: "战女王", nameB: "唐兰嫣", verdict: "uncertain" },
+  );
+  unresolved = listUnresolvedCrossNamePairs(items, roster, ledger);
+  assert.ok(
+    !unresolved.some(
+      (u) =>
+        crossNamePairKey(u.candidate.nameA, u.candidate.nameB) ===
+        crossNamePairKey("战女王", "唐兰嫣"),
+    ),
+    "uncertain clears unprocessed",
+  );
+
+  // merge ops clear
+  ledger = recordMergesFromOps(
+    {},
+    [{ op: "merge", keep: "唐兰嫣", absorb: ["战女王"] }],
+  );
+  const afterMerge = [
+    ent("唐兰嫣", ["战女王", "队长"]),
+    ent("周屿", ["屿哥"]),
+  ];
+  unresolved = listUnresolvedCrossNamePairs(items, afterMerge, ledger);
+  assert.ok(
+    !unresolved.some(
+      (u) =>
+        crossNamePairKey(u.candidate.nameA, u.candidate.nameB) ===
+        crossNamePairKey("战女王", "唐兰嫣"),
+    ),
+    "merge removes open pair",
+  );
+
+  const block = formatUnresolvedCrossNameBlock(
+    listUnresolvedCrossNamePairs(
+      items,
+      [ent("战女王", []), ent("唐兰嫣", [])],
+      {},
+    ),
+  );
+  assert.ok(block.includes("战女王"));
+  assert.ok(block.includes("唐兰嫣"));
+  assert.ok(block.includes("未处理"));
+}
+
 console.log("character-entity-ops.test.ts OK");

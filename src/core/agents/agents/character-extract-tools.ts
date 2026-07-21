@@ -5,6 +5,7 @@
 
 import type { ToolDefinition } from "../types";
 import {
+  ensureCrossNameCandidates,
   getCharacterExtractWorkspace,
   saveResolvedEntities,
 } from "@/core/extractor/character-extract-workspace";
@@ -39,8 +40,6 @@ import type { CharacterProfile } from "@/types";
 import {
   collapseTechnicalFarSameNameKeys,
   formatLocalEntitiesForPrompt,
-  formatNearCrossNameCandidatesForPrompt,
-  listNearCrossNameAliasCandidates,
   DEFAULT_SAME_NAME_UNIT_DISTANCE,
 } from "@/core/extractor/character-local-entities";
 import {
@@ -53,6 +52,20 @@ import {
   parseEntityOps,
 } from "@/core/extractor/character-entity-ops";
 import { mergeResolvedEntities } from "@/core/extractor/character-entity-types";
+import {
+  foldSafeEntityRedundancies,
+  formatDualHangBlockForSubmit,
+  listBlockingConsistencyIssues,
+} from "@/core/extractor/character-entity-consistency";
+import {
+  formatCrossNameCandidatesForPrompt,
+  formatUnresolvedCrossNameBlock,
+  listCrossNameCandidates,
+  listUnresolvedCrossNamePairs,
+  recordCrossNameResolution,
+  recordMergesFromOps,
+  type CrossNameVerdict,
+} from "@/core/extractor/character-cross-name";
 
 /**
  * Stage roster entities as profiles in analysis workspace (master commits later).
@@ -263,12 +276,12 @@ export const characterExtractTools: ToolDefinition[] = [
     },
   },
   {
-    name: "list_near_alias_candidates",
+    name: "list_cross_name_candidates",
     description:
-      "列出**近距异名**对（不同 name、unit 间距≤D）：最可能是「另一称呼/aliases」的候选。" +
-      "含：同窗分列、邻窗异名、关系称谓↔姓名、一方 aliases 含另一方、共享表面。" +
-      "对「女朋友/大儿子」等：lookup 锚点，对比已有角色后 merge keep=真名 absorb=关系称谓。" +
-      "优先处理本列表。",
+      "【P3 异名怀疑】列出可能同一人的不同主名对（程序候选，非判决）。" +
+      "来源：同窗分列、近距、共现、局部 alias/共享表面。" +
+      "每对须处理：merge 或 resolve_cross_name_pair(verdict=distinct|uncertain)。" +
+      "未处理且仍两行分列则 submit 失败。优先处理本列表。",
     parameters: {
       type: "object",
       properties: {
@@ -276,7 +289,11 @@ export const characterExtractTools: ToolDefinition[] = [
           type: "number",
           description: `近距阈值，默认 ${DEFAULT_SAME_NAME_UNIT_DISTANCE}`,
         },
-        limit: { type: "number", description: "最多返回对数，默认 60，最大 100" },
+        limit: { type: "number", description: "最多返回对数，默认 80，最大 120" },
+        refresh: {
+          type: "boolean",
+          description: "true=强制按当前 local/catalog 重算候选",
+        },
       },
       required: [],
     },
@@ -293,17 +310,168 @@ export const characterExtractTools: ToolDefinition[] = [
         ),
       );
       const limit = Math.min(
-        100,
-        Math.max(1, Math.floor(Number(args.limit) || 60)),
+        120,
+        Math.max(1, Math.floor(Number(args.limit) || 80)),
       );
-      const items = listNearCrossNameAliasCandidates(ws.localEntities || [], {
-        maxUnitDistance,
-        limit,
-      });
-      return {
-        content: formatNearCrossNameCandidatesForPrompt(items, {
+      let items =
+        args.refresh === true || !ws.crossNameCandidates?.length
+          ? listCrossNameCandidates(ws.localEntities || [], {
+              maxUnitDistance,
+              limit,
+              catalog: ws.catalog,
+            })
+          : ws.crossNameCandidates.slice(0, limit);
+      if (args.refresh === true || !ws.crossNameCandidates?.length) {
+        ws.crossNameCandidates = listCrossNameCandidates(ws.localEntities || [], {
           maxUnitDistance,
+          limit: 120,
+          catalog: ws.catalog,
+        });
+        items = ws.crossNameCandidates.slice(0, limit);
+      }
+      return {
+        content: formatCrossNameCandidatesForPrompt(items, {
+          ledger: ws.pairResolutions,
+          entities: ws.entities,
         }),
+        messages: [],
+      };
+    },
+  },
+  {
+    name: "list_near_alias_candidates",
+    description:
+      "同 list_cross_name_candidates（P3 全来源异名怀疑：同窗/近距/共现/局部 alias）。" +
+      "保留此名兼容旧 prompt。每对须 merge 或 resolve_cross_name_pair。",
+    parameters: {
+      type: "object",
+      properties: {
+        maxUnitDistance: {
+          type: "number",
+          description: `近距阈值，默认 ${DEFAULT_SAME_NAME_UNIT_DISTANCE}`,
+        },
+        limit: { type: "number", description: "最多返回对数，默认 80，最大 120" },
+      },
+      required: [],
+    },
+    execute: async (args, ctx) => {
+      // Delegate: same P3 full candidate list (avoid self-ref during array init)
+      const { userId, novelId, branchId } = wsKey(ctx);
+      const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
+      if (!ws) {
+        return { content: "无工作区。请先 scan_character_mentions。", messages: [] };
+      }
+      const maxUnitDistance = Math.max(
+        0,
+        Math.floor(
+          Number(args.maxUnitDistance) || DEFAULT_SAME_NAME_UNIT_DISTANCE,
+        ),
+      );
+      const limit = Math.min(
+        120,
+        Math.max(1, Math.floor(Number(args.limit) || 80)),
+      );
+      if (!ws.crossNameCandidates?.length) {
+        ws.crossNameCandidates = listCrossNameCandidates(ws.localEntities || [], {
+          maxUnitDistance,
+          limit: 120,
+          catalog: ws.catalog,
+        });
+      }
+      const items = ws.crossNameCandidates.slice(0, limit);
+      return {
+        content: formatCrossNameCandidatesForPrompt(items, {
+          ledger: ws.pairResolutions,
+          entities: ws.entities,
+        }),
+        messages: [],
+      };
+    },
+  },
+  {
+    name: "resolve_cross_name_pair",
+    description:
+      "【P3】对异名怀疑对表态（不算 merge 时用）。" +
+      "verdict=distinct：确认非同一人；uncertain：存疑，两行保留但算已处理。" +
+      "同一人请用 submit ops merge，不要用本工具假 merge。" +
+      "未处理对会阻止 submit 完成。",
+    parameters: {
+      type: "object",
+      properties: {
+        nameA: { type: "string", description: "怀疑对一侧主名" },
+        nameB: { type: "string", description: "另一侧主名" },
+        verdict: {
+          type: "string",
+          description: "distinct | uncertain（存疑）",
+        },
+        note: { type: "string", description: "可选简短理由" },
+      },
+      required: ["nameA", "nameB", "verdict"],
+    },
+    execute: async (args, ctx) => {
+      const { userId, novelId, branchId } = wsKey(ctx);
+      const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
+      if (!ws) {
+        return { content: "无工作区。请先 scan_character_mentions。", messages: [] };
+      }
+      const nameA = String(args.nameA || "").trim();
+      const nameB = String(args.nameB || "").trim();
+      const rawV = String(args.verdict || "")
+        .trim()
+        .toLowerCase();
+      const verdict: CrossNameVerdict | null =
+        rawV === "distinct" || rawV === "不同" || rawV === "非同一人"
+          ? "distinct"
+          : rawV === "uncertain" ||
+              rawV === "存疑" ||
+              rawV === "unknown" ||
+              rawV === "unsure"
+            ? "uncertain"
+            : rawV === "merge" || rawV === "同一人"
+              ? "merge"
+              : null;
+      if (!nameA || !nameB) {
+        return {
+          content: "需要 nameA 与 nameB。",
+          messages: [],
+        };
+      }
+      if (!verdict) {
+        return {
+          content:
+            "verdict 须为 distinct（非同一人）或 uncertain（存疑）。" +
+            "同一人请 submit ops: {op:merge,keep,absorb}。",
+          messages: [],
+        };
+      }
+      if (verdict === "merge") {
+        return {
+          content:
+            "同一人请使用 submit_character_entities 的 ops merge，" +
+            "不要用 resolve_cross_name_pair(verdict=merge)。",
+          messages: [],
+        };
+      }
+      ws.pairResolutions = recordCrossNameResolution(ws.pairResolutions, {
+        nameA,
+        nameB,
+        verdict,
+        note: args.note != null ? String(args.note) : undefined,
+      });
+      ws.updatedAt = new Date().toISOString();
+      const candidates = ensureCrossNameCandidates(userId, novelId, branchId);
+      const unresolved = listUnresolvedCrossNamePairs(
+        candidates,
+        ws.entities,
+        ws.pairResolutions,
+      );
+      return {
+        content:
+          `已记录「${nameA}」↔「${nameB}」→ ${verdict === "uncertain" ? "存疑 uncertain" : "非同一人 distinct"}。` +
+          `剩余未处理且仍分列：${unresolved.length} 对。` +
+          (unresolved.length
+            ? `\n${formatUnresolvedCrossNameBlock(unresolved, 12)}`
+            : "\n异名作业已全部处理，可再检查双挂后 submit。"),
         messages: [],
       };
     },
@@ -725,7 +893,8 @@ export const characterExtractTools: ToolDefinition[] = [
       "提交全书实体（**可分批、多次** merge/upsert；单次成功≠名单域已全部完成）。" +
       "顺序：先执行 ops（merge/split），再 upsert entities。" +
       "merge: {op:\"merge\",keep,absorb:[]}；split: {op:\"split\",from,move_surfaces?,move_anchors?,new_name?}。" +
-      "aliases 仅第三人称。成功含「角色实体已存」+ 未覆盖 surface 提示；有未覆盖应继续 lookup/submit。",
+      "aliases 仅第三人称。禁止「A 作主名且同时出现在 B 的 aliases」双挂（须 merge 或清理误挂）。" +
+      "成功含「角色实体已存」+ 未覆盖 surface 提示；有未覆盖应继续 lookup/submit。",
     parameters: {
       type: "object",
       properties: {
@@ -801,8 +970,8 @@ export const characterExtractTools: ToolDefinition[] = [
         };
       }
 
-      // Program validates only — does not re-pick names or merge people.
-      // Agent must fix empty/duplicate/suspended primary names.
+      // Program validates only — agent must fix structure / multi-claim pollution.
+      // Safe short-name and unambiguous primary-as-alias folds run on full roster.
       const deicticIssues = findFirstSecondPersonAliasIssues(entities);
       const structIssues = validateSubmitEntities(entities);
       const issues = Array.from(new Set([...deicticIssues, ...structIssues]));
@@ -813,7 +982,9 @@ export const characterExtractTools: ToolDefinition[] = [
             `问题：${issues.slice(0, 24).join("；")}` +
             (issues.length > 24 ? `…共${issues.length}处` : "") +
             `\n要求：主名非空且不重复；主名不能是女朋友/弟弟/他爸等悬空指代；` +
-            `aliases 禁止我爸/你妈；悬空指代须 merge 到真实实体。`,
+            `aliases 禁止我爸/你妈；悬空指代须 merge 到真实实体；` +
+            `不得主名与别名双挂（一人多行）。` +
+            `\n勿重扫；用 ops merge / 改 entities 后重交。`,
           messages: [],
         };
       }
@@ -822,7 +993,7 @@ export const characterExtractTools: ToolDefinition[] = [
       entities = enrichEntitiesWithCatalogAnchors(entities, cws?.catalog);
       const withAnchors = entities.filter((e) => (e.anchors?.length || 0) > 0).length;
 
-      // Preview full roster after ops+upsert; validate again before write
+      // Preview full roster after ops+upsert+safe fold; block multi-claim dual-primary
       const base = cws?.entities || [];
       let preview = base;
       if (ops.length) {
@@ -831,16 +1002,69 @@ export const characterExtractTools: ToolDefinition[] = [
       if (entities.length) {
         preview = mergeResolvedEntities(preview, entities);
       }
+      const foldedPreview = foldSafeEntityRedundancies(preview);
+      preview = foldedPreview.entities;
       const fullIssues = validateSubmitEntities(preview);
       const fullDeictic = findFirstSecondPersonAliasIssues(preview);
-      const fullAll = Array.from(new Set([...fullIssues, ...fullDeictic]));
-      if (fullAll.length) {
+      const dualPrimary = listBlockingConsistencyIssues(preview);
+      const dualBlock = formatDualHangBlockForSubmit(preview, { limit: 30 });
+      const otherIssues = Array.from(
+        new Set([...fullIssues, ...fullDeictic]),
+      );
+      // P3: after fold preview, pairs still open without ledger entry
+      const crossCands =
+        cws?.crossNameCandidates?.length
+          ? cws.crossNameCandidates
+          : listCrossNameCandidates(cws?.localEntities || [], {
+              catalog: cws?.catalog,
+              limit: 120,
+            });
+      if (cws && !cws.crossNameCandidates?.length) {
+        cws.crossNameCandidates = crossCands;
+      }
+      // Merge ops in this submit will clear pairs — simulate ledger after ops
+      let previewLedger = cws?.pairResolutions || {};
+      if (ops.length) {
+        previewLedger = recordMergesFromOps(previewLedger, ops);
+      }
+      const crossUnresolved = listUnresolvedCrossNamePairs(
+        crossCands,
+        preview,
+        previewLedger,
+      );
+      const crossBlock = formatUnresolvedCrossNameBlock(crossUnresolved, 30);
+
+      if (dualPrimary.length || otherIssues.length || crossUnresolved.length) {
+        const parts: string[] = [];
+        if (dualBlock || crossBlock) {
+          parts.push(
+            `未写入：名单未完成（` +
+              [
+                dualBlock ? "双挂" : "",
+                crossBlock ? "异名未处理" : "",
+                otherIssues.length ? "结构问题" : "",
+              ]
+                .filter(Boolean)
+                .join("+") +
+              `）。catalog 已就绪，禁止重扫。`,
+          );
+        } else {
+          parts.push(`未写入：合并后名单仍有问题。`);
+        }
+        if (dualBlock) parts.push(dualBlock);
+        if (crossBlock) parts.push(crossBlock);
+        if (otherIssues.length) {
+          parts.push(
+            `【其它问题】${otherIssues.slice(0, 16).join("；")}` +
+              (otherIssues.length > 16 ? `…共${otherIssues.length}处` : ""),
+          );
+        }
+        parts.push(
+          `下一步：双挂/异名 → ops merge 或 resolve_cross_name_pair(distinct|uncertain)；` +
+            `再 submit。不要 scan（除非 forceRefresh）。`,
+        );
         return {
-          content:
-            `未写入：合并后名单仍有问题。\n` +
-            `问题：${fullAll.slice(0, 24).join("；")}` +
-            (fullAll.length > 24 ? `…共${fullAll.length}处` : "") +
-            `\n请 lookup 锚点，merge 悬空指代到真实实体，消除重复主名后再 submit。`,
+          content: parts.join("\n"),
           messages: [],
         };
       }

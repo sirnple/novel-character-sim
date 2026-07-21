@@ -76,9 +76,13 @@ export function makeLoopAgent(opts: LoopAgentOptions): AgentDef {
 
       // Same pattern as writer missing save_prose: one forced retry
       if (!saved.ok) {
-        const retryUc =
-          `${uc}\n\n` +
-          `（系统）你尚未成功调用 ${opts.submitTool}。请立即调用该工具存储结果。`;
+        const retryHint =
+          opts.submitTool === "submit_character_entities"
+            ? `（系统）你尚未成功 ${opts.submitTool}。` +
+              `若已 scan 过：禁止再 scan_character_mentions；` +
+              `按上次「未写入」：双挂/异名用 ops merge 或 resolve_cross_name_pair(distinct|uncertain)，再 submit。`
+            : `（系统）你尚未成功调用 ${opts.submitTool}。请立即调用该工具存储结果。`;
+        const retryUc = `${uc}\n\n${retryHint}`;
         const second = await run(retryUc);
         trail = trail.concat(
           {

@@ -8,12 +8,19 @@ import {
   mergeResolvedEntities,
   type ResolvedEntity,
 } from "./character-entity-types";
+import { foldSafeEntityRedundancies } from "./character-entity-consistency";
 import {
   seedGlobalEntitiesFromLocal,
   type LocalEntity,
 } from "./character-local-entities";
 import { applyEntityOps, type EntityOp } from "./character-entity-ops";
 import type { TextUnit } from "./character-name-units";
+import {
+  listCrossNameCandidates,
+  recordMergesFromOps,
+  type CrossNameCandidate,
+  type CrossNamePairResolution,
+} from "./character-cross-name";
 
 export interface CharacterExtractWorkspace {
   fullText: string;
@@ -27,6 +34,13 @@ export interface CharacterExtractWorkspace {
   unitCount: number;
   surfaceCount: number;
   updatedAt: string;
+  /**
+   * P3: explicit pair processing ledger (merge | distinct | uncertain).
+   * Unprocessed open pairs block submit completion.
+   */
+  pairResolutions?: Record<string, CrossNamePairResolution>;
+  /** Cached P3 candidates (rebuilt on scan / demand) */
+  crossNameCandidates?: CrossNameCandidate[];
 }
 
 type Store = Map<string, CharacterExtractWorkspace>;
@@ -60,6 +74,9 @@ export function beginCharacterExtractWorkspace(
   // different names left for the global agent (see seedGlobalEntitiesFromLocal).
   const seeded =
     locals.length > 0 ? seedGlobalEntitiesFromLocal(locals) : null;
+  const crossNameCandidates = listCrossNameCandidates(locals, {
+    catalog: data.catalog,
+  });
   store().set(key(userId, novelId, branchId), {
     fullText: data.fullText,
     catalog: data.catalog,
@@ -68,6 +85,8 @@ export function beginCharacterExtractWorkspace(
     entities: seeded,
     unitCount: data.unitCount,
     surfaceCount: data.catalog.stats.length,
+    pairResolutions: {},
+    crossNameCandidates,
     updatedAt: new Date().toISOString(),
   });
 }
@@ -118,19 +137,22 @@ export function saveResolvedEntities(
     const applied = applyEntityOps(base, opts.ops);
     base = applied.entities;
     opLog = applied.log;
+    // P3: merge ops auto-mark pairs as processed
+    ws.pairResolutions = recordMergesFromOps(ws.pairResolutions, opts.ops);
   }
-  const next = opts?.replace
+  let next = opts?.replace
     ? entities
     : mergeResolvedEntities(base, entities);
   // If only ops and empty entities batch, still persist ops result
-  const final =
-    opts?.replace
-      ? entities
-      : entities.length
-        ? next
-        : opts?.ops?.length
-          ? base
-          : next;
+  if (!opts?.replace && !entities.length && opts?.ops?.length) {
+    next = base;
+  }
+  // Safe short-name / unambiguous alias-primary folds (not multi-claim pollution)
+  const folded = foldSafeEntityRedundancies(next);
+  if (folded.log.length) {
+    opLog = [...opLog, ...folded.log];
+  }
+  const final = folded.entities;
   ws.entities = final;
   ws.updatedAt = new Date().toISOString();
   return {
@@ -141,6 +163,23 @@ export function saveResolvedEntities(
     entities: final,
     opLog,
   };
+}
+
+/** Ensure cross-name candidates cached on workspace (rebuild if missing). */
+export function ensureCrossNameCandidates(
+  userId: string,
+  novelId: string,
+  branchId = "main",
+): CrossNameCandidate[] {
+  const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
+  if (!ws) return [];
+  if (ws.crossNameCandidates?.length) return ws.crossNameCandidates;
+  const items = listCrossNameCandidates(ws.localEntities || [], {
+    catalog: ws.catalog,
+  });
+  ws.crossNameCandidates = items;
+  ws.updatedAt = new Date().toISOString();
+  return items;
 }
 
 export function clearCharacterExtractWorkspace(
