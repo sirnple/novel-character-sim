@@ -24,6 +24,10 @@ import {
   type FilterByFrequencyResult,
 } from "./character-name-aggregate";
 import { sanitizeUnitNameHit } from "./character-unit-hit-sanitize";
+import {
+  resolveMentionScanOptions,
+  type MentionScanResolved,
+} from "@/lib/runtime-settings";
 
 const UNIT_NAME_SCHEMA = {
   name: "unit_character_mentions",
@@ -95,7 +99,11 @@ async function mapPool<T, R>(
       out[i] = await fn(items[i], i);
     }
   }
-  const n = Math.max(1, Math.min(concurrency, items.length));
+  // concurrency <= 0 → unlimited (all items in parallel)
+  const n =
+    concurrency <= 0
+      ? Math.max(1, items.length)
+      : Math.max(1, Math.min(concurrency, items.length));
   await Promise.all(Array.from({ length: n }, () => worker()));
   return out;
 }
@@ -219,6 +227,7 @@ async function extractNamesInBatch(
 /**
  * LLM-only per-unit name/surface extraction (product path).
  * Packs consecutive units into fewer LLM calls under char/unit budget.
+ * Knobs from {@link resolveMentionScanOptions} unless explicitly overridden.
  */
 export async function scanUnitHitsWithLlm(
   llm: LLMProvider,
@@ -227,38 +236,41 @@ export async function scanUnitHitsWithLlm(
     units?: TextUnit[];
     zh?: boolean;
     concurrency?: number;
-    /** Max novel chars per LLM call body (default ~16k / env) */
+    /** Max novel chars per LLM call body */
     batchChars?: number;
-    /** Max units per LLM call (default 6 / env) */
+    /** Max units per LLM call */
     batchUnits?: number;
+    /** Prefer over raw concurrency/batch when set */
+    userId?: string | null;
+    isAdmin?: boolean;
+    isDebug?: boolean;
+    resolved?: MentionScanResolved;
     onProgress?: (done: number, total: number, label: string) => void;
   } = {},
 ): Promise<{ units: TextUnit[]; unitHits: UnitNameHit[][] }> {
   const zh = options.zh !== false;
-  const envC = Number(process.env.CHARACTER_MENTION_CONCURRENCY || "");
-  const concurrency =
-    options.concurrency ??
-    (Number.isFinite(envC) && envC >= 1 ? Math.floor(envC) : 4);
+  const resolved =
+    options.resolved ??
+    resolveMentionScanOptions({
+      userId: options.userId,
+      isAdmin: options.isAdmin,
+      isDebug: options.isDebug,
+    });
+  const concurrency = options.concurrency ?? resolved.concurrency;
+  const batchUnits = options.batchUnits ?? resolved.batchUnits;
+  const maxBodyChars = options.batchChars ?? resolved.batchChars;
   const units =
     options.units?.length ? options.units : buildNameScanUnits(fullText);
 
   const batches = packUnitsForMentionScan(units, {
-    maxChars: options.batchChars,
-    maxUnits: options.batchUnits,
+    maxChars: maxBodyChars,
+    maxUnits: batchUnits,
   });
-
-  // Body budget ≈ pack budget (section headers already reserved in packer slack)
-  const envBody = Number(process.env.CHARACTER_MENTION_BATCH_CHARS || "");
-  const maxBodyChars =
-    options.batchChars ??
-    (Number.isFinite(envBody) && envBody >= 4_000
-      ? Math.floor(envBody)
-      : 16_000);
 
   console.log(
     `[MentionScan] units=${units.length} batches=${batches.length} ` +
-      `textLen=${fullText.length} concurrency=${concurrency} ` +
-      `batchChars≈${maxBodyChars}`,
+      `textLen=${fullText.length} concurrency=${concurrency <= 0 ? "unlimited" : concurrency} ` +
+      `batchUnits=${batchUnits} batchChars≈${maxBodyChars} mode=${resolved.mode}`,
   );
 
   // Index by position in the `units` array (not unit.index — callers may pass a subset)

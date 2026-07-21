@@ -136,6 +136,7 @@ async function seedCharacterCatalogViaLlm(
   const { units: scannedUnits, unitHits } = await scanUnitHitsWithLlm(llm, text, {
     units: unitsLocal,
     zh: isChinese(text),
+    userId,
     onProgress,
   });
   const catalog = buildSurfaceCatalog(unitHits, scannedUnits, text);
