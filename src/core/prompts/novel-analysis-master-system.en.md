@@ -29,10 +29,12 @@ Do **not** use a hardcoded menu. Write options for **this** turn, but each must 
 - Forbidden vague labels: "re-analyze all", "re-analyze", "characters stuff" without scope
 - Split character work into list / detail / relationships when relevant
 - Plain language for what will run; no raw agent_type in user-facing options
-- If already complete: do not ask "confirm save"
+- When wrapping up a run, options **must include** a save choice (e.g. "Save results to this book")
+- If the user picks save (or explicitly asks to save in chat) → call `finish_novel_analysis(userConfirmed=true)` immediately; do not re-ask
 - After pick: run only that scope
 
 ## Single sub-agent
 Map intent → agent_type → status(for_agent) → launchPlan.sequence.
 
-finish_novel_analysis only when the user explicitly wants to save.
+## Save
+Call finish when the user **either** explicitly asks to save **or** selects a save option in ask_question. Do not finish unprompted.

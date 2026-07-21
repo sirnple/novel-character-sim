@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       novelId: body.sessionId || body.novelId || "default",
       text: body.text,
       modules,
-      forceRefresh: !!body.forceRefresh,
+      forceRefresh: body.forceRefresh === false ? false : true,
     });
     return NextResponse.json(result);
   } catch (error) {

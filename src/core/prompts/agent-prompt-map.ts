@@ -33,12 +33,10 @@ export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
   },
 
   // ---- Extraction / novel analysis ----
+  // User message is program-built (chat history / ctx.prompt) — no user md.
   novel_analysis: {
     system: "novel-analysis-master-system.md",
     systemEn: "novel-analysis-master-system.en.md",
-    user: "novel-analysis-master-user.md",
-    userEn: "novel-analysis-master-user.en.md",
-    // vars: prompt, novelId, branchId, modules, forceRefresh
   },
   // Domain agents — canonical verb-object ids (+ noun aliases for Admin/history)
   analyze_form: {

@@ -9,9 +9,23 @@ import {
   loadChapterRules,
   matchChapterLine,
 } from "./chapter-rules";
+import {
+  classifyChapterTrack,
+  isMainTrack,
+  mainlineChapters,
+} from "./chapter-track";
 
 export { parseChineseNumeral };
 export { getChapterRulesConfig, loadChapterRules, matchChapterLine };
+export {
+  classifyChapterTrack,
+  effectiveTrack,
+  isMainTrack,
+  mainlineChapters,
+  needsContinuationTrackChoice,
+  CONTINUATION_TRACK_OPTIONS,
+  trackLabelZh,
+} from "./chapter-track";
 
 /**
  * Scan full text for chapter headings. Returns catalog sorted by offset.
@@ -45,14 +59,20 @@ export function extractChapterCatalog(
     if (nextBlank) strength += config.blankLineBoostNext ?? 0;
 
     seenOffsets.add(lineStart);
+    const title = m.title || trimmed;
     raw.push({
       id: `ch_${raw.length + 1}_${lineStart}`,
       number: m.number,
-      title: m.title || trimmed,
+      title,
       startOffset: lineStart,
       source: "regex",
       strength,
       kind: m.kind,
+      track: classifyChapterTrack({
+        kind: m.kind,
+        title,
+        rawLine: trimmed,
+      }),
     });
   }
 
@@ -63,7 +83,8 @@ export function extractChapterCatalog(
       i + 1 < filtered.length ? filtered[i + 1].startOffset : text.length;
   }
 
-  return filtered.map(({ strength: _s, kind: _k, ...rest }) => rest);
+  // Keep kind + track (drop only internal strength)
+  return filtered.map(({ strength: _s, ...rest }) => rest);
 }
 
 function filterWeakHits(
@@ -114,7 +135,11 @@ export function inferChapteringFromCatalog(
   text: string,
   catalog: ChapterCatalogEntry[],
 ): ChapterTitleStyle {
-  const samples = catalog.slice(0, 8).map((c) => {
+  // Prefer mainline for samples / numbering / enable decision
+  const main = mainlineChapters(catalog);
+  const forStyle = main.length >= 2 ? main : catalog;
+
+  const samples = forStyle.slice(0, 8).map((c) => {
     const slice = text.slice(
       c.startOffset,
       Math.min(text.length, c.startOffset + 100),
@@ -132,15 +157,15 @@ export function inferChapteringFromCatalog(
     if (/^【/.test(s)) bracket++;
   }
 
-  const enabled = catalog.length >= 2;
+  const enabled = forStyle.length >= 2;
   let confidence =
-    catalog.length === 0 ? 0.15
-    : catalog.length === 1 ? 0.42
-    : catalog.length < 4 ? 0.62
-    : catalog.length < 10 ? 0.8
+    forStyle.length === 0 ? 0.15
+    : forStyle.length === 1 ? 0.42
+    : forStyle.length < 4 ? 0.62
+    : forStyle.length < 10 ? 0.8
     : 0.9;
 
-  const nums = catalog.map((c) => c.number).filter((n): n is number => n != null);
+  const nums = forStyle.map((c) => c.number).filter((n): n is number => n != null);
   if (nums.length >= 3) {
     let inc = 0;
     for (let i = 1; i < nums.length; i++) {
@@ -152,8 +177,8 @@ export function inferChapteringFromCatalog(
   const effectiveEnabled = enabled && confidence >= 0.55;
 
   let avg = 0;
-  if (catalog.length >= 2) {
-    const lens = catalog.map(
+  if (forStyle.length >= 2) {
+    const lens = forStyle.map(
       (c) => (c.endOffset ?? c.startOffset) - c.startOffset,
     );
     avg = Math.round(lens.reduce((a, b) => a + b, 0) / lens.length);
@@ -192,14 +217,21 @@ export function catalogQualityHints(
       "长文未检出章节标题：可在 src/core/form/chapter-rules.json 增加规则",
     );
   }
-  const nums = catalog.map((c) => c.number).filter((n): n is number => n != null);
+  const main = mainlineChapters(catalog);
+  const extraN = catalog.filter((c) => !isMainTrack(c)).length;
+  if (extraN > 0) {
+    hints.push(
+      `目录含非主线 ${extraN} 条（番外/序/尾等）；主线连贯只看 ${main.length} 条主线`,
+    );
+  }
+  const nums = main.map((c) => c.number).filter((n): n is number => n != null);
   for (let i = 1; i < nums.length; i++) {
     if (nums[i] < nums[i - 1]) {
-      hints.push("章号出现回退，可能有误检");
+      hints.push("主线章号出现回退，可能有误检");
       break;
     }
     if (nums[i] > nums[i - 1] + 3) {
-      hints.push("章号跳跃较大，可能漏检");
+      hints.push("主线章号跳跃较大，可能漏检");
       break;
     }
   }

@@ -13,7 +13,7 @@ import {
 import { characterExtractTools } from "./character-extract-tools";
 import { getTool } from "../registry";
 import { buildMasterAgentToolSchema } from "../analysis-allowlist";
-import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
+import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { toolSaveSucceeded } from "../save-verify";
 import type { TrailMessage } from "../types";
@@ -222,22 +222,17 @@ export const ideaExtractAgent: AgentDef = makeLoopAgent({
 
 export const novelAnalysisAgent: AgentDef = {
   execute: async (ctx, llm, onChunk, onTrail) => {
-    const { system: sys, user: baseUser } = resolveAgentPrompt("novel_analysis", "zh", {
-      prompt: ctx.prompt || "",
-      novelId: ctx.novelId,
-      branchId: ctx.branchId || "main",
-      modules: "",
-      forceRefresh: "false",
-    });
+    // System from md only; user is rendered in code (no novel-analysis-master-user.md).
+    const sys = resolveAgentSystem("novel_analysis", "zh");
 
     const toolBlock = `
 
 ## 可用编排（对齐续写主编）
 - 先 get_current_* + **get_analysis_status**
 - **用户点名单域**：get_analysis_status(for_agent=目标) → 按 launchPlan.sequence **先依赖后目标**
-- done 非空且范围不清 → **必须 ask_question**（只补缺失 / 全部重跑 / 结束）
+- 范围不清 → ask_question（无歧义选项；收尾须含保存选项）
 - 章法：agent(analyze_form)（禁止主编直接 run_form_analysis）
-- finish_novel_analysis 收尾；其它域 agent(agent_type)
+- 用户要求保存或点选保存选项 → finish_novel_analysis(userConfirmed=true)
 `;
 
     // Same shape as chat route: mode-scoped agent schema + thin master tools
@@ -273,9 +268,10 @@ export const novelAnalysisAgent: AgentDef = {
       parameters: Record<string, unknown>;
     }[];
 
-    const uc =
-      (baseUser || ctx.prompt || `组织分析小说 ${ctx.novelId} 分支 ${ctx.branchId || "main"}`) +
-      toolBlock;
+    const task =
+      (ctx.prompt || "").trim() ||
+      `组织分析小说 ${ctx.novelId} 分支 ${ctx.branchId || "main"}`;
+    const uc = `${task}${toolBlock}`;
 
     const run = (user: string) =>
       runSubAgentToolLoop(llm, sys, user, tools, ctx, onChunk, onTrail, {

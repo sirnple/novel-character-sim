@@ -79,12 +79,25 @@
       "titleFallback": ""
     },
     {
+      "id": "extra_numbered",
+      "name": "番外N / 外传N",
+      "enabled": true,
+      "strength": 90,
+      "flags": "",
+      "pattern": "^(番外|外传|特别篇|加更)([ 　\\t\\-—–·:：]*)([\\d一二三四五六七八九十百千零〇两]{0,8})([ 　\\t\\-—–·:：]*)(.*)$",
+      "numberGroup": 3,
+      "numberParse": "cnOrInt",
+      "titleGroup": 5,
+      "titleFallback": "$1$3",
+      "titlePrefixGroup": 1
+    },
+    {
       "id": "special_front_back",
       "name": "序章/楔子/番外/尾声",
       "enabled": true,
       "strength": 80,
       "flags": "",
-      "pattern": "^(序章|楔子|引子|前言|序言|尾声|后记|番外|终章|终幕)([ 　\\t\\-—–·:：]*)(.*)$",
+      "pattern": "^(序章|楔子|引子|前言|序言|尾声|后记|番外|终章|终幕|外传|特别篇)([ 　\\t\\-—–·:：]*)(.*)$",
       "numberGroup": 0,
       "numberParse": "none",
       "titleGroup": 3,

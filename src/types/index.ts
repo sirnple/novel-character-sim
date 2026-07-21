@@ -380,6 +380,17 @@ export interface NovelFormProfile {
 
 export type ChapterBoundary = "open" | "closed";
 
+/**
+ * Narrative track for TOC entries.
+ * Mainline continuity (章号连贯) only uses `main`; 番外/序章/尾声 are not main plot chapters.
+ */
+export type ChapterTrack =
+  | "main"
+  | "extra"
+  | "front_matter"
+  | "back_matter"
+  | "volume";
+
 export interface ChapterCatalogEntry {
   id: string;
   number?: number;
@@ -388,6 +399,13 @@ export interface ChapterCatalogEntry {
   endOffset?: number;
   /** How this entry was produced */
   source: "regex" | "llm_patch" | "accept" | "manual";
+  /**
+   * Storyline track. Default/missing → treat as main for backward compatibility.
+   * Program classify: 第N章=main, 番外=extra, 序章=front_matter, 尾声=back_matter, 卷=volume.
+   */
+  track?: ChapterTrack;
+  /** Rule id from chapter-rules (e.g. special_front_back) when known */
+  kind?: string;
 }
 
 export interface BranchChapterMeta {
@@ -396,7 +414,22 @@ export interface BranchChapterMeta {
   /** open = mid-chapter; closed = ready for new chapter title */
   chapterBoundary: ChapterBoundary;
   openChapter?: { number?: number; title?: string; startedAtOffset: number };
-  lastClosedChapter?: { number?: number; title?: string; endOffset: number };
+  /**
+   * Physical last closed unit (may be 番外). Prefer lastMainChapter for mainline 第N章.
+   */
+  lastClosedChapter?: {
+    number?: number;
+    title?: string;
+    endOffset: number;
+    track?: ChapterTrack;
+  };
+  /** Last mainline chapter for planning 下一章章号 */
+  lastMainChapter?: {
+    number?: number;
+    title?: string;
+    endOffset: number;
+    track?: ChapterTrack;
+  };
   chapters: ChapterCatalogEntry[];
   updatedAt?: string;
 }

@@ -9,6 +9,7 @@ import {
 import { getCharacterExtractWorkspace } from "@/core/extractor/character-extract-workspace";
 import { buildFormDraftFromText } from "@/core/form/form-analyzer";
 import { entitiesToProfiles } from "./agents/character-extract-tools";
+import { collapseTechnicalFarSameNameKeys } from "@/core/extractor/character-local-entities";
 import {
   applyRelationshipEdges,
   mergeCharacterProfiles,
@@ -116,7 +117,10 @@ export function commitAnalysisWorkspace(input: {
     const byKey = new Map<string, CharacterProfile>();
     // 1) entities define base set when present
     if (cws?.entities?.length) {
-      for (const p of entitiesToProfiles(cws.entities)) {
+      // Safety net (same as char-job): never commit seed `名@uN` technical ids
+      const collapsed = collapseTechnicalFarSameNameKeys(cws.entities);
+      cws.entities = collapsed;
+      for (const p of entitiesToProfiles(collapsed)) {
         const k = nameKey(p.name);
         if (k) byKey.set(k, p);
       }

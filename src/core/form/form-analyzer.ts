@@ -14,6 +14,7 @@ import {
   extractChapterCatalog,
   inferChapteringFromCatalog,
 } from "./chapter-catalog";
+import { applyTrackLabels } from "./chapter-track";
 import { buildNovelContext, parseNovel } from "@/core/parser/novel-parser";
 
 const CONFIDENCE_ENABLE = 0.55;
@@ -89,11 +90,22 @@ export function buildFormDraftFromText(
     chapter: chaptering.enabled ? "present" : catalog.length === 1 ? "weak" : "absent",
     section: "absent",
   };
+  const mainN = catalog.filter((c) => !c.track || c.track === "main").length;
+  const extraN = catalog.filter((c) => c.track === "extra").length;
+  const otherN = catalog.length - mainN - extraN;
+
   profile.continuationRules = chaptering.enabled
     ? [
-        "本书分章：新开章时使用与 samples 一致的章标题格式。",
+        "本书分章：新开主线章时使用与 samples 一致的章标题格式。",
         "续写同一章时不要无故新起「第N章」。",
-        `章名样例：${chaptering.samples.slice(0, 3).join(" / ") || "（无）"}`,
+        `章名样例（主线）：${chaptering.samples.slice(0, 3).join(" / ") || "（无）"}`,
+        ...(extraN || otherN
+          ? [
+              `目录：主线 ${mainN} · 番外 ${extraN}` +
+                (otherN ? ` · 序/尾/卷 ${otherN}` : "") +
+                "。主线章号勿与番外混排；书末若在番外，续写前须让用户选择「续番外」或「回主线开新章」。",
+            ]
+          : []),
       ]
     : [
         "本书按保守策略视为弱分章/不分章：除非用户要求，不要添加「第N章」标题。",
@@ -157,12 +169,20 @@ export interface CatalogCoherence {
   notes: string[];
 }
 
-/** Step 1: are chapter numbers roughly sequential / continuous? */
+/** Step 1: are **mainline** chapter numbers roughly sequential / continuous? */
 export function analyzeCatalogCoherence(
   catalog: ChapterCatalogEntry[],
 ): CatalogCoherence {
   const notes: string[] = [];
-  const nums = catalog
+  // 番外/序/尾 不参与主线章号连贯性
+  const main = catalog.filter(
+    (c) => !c.track || c.track === "main",
+  );
+  const nonMain = catalog.length - main.length;
+  if (nonMain > 0) {
+    notes.push(`已排除非主线 ${nonMain} 条后再验章号`);
+  }
+  const nums = main
     .map((c) => c.number)
     .filter((n): n is number => n != null && Number.isFinite(n));
   const numberedCount = nums.length;
@@ -173,25 +193,27 @@ export function analyzeCatalogCoherence(
     const d = nums[i] - nums[i - 1];
     if (d === 1) sequentialPairs++;
     else if (d > 1) gaps.push(d - 1);
-    else if (d <= 0) notes.push(`章号回退或重复：${nums[i - 1]} → ${nums[i]}`);
+    else if (d <= 0) notes.push(`主线章号回退或重复：${nums[i - 1]} → ${nums[i]}`);
   }
 
   const totalPairs = Math.max(0, nums.length - 1);
   const sequentialRatio = totalPairs === 0 ? 0 : sequentialPairs / totalPairs;
   const coherent =
-    catalog.length >= 2 &&
+    main.length >= 2 &&
     numberedCount >= 2 &&
     sequentialRatio >= 0.5 &&
     !notes.some((n) => n.includes("回退"));
 
-  if (catalog.length >= 2 && coherent) {
+  if (main.length >= 2 && coherent) {
     notes.push(
-      `章号大体连贯（${sequentialPairs}/${totalPairs} 步长为 1${gaps.length ? `；空隙 ${gaps.join(",")}` : ""}）`,
+      `主线章号大体连贯（${sequentialPairs}/${totalPairs} 步长为 1${gaps.length ? `；空隙 ${gaps.join(",")}` : ""}）`,
     );
-  } else if (catalog.length >= 2) {
-    notes.push("章号不够连贯，需结合标题与原文窗口判断");
-  } else if (catalog.length === 1) {
-    notes.push("仅 1 条目录，无法谈连贯性");
+  } else if (main.length >= 2) {
+    notes.push("主线章号不够连贯，需结合标题与原文窗口判断");
+  } else if (main.length === 1) {
+    notes.push("主线仅 1 条，无法谈连贯性");
+  } else if (catalog.length > 0) {
+    notes.push("无主线目录条目（仅有番外/序尾等）");
   } else {
     notes.push("无目录");
   }
@@ -418,22 +440,34 @@ async function enrichFormWithLlm(
     };
   });
 
-  const prompt = `你是叙事形态分析师，负责校验程序抽出的章节目录，并补充形态字段。只输出 JSON。
+  const catalogForLlmWithTrack = catalogForLlm.map((it, i) => ({
+    ...it,
+    trackSeed: catalog[i]?.track || "main",
+    kind: catalog[i]?.kind,
+  }));
+
+  const prompt = `你是叙事形态分析师，负责校验程序抽出的章节目录，标注主线/番外轨，并补充形态字段。只输出 JSON。
 
 ## 校验顺序（必须按此执行，不可跳步）
-1. **连贯性**：看章号是否大体递增、是否像完整序列（允许少量跳号）。格式是否一致（如都是「第N章」或都是「【书名】一、二、」）。
-2. **章名是否像章节**：标题是否像章名（可短、可俗、可带书名括号）；不像的包括：明显正文句子、对话、站点水印、过长叙述句。
-3. **仅对「可疑」条目查原文**：使用该条的 nearText / rawLine，看该行是否真是独立章标题（前后常为空行或明显分段）。
-   - 若 nearText 证明它是标题 → **保留**
-   - 若 nearText 证明它是正文/误检 → 才可 drop，并写清 reason
-4. **默认保留**：不确定则保留，写入 catalogIssues，不要删。
-5. **禁止**：因为没在书摘 overview 里看见某章就删除；禁止无 reason 的批量删除；禁止编造新章节。
+1. **轨（track）**：为每条目录指定 track（见下）。程序给了 trackSeed，可改。
+2. **连贯性**：只对 track=main 的条目看章号是否大体递增（允许少量跳号）。**不要把番外章号并进主线序列。**
+3. **章名是否像章节**：标题是否像章名；不像的包括正文句子、对话、站点水印、过长叙述句。
+4. **仅对「可疑」条目查原文**：nearText / rawLine 证明是标题则保留；是正文/误检才可 drop 并写 reason。
+5. **默认保留**：不确定则保留，写入 catalogIssues。
+6. **禁止**：因 overview 未见就删；无 reason 批量删；编造新章节。
 
-## 程序连贯性预检
+## track 取值
+- main：主线正文章（第N章等）
+- extra：番外、外传、特别篇、加更等
+- front_matter：序章、楔子、引子、前言
+- back_matter：尾声、后记、终章
+- volume：卷标（非章）
+
+## 程序连贯性预检（已按主线过滤）
 ${JSON.stringify(coherence, null, 0)}
 
-## 程序目录（含 rawLine；可疑项带 nearText）
-${JSON.stringify(catalogForLlm, null, 0)}
+## 程序目录（含 trackSeed / rawLine；可疑项带 nearText）
+${JSON.stringify(catalogForLlmWithTrack, null, 0)}
 
 ## 书摘 overview（仅题材/文风参考，不是验章依据）
 ${overview || "（无）"}
@@ -451,32 +485,35 @@ ${hints.join("；") || "无"}
   "timeScheme": "linear|nonlinear|mixed|unknown",
   "evidenceNotes": "一两句依据",
   "genreHints": ["题材"],
-  "continuationRules": ["给续写的短规则"],
+  "continuationRules": ["给续写的短规则，须提及番外与主线勿混号"],
   "catalogIssues": ["疑虑备注，无则 []"],
   "coherenceOk": true/false,
+  "trackLabels": [{"index": 0, "track": "main"}],
   "dropCatalog": [{"index": 0, "reason": "必须引用 nearText/rawLine 中的证据，至少一句"}]
 }
 
-chapteringEnabled：目录连贯且 ≥2 条真标题时应为 true。
-dropCatalog：无误检时输出 []。legacy dropCatalogIndices 不要使用。`;
+trackLabels：尽量覆盖全部 index；缺省保留 trackSeed。
+chapteringEnabled：主线 ≥2 条真标题且大体连贯时应为 true。
+dropCatalog：无误检时输出 []。`;
 
   const raw = await llm.chat(
     [
       {
         role: "system",
         content:
-          "只输出合法 JSON。校验目录时严格按：连贯→章名→可疑才看 nearText。默认保留。",
+          "只输出合法 JSON。先标 track，再只对 main 验章号连贯。默认保留目录。",
       },
       { role: "user", content: prompt },
     ],
-    { temperature: 0.2, maxTokens: 1800 },
+    { temperature: 0.2, maxTokens: 2200 },
   );
 
   const data = extractJSON(raw) as Record<string, unknown>;
   if (!data || typeof data !== "object") return { profile: base, catalog };
 
   const dropList = parseDropList(data);
-  const catalogPatched = applyCatalogDrops(catalog, dropList, items, coherence);
+  let catalogPatched = applyCatalogDrops(catalog, dropList, items, coherence);
+  catalogPatched = applyTrackLabelsFromLlm(catalogPatched, data);
 
   if (dropList.length) {
     console.log(
@@ -555,6 +592,23 @@ dropCatalog：无误检时输出 []。legacy dropCatalogIndices 不要使用。`
     },
     catalog: catalogPatched,
   };
+}
+
+function applyTrackLabelsFromLlm(
+  catalog: ChapterCatalogEntry[],
+  data: Record<string, unknown>,
+): ChapterCatalogEntry[] {
+  const raw = data.trackLabels;
+  if (!Array.isArray(raw)) return catalog;
+  const labels = raw.map((row) => {
+    if (!row || typeof row !== "object") return null;
+    const o = row as { index?: unknown; track?: unknown };
+    return {
+      index: Number(o.index),
+      track: typeof o.track === "string" ? o.track : undefined,
+    };
+  });
+  return applyTrackLabels(catalog, labels);
 }
 
 /** Re-export catalog for accept incremental scan */

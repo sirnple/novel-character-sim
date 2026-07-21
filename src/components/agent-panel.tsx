@@ -580,8 +580,6 @@ interface AgentPanelProps {
    * write = 续写主编（默认）；analysis = 全书分析主编（概览）
    */
   mode?: "write" | "analysis";
-  /** analysis 模式：忽略缓存重跑 */
-  forceRefresh?: boolean;
   /** analysis 完成回调（finish 或用户结束） */
   onAnalysisDone?: () => void;
 }
@@ -596,7 +594,6 @@ export default function AgentPanel({
   novelId,
   onOutlineGenerated,
   mode = "write",
-  forceRefresh = false,
   onAnalysisDone,
 }: AgentPanelProps) {
   const isAnalysis = mode === "analysis";
@@ -686,7 +683,8 @@ export default function AgentPanel({
           autoPickIdeas: autoPickIdeas !== false,
           autoPassCheckpoints: isAnalysis ? false : autoPassCheckpoints,
           mode: isAnalysis ? "analysis" : "write",
-          forceRefresh: isAnalysis ? forceRefresh : false,
+          // Analysis always re-runs (no catalog / domain cache reuse)
+          forceRefresh: isAnalysis,
         }),
         signal: abort.signal,
       });
@@ -987,7 +985,6 @@ export default function AgentPanel({
     autoPickIdeas,
     refreshFsStatus,
     isAnalysis,
-    forceRefresh,
     onAnalysisDone,
   ]);
 

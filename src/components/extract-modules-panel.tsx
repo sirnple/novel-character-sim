@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Sparkles, RotateCcw } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { ALL_ANALYSIS_MODULES } from "@/types";
 import { notifyLibrariesRefresh } from "@/lib/library-events";
 
@@ -16,6 +16,7 @@ interface ExtractModulesPanelProps {
 
 /**
  * One-click full analysis. No module checkboxes (ops later).
+ * Always forceRefresh — product path never reuses domain / unit caches.
  */
 export default function ExtractModulesPanel({
   novelId,
@@ -24,7 +25,6 @@ export default function ExtractModulesPanel({
   compact = true,
   className = "",
 }: ExtractModulesPanelProps) {
-  const [forceRefresh, setForceRefresh] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [lastResult, setLastResult] = useState("");
@@ -42,7 +42,7 @@ export default function ExtractModulesPanel({
           sessionId: novelId,
           text: novelText,
           modules: [...ALL_ANALYSIS_MODULES],
-          forceRefresh,
+          forceRefresh: true,
         }),
       });
       const data = await res.json();
@@ -80,16 +80,6 @@ export default function ExtractModulesPanel({
             </p>
           </div>
         </div>
-        <label className="flex items-center gap-1.5 text-[11px] text-fog cursor-pointer shrink-0 select-none">
-          <input
-            type="checkbox"
-            checked={forceRefresh}
-            onChange={(e) => setForceRefresh(e.target.checked)}
-            className="accent-primary scale-90"
-          />
-          <RotateCcw className="w-3 h-3" />
-          忽略缓存
-        </label>
         <button
           type="button"
           disabled={loading}

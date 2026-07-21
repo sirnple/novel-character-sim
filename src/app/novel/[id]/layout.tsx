@@ -22,7 +22,6 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
   const [dragging, setDragging] = useState(false);
   /** Desktop rail vs mobile sheet — single AgentPanel mount either way */
   const [isLg, setIsLg] = useState(false);
-  const [analysisForceRefresh, setAnalysisForceRefresh] = useState(false);
 
   const onWritePage = pathname?.endsWith("/write") ?? false;
   const base = `/novel/${id}`;
@@ -176,17 +175,6 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
                   )}
                 </span>
                 <div className="flex items-center gap-2">
-                  {agentMode === "analysis" && (
-                    <label className="flex items-center gap-1 text-[10px] text-fog cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={analysisForceRefresh}
-                        onChange={(e) => setAnalysisForceRefresh(e.target.checked)}
-                        className="accent-primary scale-90"
-                      />
-                      忽略缓存
-                    </label>
-                  )}
                   <button
                     type="button"
                     onClick={() => setShowRightPanel(false)}
@@ -208,7 +196,6 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
                   branchId={agentBranchId}
                   novelId={novelId || id}
                   mode={agentMode === "analysis" ? "analysis" : "write"}
-                  forceRefresh={analysisForceRefresh}
                   onAnalysisDone={() => {
                     reloadNovelMeta();
                     // Overview cards + sidebar libraries listen for this

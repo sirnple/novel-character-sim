@@ -201,7 +201,20 @@ export default function FormSummaryCard({
                 key={c.id}
                 className="text-xs text-muted-foreground line-clamp-1"
               >
-                {c.number != null ? (
+                {c.track && c.track !== "main" ? (
+                  <span className="text-primary/80 mr-1">
+                    [{c.track === "extra"
+                      ? "番外"
+                      : c.track === "front_matter"
+                        ? "序"
+                        : c.track === "back_matter"
+                          ? "尾"
+                          : c.track === "volume"
+                            ? "卷"
+                            : c.track}]
+                  </span>
+                ) : null}
+                {c.number != null && (!c.track || c.track === "main") ? (
                   <span className="text-fog">第{c.number}章 </span>
                 ) : null}
                 {c.title}
@@ -269,7 +282,24 @@ export default function FormSummaryCard({
                 className="text-xs text-muted-foreground px-3 py-2.5 flex flex-col gap-0.5"
               >
                 <span className="text-foreground/90">
-                  {c.number != null ? `第${c.number}章 ` : ""}
+                  {c.track && c.track !== "main" ? (
+                    <span className="text-primary/80 mr-1.5 text-[10px] uppercase tracking-wide">
+                      {c.track === "extra"
+                        ? "番外"
+                        : c.track === "front_matter"
+                          ? "序"
+                          : c.track === "back_matter"
+                            ? "尾"
+                            : c.track === "volume"
+                              ? "卷"
+                              : c.track}
+                    </span>
+                  ) : null}
+                  {c.number != null && (!c.track || c.track === "main")
+                    ? `第${c.number}章 `
+                    : c.number != null
+                      ? `${c.number} · `
+                      : ""}
                   {c.title}
                 </span>
                 {debugMode && (

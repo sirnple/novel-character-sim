@@ -37,6 +37,7 @@ import {
 } from "../batch-tool-limits";
 import type { CharacterProfile } from "@/types";
 import {
+  collapseTechnicalFarSameNameKeys,
   formatLocalEntitiesForPrompt,
   formatNearCrossNameCandidatesForPrompt,
   listNearCrossNameAliasCandidates,
@@ -59,7 +60,10 @@ import { mergeResolvedEntities } from "@/core/extractor/character-entity-types";
  * profileHasDetail stays false until extract_character_detail submits full dims.
  */
 export function entitiesToProfiles(entities: ResolvedEntity[]): CharacterProfile[] {
-  return entities.map((e, i) => {
+  // Web path must match char-job: fold seed `名@uN` before any UI/DB profile.
+  // Eval job collapses in character-extract-job; agent/commit used to skip this.
+  const cleaned = collapseTechnicalFarSameNameKeys(entities || []);
+  return cleaned.map((e, i) => {
     const mentionAnchors = (e.anchors || []).map((a) => ({
       offset: a.offset,
       unitIndex: a.unitIndex,

@@ -19,7 +19,8 @@ export async function POST(request: NextRequest) {
       novelId: body.sessionId || body.novelId || "default",
       text: body.text,
       modules: body.modules as ExtractModule[] | undefined,
-      forceRefresh: !!body.forceRefresh,
+      // Product default: always re-run (no domain cache). Explicit false for ops only.
+      forceRefresh: body.forceRefresh === false ? false : true,
     });
     return NextResponse.json(result);
   } catch (error) {

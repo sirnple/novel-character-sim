@@ -55,9 +55,10 @@ tools:
    - 用户说补缺 → 只围绕 pending 写选项  
    - 真要全书重跑 → 单独一项写清「含章法、很慢」，与角色局部选项分开  
 
-4. **已分析齐**（pending 空 / alreadyComplete）  
-   - **不要**问「确认保存 / 暂不保存」  
-   - 可说明已有结果；用户要重做再给无歧义的重跑选项；用户明确要保存再 finish  
+4. **本轮分析告一段落时的选项**  
+   - 选项里**必须包含**一项可被识别为保存的选项，文案用「确认保存到本书」或「保存分析结果」  
+   - 可同时提供：补缺 / 局部重做 / 暂不保存 等无歧义选项  
+   - 用户点了保存类选项 → 立刻 `finish_novel_analysis(userConfirmed=true)`，不要再追问一次  
 
 5. **选项宜短、宜少**  
    - 一般 2～5 个，只放与当前对话相关的  
@@ -66,9 +67,14 @@ tools:
 6. **点选后严格按选项字面范围派工**  
    - 选了「仅角色详情」就不要从章法起手  
    - 选了「仅补缺失」就不要重跑已有域  
+   - 选了保存 → 只 finish，不要借机重跑域  
 
 ## 保存
-仅用户明确要求保存/落库时 `finish_novel_analysis(userConfirmed=true)`。
+在下列任一情况调用 `finish_novel_analysis(userConfirmed=true)`：
+- 用户文字明确要求保存/落库/写入本书；或  
+- 用户在 `ask_question` 中选择了保存类选项（如「确认保存到本书」「保存分析结果」）。  
+
+不要在用户既未要求也未点选保存时擅自 finish。
 
 ## 调度
 `analyze_form` · `analyze_character_list` · `extract_character_detail` · `extract_character_relationships` · `analyze_story_world` · `analyze_timeline` · `extract_style` · `extract_ideas`  

@@ -7,6 +7,7 @@ import {
   inferChapteringFromCatalog,
   parseChineseNumeral,
 } from "../../src/core/form/chapter-catalog";
+import { needsContinuationTrackChoice } from "../../src/core/form/chapter-track";
 import { segmentNarrativeUnits } from "../../src/core/form/segment-units";
 
 export function runChapterCatalogTests(): void {
@@ -74,6 +75,48 @@ export function runChapterCatalogTests(): void {
       const units = segmentNarrativeUnits(text);
       assert.ok(units.length >= 1);
       assert.ok(units[0].endOffset > units[0].startOffset);
+    });
+
+    test("番外 is track=extra; mainline numbers stay sequential", () => {
+      const text = [
+        "第1章 开端",
+        "甲".repeat(80),
+        "第2章 发展",
+        "乙".repeat(80),
+        "番外 某人往事",
+        "丙".repeat(80),
+        "第3章 高潮",
+        "丁".repeat(80),
+      ].join("\n\n");
+      const cat = extractChapterCatalog(text);
+      assert.ok(cat.length >= 4, `got ${cat.length}`);
+      const extra = cat.find((c) => c.track === "extra");
+      assert.ok(extra, "should find track=extra");
+      assert.ok(
+        /往事|番外/.test(extra!.title),
+        `extra title=${extra!.title}`,
+      );
+      const main = cat.filter((c) => !c.track || c.track === "main");
+      assert.ok(main.length >= 3);
+      assert.equal(main[0].number, 1);
+      assert.equal(main[1].number, 2);
+      assert.equal(main[2].number, 3);
+    });
+
+    test("needsContinuationTrackChoice when book ends on 番外", () => {
+      const text = [
+        "第1章 开端",
+        "甲".repeat(80),
+        "第2章 发展",
+        "乙".repeat(80),
+        "番外 某人往事",
+        "丙".repeat(80),
+      ].join("\n\n");
+      const cat = extractChapterCatalog(text);
+      assert.equal(needsContinuationTrackChoice(true, cat), true);
+      assert.equal(needsContinuationTrackChoice(false, cat), false);
+      const mainOnly = cat.filter((c) => c.track === "main");
+      assert.equal(needsContinuationTrackChoice(true, mainOnly), false);
     });
   });
 }

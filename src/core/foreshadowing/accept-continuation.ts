@@ -174,24 +174,37 @@ function updateChapterMetaAfterAccept(
   if (proseLooksNewChapter) boundary = "closed";
   else if (outlineWantsContinue) boundary = "open";
 
-  // Rebuild catalog from full text (program); keep it cheap
+  // Rebuild catalog from full text (program track seed); keep it cheap
   const catalog = extractChapterCatalog(fullText, form?.chaptering);
-  const last = catalog[catalog.length - 1];
+  const chapters = catalog.length ? catalog : meta.chapters;
+  const last = chapters.length ? chapters[chapters.length - 1] : undefined;
+  const lastMain = [...chapters]
+    .reverse()
+    .find((c) => !c.track || c.track === "main");
 
   saveBranchChapterMeta(userId, {
     ...meta,
     novelId,
     branchId,
     chapterBoundary: boundary,
-    chapters: catalog.length ? catalog : meta.chapters,
+    chapters,
     lastClosedChapter:
       boundary === "closed" && last
         ? {
             number: last.number,
             title: last.title,
             endOffset: last.endOffset ?? fullText.length,
+            track: last.track || "main",
           }
         : meta.lastClosedChapter,
+    lastMainChapter: lastMain
+      ? {
+          number: lastMain.number,
+          title: lastMain.title,
+          endOffset: lastMain.endOffset ?? fullText.length,
+          track: "main",
+        }
+      : meta.lastMainChapter,
     openChapter:
       boundary === "open" && last
         ? {

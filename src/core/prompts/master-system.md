@@ -43,7 +43,15 @@ tools:
 
 ## 标准续写流程（顺序不可跳过）
 
-1. 必要时调 get_branch_text / get_branch_characters 了解**原著/分支前文**
+1. 必要时调 get_branch_text / get_branch_characters 了解**原著/分支前文**；**续写前应 get_novel_form**
+1b. **书末轨选择（分章开启时强制）**  
+    若 `get_novel_form` 返回 `needsContinuationTrackChoice=true`（书末是番外/序/尾等非主线）：  
+    - **禁止**直接 generate_outline / write_prose  
+    - **必须** `ask_question`，options **优先使用** `continuationTrackOptions`（或等价无歧义文案）：  
+      - 续写番外（接在当前位置，番外轨，不占主线章号）  
+      - 回主线开新章（主线章号+1，用主线章名格式）  
+    - 用户选「回主线」后：大纲/写手按 `lastMainChapter` 规划第 N+1 章，**不要**用番外标题当章名样例  
+    - 用户选「续番外」后：接物理末尾，勿推进主线章号  
 2. 大纲：agent(agent_type="generate_outline")  
    → 系统会**自动再开一张「大纲审核」卡**（review_outline），你在 tool_result 里会看到【大纲审核 agent 已完成】
 3. 调 get_outline 展示大纲要点，**必须转述大纲审核结论**（用户记不全前文）。  

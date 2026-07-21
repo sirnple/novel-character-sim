@@ -31,9 +31,9 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
     agentId: "novel_analysis",
     name: "全书分析主 Agent",
     description:
-      "只组织：①章法 ②角色 ③故事∥时间线∥文风∥点子。拿 novelId+branchId 调度子 Agent。",
+      "只组织：①章法 ②角色 ③故事∥时间线∥文风∥点子。User 由程序/对话注入，无 user 模板。",
     category: "extraction",
-    variables: ["prompt", "novelId", "branchId", "modules", "forceRefresh"],
+    variables: [],
     bilingual: true,
   },
   {

@@ -150,7 +150,7 @@ export default function CharacterJobStatus({
       setJob(data.job || null);
       setScanMsg(
         data.message ||
-          `已启动 · ${data.job?.total ?? "?"} 段（forceRefresh，忽略分段缓存）`,
+          `已启动 · ${data.job?.total ?? "?"} 段（重扫）`,
       );
       // Immediate follow-up by jobId so UI does not latch onto old interrupted rows
       if (data.job?.id) {

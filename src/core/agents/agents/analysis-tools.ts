@@ -705,7 +705,8 @@ export const analysisDomainTools: ToolDefinition[] = [
       const text = loadText(userId, novelId, branchId);
       if (!text.trim()) return { content: "正文为空", messages: [] };
 
-      const force = Boolean(args.forceRefresh);
+      // Product default: re-run form unless caller explicitly sets forceRefresh:false
+      const force = args.forceRefresh === false ? false : true;
       const existing = getNovelForm(userId, novelId);
       let ws = getNovelAnalysisWorkspace(userId, novelId, branchId);
       if (!ws) {
@@ -766,18 +767,13 @@ export const analysisDomainTools: ToolDefinition[] = [
       "【角色列表】LLM 分段：扫角色 + **窗内局部消解**，写入 catalog 与 localEntities；" +
       "surface 带锚点 a@offset。成功含「角色指称已扫描」。" +
       "之后 list_near_alias_candidates → list_local_entities → lookup → submit（merge/split）。" +
-      "有 catalog 且未 forceRefresh 则复用。",
+      "每次调用均重扫（不复用 catalog）。",
     parameters: {
       type: "object",
-      properties: {
-        forceRefresh: {
-          type: "boolean",
-          description: "true=强制重扫各 unit；false/省略=有 catalog 则复用",
-        },
-      },
+      properties: {},
       required: [],
     },
-    execute: async (args, ctx, llm, onChunk) => {
+    execute: async (_args, ctx, llm, onChunk) => {
       const { userId, novelId, branchId } = ids(ctx);
       const text = loadText(userId, novelId, branchId);
       if (!text.trim()) {
@@ -785,16 +781,12 @@ export const analysisDomainTools: ToolDefinition[] = [
       }
 
       const formatScanSummary = (
-        mode: "cached" | "fresh",
         surfaceCount: number,
         unitCount: number,
         topLines: string[],
         localEntityCount?: number,
       ) => {
-        const head =
-          mode === "cached"
-            ? `${ANALYSIS_OK.scan}（复用已有 catalog）`
-            : `${ANALYSIS_OK.scan}（LLM 分段：扫名+局部消解）`;
+        const head = `${ANALYSIS_OK.scan}（LLM 分段：扫名+局部消解）`;
         const top =
           topLines.length > 0
             ? topLines.map((s, i) => `${i + 1}. ${s}`).join("\n")
@@ -829,18 +821,6 @@ export const analysisDomainTools: ToolDefinition[] = [
           return bits.join(" ");
         });
 
-      const existing = getCharacterExtractWorkspace(userId, novelId, branchId);
-      if (existing?.catalog?.stats?.length && !args.forceRefresh) {
-        return {
-          content: formatScanSummary(
-            "cached",
-            existing.catalog.stats.length,
-            existing.unitCount || 0,
-            topSurfaceLines(existing.catalog.stats),
-          ),
-          messages: [],
-        };
-      }
       if (!llm) {
         return {
           content:
@@ -876,7 +856,6 @@ export const analysisDomainTools: ToolDefinition[] = [
         const after = getCharacterExtractWorkspace(userId, novelId, branchId);
         return {
           content: formatScanSummary(
-            "fresh",
             surfaceCount,
             unitCount,
             topSurfaceLines(after?.catalog?.stats || []),
@@ -1394,10 +1373,11 @@ export const analysisMasterTools: ToolDefinition[] = [
         if (!style) nextActions.push('agent(agent_type="extract_style")');
         if (!ideas) nextActions.push('agent(agent_type="extract_ideas")');
       }
-      // All domains ready: do not force save ask (already analyzed)
+      // Wrap-up: always offer save option; finish when user asks or picks it
       if (pending.length === 0 && done.length > 0) {
         nextActions.push(
-          "各域已齐：无需 ask 确认保存；用户明确要求保存时再 finish_novel_analysis",
+          "本轮可收尾：ask_question 选项须含「确认保存到本书」；" +
+            "用户点选保存或文字要求保存 → finish_novel_analysis(userConfirmed=true)",
         );
       }
 
@@ -1511,10 +1491,12 @@ export const analysisMasterTools: ToolDefinition[] = [
             "禁止在用户可见 options 里写英文 agent_type",
             "角色可拆成：仅名单 / 仅详情 / 仅关系 / 名单+详情+关系；不要合成含糊的「角色相关」",
             "「全书重跑」必须写明含章法且很慢；与「只重角色」严格分开",
-            "各域已齐时：不要出现「确认保存/暂不保存」；已有结果无需再确认落库",
+            "本轮分析告一段落时：options 必须包含「确认保存到本书」或「保存分析结果」",
+            "用户点了保存类选项，或文字要求保存 → finish_novel_analysis(userConfirmed=true)，不要再追问",
             "选项数量适中（一般 2～5 个），只放与当前用户意图相关的，不要堆无关全书菜单",
           ],
-          noSaveNagWhenComplete: true,
+          /** Prefer offering save on wrap-up (not a “nag ban”) */
+          requireSaveOptionOnWrapUp: true,
         },
       };
       return { content: JSON.stringify(status, null, 2), messages: [] };
@@ -1537,14 +1519,15 @@ export const analysisMasterTools: ToolDefinition[] = [
   {
     name: "finish_novel_analysis",
     description:
-      "在用户经 ask_question 明确「确认保存」之后调用：把本轮工作区结果写入本书与文笔/点子库。" +
-      "未获用户确认不要调用。成功含「全书分析已完成」。",
+      "用户要求保存，或 ask_question 选了保存类选项后调用：把本轮工作区写入本书与文笔/点子库。" +
+      "userConfirmed=true 表示用户已同意保存（文字要求或点选均可）。成功含「全书分析已完成」。",
     parameters: {
       type: "object",
       properties: {
         userConfirmed: {
           type: "boolean",
-          description: "必须为 true：表示用户已在 ask_question 中确认保存",
+          description:
+            "必须为 true：用户已要求保存，或已点选「确认保存到本书」等保存选项",
         },
       },
       required: ["userConfirmed"],
@@ -1558,7 +1541,8 @@ export const analysisMasterTools: ToolDefinition[] = [
       if (!confirmed) {
         return {
           content:
-            "未落库：请先 ask_question 让用户「确认保存」，再 finish_novel_analysis(userConfirmed=true)。",
+            "未落库：用户需文字要求保存，或在 ask_question 中点选保存选项后，" +
+            "再 finish_novel_analysis(userConfirmed=true)。",
           messages: [],
         };
       }

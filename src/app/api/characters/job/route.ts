@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       userId,
       novelId,
       branchId: String(body.branchId || "main"),
-      forceRefresh: !!body.forceRefresh,
+      forceRefresh: body.forceRefresh === false ? false : true,
       text: typeof body.text === "string" ? body.text : undefined,
     });
     return NextResponse.json({

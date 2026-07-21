@@ -9,13 +9,18 @@ import { makeLoopAgent } from "./make-loop-agent";
 import { characterExtractTools } from "./character-extract-tools";
 import { analysisDomainTools } from "./analysis-tools";
 import { getCharacterExtractWorkspace } from "@/core/extractor/character-extract-workspace";
-import { seedGlobalEntitiesFromLocal } from "@/core/extractor/character-local-entities";
+import {
+  collapseTechnicalFarSameNameKeys,
+  seedGlobalEntitiesFromLocal,
+} from "@/core/extractor/character-local-entities";
 import { SUBMIT_ENTITIES_OK } from "@/core/extractor/character-entity-types";
 import { listRelationPrimaryNames } from "@/core/extractor/character-entity-coverage";
 import {
   getNovelAnalysisWorkspace,
   patchNovelAnalysisWorkspace,
 } from "@/core/extractor/novel-analysis-workspace";
+import { entitiesToProfiles } from "./character-extract-tools";
+import { rebuildDraftFromRoster } from "../character-draft-utils";
 
 function pick(names: string[], pool: ToolDefinition[]): ToolDefinition[] {
   const byName = new Map(pool.map((t) => [t.name, t]));
@@ -76,11 +81,12 @@ export const characterEntityResolveAgent: AgentDef = {
 
     const result = await characterListLoop.execute(ctx, llm, onChunk, onTrail);
 
-    const entities = getCharacterExtractWorkspace(
+    const cws = getCharacterExtractWorkspace(
       ctx.userId,
       ctx.novelId,
       ctx.branchId || "main",
-    )?.entities;
+    );
+    let entities = cws?.entities;
 
     if (!entities?.length) {
       return {
@@ -90,6 +96,24 @@ export const characterEntityResolveAgent: AgentDef = {
           `（${result.content.slice(0, 200)}）`,
         messages: result.messages,
       };
+    }
+
+    // Match character-extract-job: strip seed-only `名@uN` before handoff/commit.
+    // Global agent may leave far same-name technical ids; UI must never show them.
+    const beforeN = entities.length;
+    entities = collapseTechnicalFarSameNameKeys(entities);
+    if (cws) cws.entities = entities;
+    if (getNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId)) {
+      try {
+        const staged = entitiesToProfiles(entities);
+        const aws = getNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId);
+        const nextDraft = rebuildDraftFromRoster(staged, aws?.charactersDraft);
+        patchNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId, {
+          charactersDraft: nextDraft,
+        });
+      } catch {
+        /* draft stage best-effort */
+      }
     }
 
     // Suspended deictics as primary name = incomplete global coref
@@ -106,8 +130,10 @@ export const characterEntityResolveAgent: AgentDef = {
     }
 
     // Always report workspace total (supports multi-batch submit merge)
+    const collapsedNote =
+      beforeN !== entities.length ? `（折叠 @uN ${beforeN}→${entities.length}）` : "";
     return {
-      content: `角色列表已完成：累计 ${entities.length} 个角色实体（分批已合并）。`,
+      content: `角色列表已完成：累计 ${entities.length} 个角色实体（分批已合并）${collapsedNote}。`,
       messages: result.messages,
     };
   },

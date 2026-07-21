@@ -46,11 +46,12 @@ export async function POST(request: NextRequest) {
     autoPassCheckpoints = false,
     /** write = 续写主编；analysis = 全书分析主编 */
     mode = "write",
-    forceRefresh = false,
   } = await request.json();
   if (!branchId || !novelId) return new Response(JSON.stringify({ error: "branchId and novelId required" }), { status: 400, headers: { "Content-Type": "application/json" } });
 
   const isAnalysis = mode === "analysis";
+  // Analysis always re-runs domains / character scan (no product cache reuse).
+  const forceRefresh = isAnalysis;
   const autoPass = !!autoPassCheckpoints && !isAnalysis;
   const llm = createLLMProvider(isAnalysis ? "analysis" : "write");
   const encoder = new TextEncoder();
@@ -71,34 +72,30 @@ export async function POST(request: NextRequest) {
     ),
   ];
   const baseSys = isAnalysis
-    ? resolveAgentSystem("novel_analysis", "zh", {
-        novelId,
-        branchId,
-        modules: "",
-        forceRefresh: forceRefresh ? "true" : "false",
-        prompt: "",
-      })
+    ? resolveAgentSystem("novel_analysis", "zh")
     : resolveAgentSystem("master", "zh", { novelId, branchId });
   const sysPrompt = autoPass
     ? `${baseSys}\n\n${ONE_CLICK_CONTINUE_SYSTEM_APPEND}`
     : baseSys;
 
-  // Analysis: mount workspace from DB prose so form/story tools have fullText
+  // Analysis: always reset staging + clear character catalog so scan runs LLM.
   if (isAnalysis) {
     try {
       const { getBranchProse, getNovel } = await import("@/lib/db");
-      const { beginNovelAnalysisWorkspace, getNovelAnalysisWorkspace } = await import(
+      const { beginNovelAnalysisWorkspace } = await import(
         "@/core/extractor/novel-analysis-workspace"
       );
-      if (!getNovelAnalysisWorkspace(userId, novelId, branchId)) {
-        const { text } = getBranchProse(userId, novelId, branchId);
-        const fullText = (text || getNovel(userId, novelId)?.text || "").trim();
-        if (fullText) {
-          beginNovelAnalysisWorkspace(userId, novelId, branchId, {
-            fullText,
-            forceRefresh: !!forceRefresh,
-          });
-        }
+      const { clearCharacterExtractWorkspace } = await import(
+        "@/core/extractor/character-extract-workspace"
+      );
+      const { text } = getBranchProse(userId, novelId, branchId);
+      const fullText = (text || getNovel(userId, novelId)?.text || "").trim();
+      if (fullText) {
+        beginNovelAnalysisWorkspace(userId, novelId, branchId, {
+          fullText,
+          forceRefresh: true,
+        });
+        clearCharacterExtractWorkspace(userId, novelId, branchId);
       }
     } catch (e) {
       console.warn("[agent/chat] analysis workspace init:", (e as Error).message);

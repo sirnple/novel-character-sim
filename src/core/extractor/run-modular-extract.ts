@@ -70,7 +70,8 @@ export async function runModularExtract(input: ModularExtractInput): Promise<Mod
 async function runModularExtractInner(input: ModularExtractInput): Promise<ModularExtractResult> {
   const { userId } = input;
   const novelId = input.novelId || "default";
-  const forceRefresh = !!input.forceRefresh;
+  // Product default: re-run all domains (no cache). Opt-out with forceRefresh: false.
+  const forceRefresh = input.forceRefresh !== false;
   let modules: ExtractModule[] = Array.isArray(input.modules)
     ? input.modules.filter((m) => ALL.includes(m))
     : [...ALL];

@@ -416,7 +416,8 @@ export function startCharacterExtractJob(input: {
     branchId,
     status: "queued",
     phase: "queued",
-    forceRefresh: !!input.forceRefresh,
+    // Default true: product always rescans units (no SQLite unit cache hit).
+    forceRefresh: input.forceRefresh !== false,
     rosterOnly,
     total: units.length,
     completed: 0,
