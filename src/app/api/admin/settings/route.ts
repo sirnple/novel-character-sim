@@ -10,7 +10,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-/** GET — current effective settings + env bootstrap + overrides. */
+/** GET — current effective settings + env bootstrap + docs. */
 export async function GET(req: NextRequest) {
   if (!isAdmin(req)) {
     return NextResponse.json({ error: "未授权" }, { status: 401 });
@@ -19,18 +19,17 @@ export async function GET(req: NextRequest) {
     effective: getRuntimeSettings(),
     envDefaults: envRuntimeSettings(),
     docs: {
-      mentionScanConcurrency:
-        "并行 LLM 数；普通用户默认 4。admin/debug 默认不限制（0=unlimited）",
+      mentionScanConcurrency: "普通用户并行 LLM 数，默认 4",
       mentionScanBatchUnits: "普通用户每 call 打包 unit 数，默认 4",
       mentionScanBatchChars: "每 call 正文字符预算，默认 16000",
-      privilegedUnlimitedConcurrency:
-        "admin/debug 是否不限制并发（默认 true）",
+      privilegedMentionScanConcurrency:
+        "admin/debug 并行 LLM 数，默认 20（更高但仍限流友好，非一次拉满）",
       adminMentionScanBatchUnits: "管理员每 call unit 数，默认 1",
       env: [
         "CHARACTER_MENTION_CONCURRENCY",
         "CHARACTER_MENTION_BATCH_UNITS",
         "CHARACTER_MENTION_BATCH_CHARS",
-        "CHARACTER_MENTION_PRIVILEGED_UNLIMITED",
+        "CHARACTER_MENTION_PRIVILEGED_CONCURRENCY",
         "CHARACTER_MENTION_ADMIN_BATCH_UNITS",
       ],
     },
@@ -56,7 +55,7 @@ export async function PATCH(req: NextRequest) {
       mentionScanConcurrency,
       mentionScanBatchUnits,
       mentionScanBatchChars,
-      privilegedUnlimitedConcurrency,
+      privilegedMentionScanConcurrency,
       adminMentionScanBatchUnits,
     } = body;
     const effective = patchRuntimeSettings({
@@ -69,8 +68,8 @@ export async function PATCH(req: NextRequest) {
       ...(mentionScanBatchChars !== undefined
         ? { mentionScanBatchChars }
         : {}),
-      ...(privilegedUnlimitedConcurrency !== undefined
-        ? { privilegedUnlimitedConcurrency }
+      ...(privilegedMentionScanConcurrency !== undefined
+        ? { privilegedMentionScanConcurrency }
         : {}),
       ...(adminMentionScanBatchUnits !== undefined
         ? { adminMentionScanBatchUnits }

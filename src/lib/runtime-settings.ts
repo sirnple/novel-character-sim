@@ -1,11 +1,13 @@
 /**
- * Central runtime settings: env defaults + in-process overrides (admin API).
+ * Central runtime settings: env defaults + in-process overrides (admin API / UI).
  * Prefer this over reading process.env in call sites.
  *
  * Mention-scan keys (legacy env still honored as bootstrap):
  * - CHARACTER_MENTION_CONCURRENCY
  * - CHARACTER_MENTION_BATCH_UNITS
  * - CHARACTER_MENTION_BATCH_CHARS
+ * - CHARACTER_MENTION_PRIVILEGED_CONCURRENCY  (admin/debug parallel; default 20)
+ * - CHARACTER_MENTION_ADMIN_BATCH_UNITS
  */
 import fs from "fs";
 import path from "path";
@@ -27,19 +29,22 @@ export const MENTION_SCAN_BATCH_UNITS_DEFAULT = 4;
 /** Soft char budget per LLM call body. */
 export const MENTION_SCAN_BATCH_CHARS_DEFAULT = 16_000;
 
-/** When admin/debug: no concurrency cap (run all ready batches). */
-export const MENTION_SCAN_CONCURRENCY_UNLIMITED = 0;
+/**
+ * Admin/debug parallel LLM calls — higher than users, but not "fire everything"
+ * (vendor rate limits). Override via env / admin UI.
+ */
+export const MENTION_SCAN_PRIVILEGED_CONCURRENCY_DEFAULT = 20;
 
 // ── Schema ──────────────────────────────────────────────────────────
 
 export interface RuntimeSettings {
-  /** Parallel mention-scan LLM calls; 0 = unlimited (privileged only by resolve). */
+  /** Parallel mention-scan LLM calls for normal users. */
   mentionScanConcurrency: number;
-  /** Units per LLM call for normal users (admin resolve uses 1). */
+  /** Units per LLM call for normal users. */
   mentionScanBatchUnits: number;
   mentionScanBatchChars: number;
-  /** Admin/debug always unlimited concurrency when true (default true). */
-  privilegedUnlimitedConcurrency: boolean;
+  /** Parallel LLM calls for admin / debug (default 20, not unlimited). */
+  privilegedMentionScanConcurrency: number;
   /** Admin batch units override (default 1). */
   adminMentionScanBatchUnits: number;
 }
@@ -48,8 +53,8 @@ export interface MentionScanResolved {
   concurrency: number;
   batchUnits: number;
   batchChars: number;
-  /** True when concurrency is uncapped (admin/debug). */
-  unlimitedConcurrency: boolean;
+  /** True when using privileged (higher) concurrency tier. */
+  privilegedConcurrency: boolean;
   /** admin | debug | user */
   mode: "admin" | "debug" | "user";
 }
@@ -77,32 +82,38 @@ function parsePositiveInt(raw: string, fallback: number, min = 1): number {
   return Math.max(min, Math.floor(n));
 }
 
-function parseNonNegInt(raw: string, fallback: number): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(0, Math.floor(n));
-}
-
 /** Env + built-in defaults (no runtime overrides). */
 export function envRuntimeSettings(): RuntimeSettings {
   return {
-    mentionScanConcurrency: parseNonNegInt(
-      runtimeEnv("CHARACTER_MENTION_CONCURRENCY", String(MENTION_SCAN_CONCURRENCY_DEFAULT)),
+    mentionScanConcurrency: parsePositiveInt(
+      runtimeEnv(
+        "CHARACTER_MENTION_CONCURRENCY",
+        String(MENTION_SCAN_CONCURRENCY_DEFAULT),
+      ),
       MENTION_SCAN_CONCURRENCY_DEFAULT,
     ),
     mentionScanBatchUnits: parsePositiveInt(
-      runtimeEnv("CHARACTER_MENTION_BATCH_UNITS", String(MENTION_SCAN_BATCH_UNITS_DEFAULT)),
+      runtimeEnv(
+        "CHARACTER_MENTION_BATCH_UNITS",
+        String(MENTION_SCAN_BATCH_UNITS_DEFAULT),
+      ),
       MENTION_SCAN_BATCH_UNITS_DEFAULT,
     ),
     mentionScanBatchChars: parsePositiveInt(
-      runtimeEnv("CHARACTER_MENTION_BATCH_CHARS", String(MENTION_SCAN_BATCH_CHARS_DEFAULT)),
+      runtimeEnv(
+        "CHARACTER_MENTION_BATCH_CHARS",
+        String(MENTION_SCAN_BATCH_CHARS_DEFAULT),
+      ),
       MENTION_SCAN_BATCH_CHARS_DEFAULT,
       4_000,
     ),
-    privilegedUnlimitedConcurrency: (() => {
-      const v = runtimeEnv("CHARACTER_MENTION_PRIVILEGED_UNLIMITED", "true").toLowerCase();
-      return v !== "0" && v !== "false" && v !== "no";
-    })(),
+    privilegedMentionScanConcurrency: parsePositiveInt(
+      runtimeEnv(
+        "CHARACTER_MENTION_PRIVILEGED_CONCURRENCY",
+        String(MENTION_SCAN_PRIVILEGED_CONCURRENCY_DEFAULT),
+      ),
+      MENTION_SCAN_PRIVILEGED_CONCURRENCY_DEFAULT,
+    ),
     adminMentionScanBatchUnits: parsePositiveInt(
       runtimeEnv("CHARACTER_MENTION_ADMIN_BATCH_UNITS", "1"),
       1,
@@ -117,7 +128,11 @@ function ensureLoaded(): void {
   try {
     const p = settingsPath();
     if (!fs.existsSync(p)) return;
-    const raw = JSON.parse(fs.readFileSync(p, "utf-8")) as Partial<RuntimeSettings>;
+    const raw = JSON.parse(fs.readFileSync(p, "utf-8")) as Partial<RuntimeSettings> & {
+      /** legacy field from first version */
+      privilegedUnlimitedConcurrency?: boolean;
+      mentionScanConcurrency?: number;
+    };
     if (raw && typeof raw === "object") {
       s.overrides = sanitizePartial(raw);
     }
@@ -129,19 +144,29 @@ function ensureLoaded(): void {
 function sanitizePartial(raw: Partial<RuntimeSettings>): Partial<RuntimeSettings> {
   const out: Partial<RuntimeSettings> = {};
   if (raw.mentionScanConcurrency != null) {
-    out.mentionScanConcurrency = Math.max(0, Math.floor(Number(raw.mentionScanConcurrency)) || 0);
+    out.mentionScanConcurrency = Math.max(
+      1,
+      Math.floor(Number(raw.mentionScanConcurrency)) || 1,
+    );
   }
   if (raw.mentionScanBatchUnits != null) {
-    out.mentionScanBatchUnits = Math.max(1, Math.floor(Number(raw.mentionScanBatchUnits)) || 1);
+    out.mentionScanBatchUnits = Math.max(
+      1,
+      Math.floor(Number(raw.mentionScanBatchUnits)) || 1,
+    );
   }
   if (raw.mentionScanBatchChars != null) {
     out.mentionScanBatchChars = Math.max(
       4_000,
-      Math.floor(Number(raw.mentionScanBatchChars)) || MENTION_SCAN_BATCH_CHARS_DEFAULT,
+      Math.floor(Number(raw.mentionScanBatchChars)) ||
+        MENTION_SCAN_BATCH_CHARS_DEFAULT,
     );
   }
-  if (raw.privilegedUnlimitedConcurrency != null) {
-    out.privilegedUnlimitedConcurrency = !!raw.privilegedUnlimitedConcurrency;
+  if (raw.privilegedMentionScanConcurrency != null) {
+    out.privilegedMentionScanConcurrency = Math.max(
+      1,
+      Math.floor(Number(raw.privilegedMentionScanConcurrency)) || 1,
+    );
   }
   if (raw.adminMentionScanBatchUnits != null) {
     out.adminMentionScanBatchUnits = Math.max(
@@ -200,7 +225,7 @@ export function isAdminUserId(userId: string | undefined | null): boolean {
 
 /**
  * Resolve mention-scan knobs for a call.
- * - admin / debug: unlimited concurrency (unless privilegedUnlimitedConcurrency=false)
+ * - admin / debug: privileged concurrency (default 20), not uncapped
  * - admin: batchUnits = adminMentionScanBatchUnits (default 1)
  * - normal: batchUnits/concurrency from settings (defaults 4 / 4)
  */
@@ -213,17 +238,14 @@ export function resolveMentionScanOptions(ctx?: {
   const admin =
     ctx?.isAdmin === true ||
     (ctx?.isAdmin !== false && isAdminUserId(ctx?.userId));
-  const debug = ctx?.isDebug === true || (ctx?.isDebug !== false && isServerDebugMode());
+  const debug =
+    ctx?.isDebug === true ||
+    (ctx?.isDebug !== false && isServerDebugMode());
   const privileged = admin || debug;
 
-  let concurrency = base.mentionScanConcurrency;
-  if (concurrency < 1) concurrency = MENTION_SCAN_CONCURRENCY_DEFAULT;
-
-  let unlimitedConcurrency = false;
-  if (privileged && base.privilegedUnlimitedConcurrency) {
-    concurrency = MENTION_SCAN_CONCURRENCY_UNLIMITED;
-    unlimitedConcurrency = true;
-  }
+  const concurrency = privileged
+    ? Math.max(1, base.privilegedMentionScanConcurrency)
+    : Math.max(1, base.mentionScanConcurrency);
 
   const batchUnits = admin
     ? base.adminMentionScanBatchUnits
@@ -239,7 +261,7 @@ export function resolveMentionScanOptions(ctx?: {
     concurrency,
     batchUnits: Math.max(1, batchUnits),
     batchChars: base.mentionScanBatchChars,
-    unlimitedConcurrency,
+    privilegedConcurrency: privileged,
     mode,
   };
 }

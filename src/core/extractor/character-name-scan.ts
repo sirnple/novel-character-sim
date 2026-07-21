@@ -99,11 +99,7 @@ async function mapPool<T, R>(
       out[i] = await fn(items[i], i);
     }
   }
-  // concurrency <= 0 → unlimited (all items in parallel)
-  const n =
-    concurrency <= 0
-      ? Math.max(1, items.length)
-      : Math.max(1, Math.min(concurrency, items.length));
+  const n = Math.max(1, Math.min(Math.max(1, concurrency), items.length));
   await Promise.all(Array.from({ length: n }, () => worker()));
   return out;
 }
@@ -269,8 +265,9 @@ export async function scanUnitHitsWithLlm(
 
   console.log(
     `[MentionScan] units=${units.length} batches=${batches.length} ` +
-      `textLen=${fullText.length} concurrency=${concurrency <= 0 ? "unlimited" : concurrency} ` +
-      `batchUnits=${batchUnits} batchChars≈${maxBodyChars} mode=${resolved.mode}`,
+      `textLen=${fullText.length} concurrency=${concurrency}` +
+      (resolved.privilegedConcurrency ? " (privileged)" : "") +
+      ` batchUnits=${batchUnits} batchChars≈${maxBodyChars} mode=${resolved.mode}`,
   );
 
   // Index by position in the `units` array (not unit.index — callers may pass a subset)

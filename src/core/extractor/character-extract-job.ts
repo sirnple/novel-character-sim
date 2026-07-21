@@ -497,8 +497,9 @@ async function runCharacterJob(
   const scanOpts = resolveMentionScanOptions({ userId: job.userId });
   console.log(
     `[char-job] ${jobId} mention-scan units=${units.length} need=${needScan.length} ` +
-      `concurrency=${scanOpts.concurrency <= 0 ? "unlimited" : scanOpts.concurrency} ` +
-      `batchUnits=${scanOpts.batchUnits} mode=${scanOpts.mode}`,
+      `concurrency=${scanOpts.concurrency}` +
+      (scanOpts.privilegedConcurrency ? " (privileged)" : "") +
+      ` batchUnits=${scanOpts.batchUnits} mode=${scanOpts.mode}`,
   );
 
   if (needScan.length && !stop()) {

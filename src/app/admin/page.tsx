@@ -12,6 +12,7 @@ import {
   BarChart3,
   RefreshCw,
   Loader2,
+  Settings,
 } from "lucide-react";
 import { isClientDebugMode } from "@/lib/debug-mode";
 
@@ -26,7 +27,15 @@ interface AgentRow {
   updated_at: string;
 }
 
-type AdminTab = "prompts" | "tokens";
+type AdminTab = "prompts" | "tokens" | "settings";
+
+interface RuntimeSettingsShape {
+  mentionScanConcurrency: number;
+  mentionScanBatchUnits: number;
+  mentionScanBatchChars: number;
+  privilegedMentionScanConcurrency: number;
+  adminMentionScanBatchUnits: number;
+}
 
 interface TokenAggRow {
   key: string;
@@ -211,6 +220,260 @@ function AdminAccessGate({ onUnlock }: { onUnlock: (token: string) => void }) {
           返回首页登录
         </a>
       </div>
+    </div>
+  );
+}
+
+function RuntimeSettingsPanel({ adminToken }: { adminToken: string }) {
+  const [effective, setEffective] = useState<RuntimeSettingsShape | null>(null);
+  const [envDefaults, setEnvDefaults] = useState<RuntimeSettingsShape | null>(
+    null,
+  );
+  const [form, setForm] = useState<RuntimeSettingsShape | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [okMsg, setOkMsg] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/admin/settings", {
+        headers: { "x-admin-token": adminToken },
+      });
+      if (res.status === 401) {
+        setError("未授权，请重新登录");
+        return;
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setError(j.error || "加载失败");
+        return;
+      }
+      const data = await res.json();
+      setEffective(data.effective);
+      setEnvDefaults(data.envDefaults);
+      setForm({ ...data.effective });
+    } catch {
+      setError("网络错误");
+    } finally {
+      setLoading(false);
+    }
+  }, [adminToken]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const setNum = (key: keyof RuntimeSettingsShape, raw: string) => {
+    if (!form) return;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    setForm({ ...form, [key]: Math.floor(n) });
+  };
+
+  const handleSave = async () => {
+    if (!form) return;
+    setSaving(true);
+    setError("");
+    setOkMsg("");
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setError(j.error || "保存失败");
+        return;
+      }
+      const data = await res.json();
+      setEffective(data.effective);
+      setForm({ ...data.effective });
+      setOkMsg("已保存（写入 data/runtime-settings.json，立即生效）");
+      setTimeout(() => setOkMsg(""), 3000);
+    } catch {
+      setError("网络错误");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!confirm("清除运行时覆盖，恢复为环境变量/默认值？")) return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+        body: JSON.stringify({ reset: true }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setError(j.error || "重置失败");
+        return;
+      }
+      const data = await res.json();
+      setEffective(data.effective);
+      setForm({ ...data.effective });
+      setOkMsg("已恢复 env 默认");
+      setTimeout(() => setOkMsg(""), 3000);
+    } catch {
+      setError("网络错误");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fields: {
+    key: keyof RuntimeSettingsShape;
+    label: string;
+    hint: string;
+    min?: number;
+  }[] = [
+    {
+      key: "mentionScanConcurrency",
+      label: "普通用户 · 并行 LLM",
+      hint: "默认 4。同时进行的扫名请求数",
+      min: 1,
+    },
+    {
+      key: "mentionScanBatchUnits",
+      label: "普通用户 · 每 call UNIT",
+      hint: "默认 4。一次模型调用打包的 unit 数",
+      min: 1,
+    },
+    {
+      key: "mentionScanBatchChars",
+      label: "每 call 正文字符预算",
+      hint: "默认 16000",
+      min: 4000,
+    },
+    {
+      key: "privilegedMentionScanConcurrency",
+      label: "Admin/Debug · 并行 LLM",
+      hint: "默认 20。更高但仍限流友好，不会一次拉满",
+      min: 1,
+    },
+    {
+      key: "adminMentionScanBatchUnits",
+      label: "管理员 · 每 call UNIT",
+      hint: "默认 1。管理员扫名按 unit 粒度更细",
+      min: 1,
+    },
+  ];
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 custom-scrollbar space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Settings className="w-4 h-4 text-primary" />
+            运行配置 · 角色扫名
+          </h2>
+          <p className="text-[11px] text-fog mt-1 max-w-xl leading-relaxed">
+            统一管理扫名并发与打包。保存后立即生效；也可写 env（见 .env.example）。
+            Admin/Debug 使用更高并发（默认 20），不是无上限并行。
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => load()}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-border text-muted-foreground hover:text-foreground"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+            刷新
+          </button>
+          <button
+            type="button"
+            onClick={handleReset}
+            disabled={saving || !form}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-border text-muted-foreground hover:text-foreground"
+          >
+            <RotateCcw className="w-3 h-3" />
+            恢复 env
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !form}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-primary/20 text-primary border border-primary/40 hover:bg-primary/30 disabled:opacity-50"
+          >
+            {saving ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Save className="w-3 h-3" />
+            )}
+            保存
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <p className="text-xs text-red-400 flex items-center gap-1.5">
+          <AlertCircle className="w-3.5 h-3.5" />
+          {error}
+        </p>
+      )}
+      {okMsg && (
+        <p className="text-xs text-primary flex items-center gap-1.5">
+          <Check className="w-3.5 h-3.5" />
+          {okMsg}
+        </p>
+      )}
+
+      {loading && !form ? (
+        <div className="flex items-center gap-2 text-xs text-fog py-12 justify-center">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          加载中…
+        </div>
+      ) : form ? (
+        <div className="grid gap-4 sm:grid-cols-2 max-w-3xl">
+          {fields.map((f) => (
+            <label
+              key={f.key}
+              className="block p-4 rounded-lg border border-border bg-card space-y-2"
+            >
+              <span className="text-xs font-medium text-foreground block">
+                {f.label}
+              </span>
+              <span className="text-[11px] text-fog block leading-snug">
+                {f.hint}
+                {envDefaults && (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · env 默认 {envDefaults[f.key]}
+                  </span>
+                )}
+              </span>
+              <input
+                type="number"
+                min={f.min ?? 1}
+                value={form[f.key]}
+                onChange={(e) => setNum(f.key, e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-[#1a1a1a] border border-border rounded text-sm text-foreground font-mono"
+              />
+            </label>
+          ))}
+        </div>
+      ) : null}
+
+      {effective && (
+        <pre className="text-[10px] text-fog font-mono p-3 rounded border border-border/60 bg-card/50 max-w-3xl overflow-x-auto">
+          {JSON.stringify({ effective, envDefaults }, null, 2)}
+        </pre>
+      )}
     </div>
   );
 }
@@ -755,6 +1018,17 @@ export default function AdminPage() {
               <BarChart3 className="w-3 h-3" />
               Token 统计
             </button>
+            <button
+              onClick={() => setTab("settings")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 transition-colors border-l border-border ${
+                tab === "settings"
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted-foreground hover:text-foreground/90"
+              }`}
+            >
+              <Settings className="w-3 h-3" />
+              运行配置
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-3 text-xs text-fog font-[family-name:var(--font-geist-mono)]">
@@ -764,8 +1038,10 @@ export default function AdminPage() {
               <span>|</span>
               <span>{agents.filter((a) => a.is_modified).length} modified</span>
             </>
-          ) : (
+          ) : tab === "tokens" ? (
             <span>按 agent / 用户 / 分支 归因</span>
+          ) : (
+            <span>扫名并发 · UNIT 打包</span>
           )}
         </div>
       </header>
@@ -773,6 +1049,10 @@ export default function AdminPage() {
       {tab === "tokens" ? (
         <div className="flex flex-1 overflow-hidden">
           <TokenStatsPanel adminToken={token} />
+        </div>
+      ) : tab === "settings" ? (
+        <div className="flex flex-1 overflow-hidden">
+          <RuntimeSettingsPanel adminToken={token} />
         </div>
       ) : (
       <div className="flex flex-1 overflow-hidden">
