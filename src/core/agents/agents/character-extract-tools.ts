@@ -55,7 +55,7 @@ import {
 import { mergeResolvedEntities } from "@/core/extractor/character-entity-types";
 
 /**
- * Stage roster entities as profiles in analysis workspace (DB only on finish).
+ * Stage roster entities as profiles in analysis workspace (master commits later).
  * Roster brief is NOT personality/appearance detail — leave those empty so
  * profileHasDetail stays false until extract_character_detail submits full dims.
  */
@@ -722,9 +722,10 @@ export const characterExtractTools: ToolDefinition[] = [
   {
     name: "submit_character_entities",
     description:
-      "提交全书实体（可分批）。顺序：先执行 ops（merge/split），再 upsert entities。" +
+      "提交全书实体（**可分批、多次** merge/upsert；单次成功≠名单域已全部完成）。" +
+      "顺序：先执行 ops（merge/split），再 upsert entities。" +
       "merge: {op:\"merge\",keep,absorb:[]}；split: {op:\"split\",from,move_surfaces?,move_anchors?,new_name?}。" +
-      "aliases 仅第三人称。成功含「角色实体已存」+ 未覆盖 surface 提示。",
+      "aliases 仅第三人称。成功含「角色实体已存」+ 未覆盖 surface 提示；有未覆盖应继续 lookup/submit。",
     parameters: {
       type: "object",
       properties: {

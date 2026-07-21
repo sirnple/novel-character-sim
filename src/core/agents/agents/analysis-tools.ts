@@ -610,7 +610,7 @@ export const analysisDomainTools: ToolDefinition[] = [
     name: "submit_form",
     description:
       "【章法子 Agent】将 formDraft 写入分析工作区（不写 DB）。成功含「章法已存」。" +
-      "正式落库仅 finish_novel_analysis。",
+      "章法域通常 submit 一次后结束；若需修正可再次覆盖提交。",
     parameters: {
       type: "object",
       properties: {
@@ -640,7 +640,7 @@ export const analysisDomainTools: ToolDefinition[] = [
           units,
         });
         return {
-          content: `章法已就绪·跳过（工作区）。units=${units.length}。正式落库需 finish_novel_analysis。`,
+          content: `章法已就绪·跳过（工作区）。units=${units.length}。`,
           messages: [],
         };
       }
@@ -671,7 +671,7 @@ export const analysisDomainTools: ToolDefinition[] = [
       }
 
       const units = buildNameScanUnits(text);
-      // Workspace only — finish_novel_analysis writes novel_form + chapter meta
+      // Workspace only — master finish commits novel_form + chapter meta
       patchNovelAnalysisWorkspace(userId, novelId, branchId, {
         form: draft,
         units,
@@ -682,7 +682,7 @@ export const analysisDomainTools: ToolDefinition[] = [
         content:
           `${ANALYSIS_OK.form}：units=${units.length} catalog=${catalog.length} ` +
           `formType=${draft.formType} chaptering=${draft.chaptering?.enabled ? "on" : "off"}。` +
-          `已写入工作区（待 finish 落库）。`,
+          `已写入工作区。`,
         messages: [],
       };
     },
@@ -752,7 +752,7 @@ export const analysisDomainTools: ToolDefinition[] = [
         return {
           content:
             `${ANALYSIS_OK.form}：units=${units.length} catalog=${catalog.length}。` +
-            `（工作区；待 finish 落库。交互请用分步工具）`,
+            `（已写入工作区；交互请用分步工具）`,
           messages: [],
         };
       } catch (e) {
@@ -876,7 +876,8 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "submit_story_world",
     description:
-      "提交故事与世界观 JSON 到分析工作区（不写 DB）。成功含「故事世界已存」。落库用 finish_novel_analysis。",
+      "提交故事与世界观 JSON 到分析工作区（不写 DB）。成功含「故事世界已存」。" +
+      "本域通常完整提交一次后结束；若需修正可再次覆盖。",
     parameters: {
       type: "object",
       properties: {
@@ -897,7 +898,7 @@ export const analysisDomainTools: ToolDefinition[] = [
         ensureWs(userId, novelId, branchId);
         patchNovelAnalysisWorkspace(userId, novelId, branchId, { storyInfo: story });
         return {
-          content: `${ANALYSIS_OK.story}（工作区，待 finish 落库）`,
+          content: `${ANALYSIS_OK.story}（已写入工作区）`,
           messages: [],
         };
       } catch (e) {
@@ -908,7 +909,8 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "submit_character_detail",
     description:
-      "提交单个角色多维度详情到工作区（不写 DB）。成功含「角色详情已存」。" +
+      "提交**单个**角色多维度详情到工作区（不写 DB）。成功含「角色详情已存」。" +
+      "可按角色多次调用（一人一调）；全部目标角色交完后本域才结束，单次成功≠名单全做完。" +
       "detail_json 必须含 appearance+personality，且 drive/behavior/worldview|values/speakingStyle/background 至少 2 项；禁止只交性格简介。",
     parameters: {
       type: "object",
@@ -1028,7 +1030,7 @@ export const analysisDomainTools: ToolDefinition[] = [
         );
         return {
           content:
-            `${ANALYSIS_OK.detail}:${name}（维度分 ${score}/7；工作区 ${chars.length} 人，完整详情 ${richN}；待确认保存）`,
+            `${ANALYSIS_OK.detail}:${name}（维度分 ${score}/7；工作区 ${chars.length} 人，完整详情 ${richN}）`,
           messages: [],
         };
       } catch (e) {
@@ -1125,7 +1127,8 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "submit_character_relationships",
     description:
-      "提交有向关系边到工作区（不写 DB）。成功含「角色关系已存」。落库用 finish_novel_analysis。",
+      "提交有向关系边到工作区（不写 DB）。成功含「角色关系已存」。" +
+      "可分批、多次调用（边会累计/合并）；单次成功≠关系域已全部完成。",
     parameters: {
       type: "object",
       properties: {
@@ -1177,7 +1180,7 @@ export const analysisDomainTools: ToolDefinition[] = [
           };
         }
         return {
-          content: `${ANALYSIS_OK.rels}：提交 ${edges.length} 条，挂接 ${applied} 条（工作区，待确认保存）`,
+          content: `${ANALYSIS_OK.rels}：提交 ${edges.length} 条，挂接 ${applied} 条（已写入工作区）`,
           messages: [],
         };
       } catch (e) {
@@ -1188,7 +1191,8 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "submit_timeline_events",
     description:
-      "提交时间线 JSON 到工作区（不写 DB）。成功含「时间线已存」。落库用 finish_novel_analysis。",
+      "提交时间线 JSON 到分析工作区（不写 DB）。成功含「时间线已存」。" +
+      "通常整份时间线提交一次后结束；若需修正可再次覆盖。",
     parameters: {
       type: "object",
       properties: {
@@ -1203,7 +1207,7 @@ export const analysisDomainTools: ToolDefinition[] = [
         ensureWs(userId, novelId, branchId);
         patchNovelAnalysisWorkspace(userId, novelId, branchId, { timeline });
         return {
-          content: `${ANALYSIS_OK.timeline}（工作区，待 finish 落库）`,
+          content: `${ANALYSIS_OK.timeline}（已写入工作区）`,
           messages: [],
         };
       } catch (e) {
@@ -1214,7 +1218,8 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "submit_style",
     description:
-      "提交文风 JSON 到工作区（不写文笔库）。成功含「文风已存」。落库用 finish_novel_analysis。",
+      "提交文风 JSON 到工作区（不写文笔库）。成功含「文风已存」。" +
+      "通常提交一次后结束；若需修正可再次覆盖。",
     parameters: {
       type: "object",
       properties: {
@@ -1229,7 +1234,7 @@ export const analysisDomainTools: ToolDefinition[] = [
         ensureWs(userId, novelId, branchId);
         patchNovelAnalysisWorkspace(userId, novelId, branchId, { style });
         return {
-          content: `${ANALYSIS_OK.style}（工作区，待 finish 落库）`,
+          content: `${ANALYSIS_OK.style}（已写入工作区）`,
           messages: [],
         };
       } catch (e) {
@@ -1240,7 +1245,8 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "submit_ideas",
     description:
-      "提交点子到工作区（不写点子库）。成功含「点子已存」。落库用 finish_novel_analysis。",
+      "提交点子到工作区（不写点子库）。成功含「点子已存」。" +
+      "通常整批提交一次后结束；若需修正可再次覆盖（覆盖整份点子列表）。",
     parameters: {
       type: "object",
       properties: {
@@ -1266,7 +1272,7 @@ export const analysisDomainTools: ToolDefinition[] = [
         ensureWs(userId, novelId, branchId);
         patchNovelAnalysisWorkspace(userId, novelId, branchId, { ideas: entries });
         return {
-          content: `${ANALYSIS_OK.ideas}：${entries.length} 条（工作区，待 finish 落库）`,
+          content: `${ANALYSIS_OK.ideas}：${entries.length} 条（已写入工作区）`,
           messages: [],
         };
       } catch (e) {
