@@ -20,6 +20,10 @@ import {
   buildMasterAgentToolSchema,
   resolveAnalysisAgentType,
 } from "@/core/agents/analysis-allowlist";
+import {
+  groupPendingToolsForExecution,
+  waveAgentTypes,
+} from "@/core/agents/parallel-tool-waves";
 import type { LLMMessage, SystemMessage, UserMessage, AssistantMessage, ToolMessage, ToolSchema } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -363,7 +367,103 @@ export async function POST(request: NextRequest) {
             })),
           } as AssistantMessage);
 
-          for (const { toolId, toolName, args } of pendingTools) {
+          /**
+           * Process pending tool calls in waves (see groupPendingToolsForExecution).
+           * Analysis: consecutive agent() → Promise.all. Write: serial.
+           */
+          const execWaves = groupPendingToolsForExecution(
+            pendingTools,
+            isAnalysis,
+          );
+
+          const runOneAgent = async (item: {
+            toolId: string;
+            toolName: string;
+            args: Record<string, any>;
+          }) => {
+            const agentType = item.args.agent_type as string;
+            const prompt = item.args.prompt as string;
+            if (!agentType || !prompt) {
+              return {
+                toolId: item.toolId,
+                content: "错误: agent_type 和 prompt 都是必需的",
+                askUser: undefined as
+                  | import("@/core/agents/types").AskUserRequest
+                  | undefined,
+              };
+            }
+            try {
+              const result = await runAgent(agentType, prompt, item.toolId);
+              return {
+                toolId: item.toolId,
+                content: result.content.slice(0, 2000),
+                askUser: result.askUser,
+              };
+            } catch (e) {
+              const err = `子 Agent 失败: ${(e as Error).message}`;
+              sendTool(
+                String(item.args.agent_type || "agent"),
+                "done",
+                item.toolId,
+                err,
+              );
+              return {
+                toolId: item.toolId,
+                content: err,
+                askUser: undefined,
+              };
+            }
+          };
+
+          for (const wave of execWaves) {
+            if (stopForUser) break;
+
+            // Parallel agent wave (analysis only)
+            if (
+              wave.parallel &&
+              wave.tools.every((t) => t.toolName === "agent")
+            ) {
+              logSession({
+                ts: new Date().toISOString(),
+                type: "tool_exec",
+                tool: "agent_parallel_wave",
+                elapsed: 0,
+                resultPreview: waveAgentTypes(wave).join(" ∥ "),
+              });
+              const tWave = Date.now();
+              const results = await Promise.all(wave.tools.map(runOneAgent));
+              logSession({
+                ts: new Date().toISOString(),
+                type: "tool_exec",
+                tool: "agent_parallel_wave",
+                elapsed: Date.now() - tWave,
+                resultPreview: results
+                  .map((r) => r.content.slice(0, 80))
+                  .join(" | "),
+              });
+              for (const one of results) {
+                pushToolResult(one.toolId, one.content);
+                if (one.askUser && !stopForUser) {
+                  emitAskUser(one.askUser, one.toolId);
+                  stopForUser = true;
+                }
+              }
+              continue;
+            }
+
+            // Serial: one tool per wave (or single agent)
+            const { toolId, toolName, args } = wave.tools[0];
+
+            if (toolName === "agent") {
+              const one = await runOneAgent({ toolId, toolName, args });
+              pushToolResult(one.toolId, one.content);
+              if (one.askUser) {
+                emitAskUser(one.askUser, one.toolId);
+                stopForUser = true;
+              }
+              continue;
+            }
+
             if (toolName === "ask_question") {
               const question = String(args.question || "").trim() || "请选择下一步";
               let options: string[] = [];
@@ -460,24 +560,7 @@ export async function POST(request: NextRequest) {
               continue;
             }
 
-            if (toolName === "agent") {
-              // Same as write master: special path → runAgent (sub-agent card + trail).
-              // Never fall through to runDataTool / registry agent.execute without trail.
-              const agentType = args.agent_type as string;
-              const prompt = args.prompt as string;
-              if (!agentType || !prompt) {
-                pushToolResult(toolId, "错误: agent_type 和 prompt 都是必需的");
-                continue;
-              }
-
-              const result = await runAgent(agentType, prompt, toolId);
-              // Master only sees short hint (store holds truth) — same as write_prose
-              pushToolResult(toolId, result.content.slice(0, 2000));
-              if (result.askUser) {
-                emitAskUser(result.askUser, toolId);
-                stopForUser = true;
-              }
-            } else if (toolName === "accept_continuation") {
+            if (toolName === "accept_continuation") {
               // Special: run accept and notify UI with new branch text
               sendTool("accept_continuation", "running", toolId);
               const toolDef = getTool("accept_continuation");

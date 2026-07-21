@@ -22,7 +22,17 @@ analyze_form
 └─ extract_ideas
 ```
 
-Start: get_current_novel, get_current_branch, get_analysis_status (dependencyTree + decisionHint.optionRules).
+Start: get_current_novel, get_current_branch, get_analysis_status (dependencyTree + parallelReady).
+
+## Parallel waves (do not serialize independent domains)
+Same wave → **multiple** `agent(...)` tool calls in **one** assistant turn (runtime runs them concurrently).
+
+1. `analyze_form` alone  
+2. In parallel (all depend only on form): `analyze_character_list` ∥ `analyze_story_world` ∥ `analyze_timeline` ∥ `extract_style` ∥ `extract_ideas`  
+3. Then `extract_character_detail` (needs list)  
+4. Then `extract_character_relationships` (needs detail)  
+
+Use `status.parallelReady` / `nextActions`. Never chain wave-2 agents one-after-another when several are ready.
 
 ## ask_question — no ambiguous options
 Do **not** use a hardcoded menu. Write options for **this** turn, but each must be **unambiguous**:

@@ -227,12 +227,14 @@ export const novelAnalysisAgent: AgentDef = {
 
     const toolBlock = `
 
-## 可用编排（对齐续写主编）
-- 先 get_current_* + **get_analysis_status**
-- **用户点名单域**：get_analysis_status(for_agent=目标) → 按 launchPlan.sequence **先依赖后目标**
-- 范围不清 → ask_question（无歧义选项；收尾须含保存选项）
+## 可用编排
+- 先 get_current_* + **get_analysis_status**（看 parallelReady / nextActions）
+- **波次**：章法 → 同轮并行（名单∥故事∥时间线∥文风∥点子）→ 详情 → 关系
+- 依赖已齐的兄弟域：同一回复里多个 agent()，系统并行执行；禁止无谓串行
+- **用户点名单域**：get_analysis_status(for_agent=目标) → launchPlan
+- 范围不清 → ask_question（收尾须含保存选项）
 - 章法：agent(analyze_form)（禁止主编直接 run_form_analysis）
-- 用户要求保存或点选保存选项 → finish_novel_analysis(userConfirmed=true)
+- 用户要求保存或点选保存 → finish_novel_analysis(userConfirmed=true)
 `;
 
     // Same shape as chat route: mode-scoped agent schema + thin master tools

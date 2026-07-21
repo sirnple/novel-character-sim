@@ -38,6 +38,7 @@ import {
   ANALYSIS_DOMAIN_TO_AGENT,
   ANALYSIS_SUBAGENT_TYPES,
   buildLaunchPlan,
+  listParallelReadyAgents,
   resolveAnalysisAgentType,
 } from "../analysis-allowlist";
 import {
@@ -1359,19 +1360,30 @@ export const analysisMasterTools: ToolDefinition[] = [
         extract_ideas: ideas,
       };
 
+      const parallelReady = listParallelReadyAgents(readyByAgent);
       const nextActions: string[] = [];
       if (!form) {
         nextActions.push('agent(agent_type="analyze_form")');
-      } else {
-        if (!characterList) nextActions.push('agent(agent_type="analyze_character_list")');
-        else if (!characterDetail)
+      } else if (parallelReady.length > 1) {
+        nextActions.push(
+          `同轮并行派发（勿串行）：${parallelReady
+            .map((a) => `agent(agent_type="${a}")`)
+            .join(" ∥ ")}`,
+        );
+      } else if (parallelReady.length === 1) {
+        nextActions.push(`agent(agent_type="${parallelReady[0]}")`);
+      }
+      // Character chain after list exists (detail/rels not always in parallelReady alone)
+      if (form && characterList && !characterDetail) {
+        if (!parallelReady.includes("extract_character_detail")) {
           nextActions.push('agent(agent_type="extract_character_detail")');
-        else if (!characterRelationships)
-          nextActions.push('agent(agent_type="extract_character_relationships")');
-        if (!story) nextActions.push('agent(agent_type="analyze_story_world")');
-        if (!timeline) nextActions.push('agent(agent_type="analyze_timeline")');
-        if (!style) nextActions.push('agent(agent_type="extract_style")');
-        if (!ideas) nextActions.push('agent(agent_type="extract_ideas")');
+        }
+      } else if (form && characterDetail && !characterRelationships) {
+        if (!parallelReady.includes("extract_character_relationships")) {
+          nextActions.push(
+            'agent(agent_type="extract_character_relationships")',
+          );
+        }
       }
       // Wrap-up: always offer save option; finish when user asks or picks it
       if (pending.length === 0 && done.length > 0) {
@@ -1407,6 +1419,8 @@ export const analysisMasterTools: ToolDefinition[] = [
         style,
         ideas,
         ideaCount: ideaCountWs || ideaCountDb,
+        /** Deps ready & not done — dispatch all in one turn (runtime parallel) */
+        parallelReady,
         unitCount: ws?.units?.length || 0,
         canTimeline: form || (ws?.units?.length || 0) > 0,
         /** 子 Agent 依赖表（拉单域前必查） */
@@ -1493,6 +1507,7 @@ export const analysisMasterTools: ToolDefinition[] = [
             "「全书重跑」必须写明含章法且很慢；与「只重角色」严格分开",
             "本轮分析告一段落时：options 必须包含「确认保存到本书」或「保存分析结果」",
             "用户点了保存类选项，或文字要求保存 → finish_novel_analysis(userConfirmed=true)，不要再追问",
+            "parallelReady 有多项时：同轮多个 agent() 并行，禁止无谓串行",
             "选项数量适中（一般 2～5 个），只放与当前用户意图相关的，不要堆无关全书菜单",
           ],
           /** Prefer offering save on wrap-up (not a “nag ban”) */

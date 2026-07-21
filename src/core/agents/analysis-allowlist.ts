@@ -118,6 +118,24 @@ export function listDependencyChain(
 }
 
 /**
+ * Domains whose deps are all ready and domain itself is not ready —
+ * master should dispatch these in one turn (runtime parallelizes agent tools).
+ */
+export function listParallelReadyAgents(
+  readyByAgent: Partial<Record<string, boolean>>,
+): AnalysisSubagentType[] {
+  const out: AnalysisSubagentType[] = [];
+  for (const id of ANALYSIS_SUBAGENT_TYPES) {
+    if (readyByAgent[id]) continue;
+    const deps = ANALYSIS_AGENT_DEPENDENCIES[id] || [];
+    if (deps.every((d) => readyByAgent[d])) {
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+/**
  * Given readiness map (agent_type → ready), build launch plan for one target.
  */
 export function buildLaunchPlan(

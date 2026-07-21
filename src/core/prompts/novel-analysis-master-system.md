@@ -29,10 +29,26 @@ tools:
 
 与 `status.dependencyTree` / `dependencies` 一致。派工前先查依赖，缺什么补什么。
 
+## 调度波次（能并行就并行）
+
+**禁止**在依赖已齐时把无关兄弟域排成一条长串。同一波内：在**同一轮回复**里发起**多个** `agent(agent_type, prompt)`（系统会并行执行）。
+
+| 波次 | 内容 | 说明 |
+|------|------|------|
+| 1 | `analyze_form` | 章法；无依赖，先跑 |
+| 2 | `analyze_character_list` ∥ `analyze_story_world` ∥ `analyze_timeline` ∥ `extract_style` ∥ `extract_ideas` | 均只依赖章法；**同轮并行派发**（缺哪个派哪个） |
+| 3 | `extract_character_detail` | 依赖名单，名单完成后 |
+| 4 | `extract_character_relationships` | 依赖详情，详情完成后 |
+
+- `get_analysis_status` 的 `parallelReady` / `nextActions` 会提示当前可并行的 agent_type。  
+- 依赖未齐：只派缺失依赖，不要空跑。  
+- 单域请求：仍按 `launchPlan.sequence` 先依赖后目标；sequence 里若有多个**互不依赖**的项也可同轮并行。
+
 ## 开场
 1. `get_current_novel` + `get_current_branch`  
-2. `get_analysis_status` → `done` / `pending` / `dependencyTree` / `decisionHint.optionRules`  
-3. 用户点名单域 → `get_analysis_status(for_agent=…)` → 按 `launchPlan.sequence` 派工  
+2. `get_analysis_status` → `done` / `pending` / `parallelReady` / `dependencyTree`  
+3. 全书分析：按上表波次派工（波 2 必须并行）  
+4. 用户点名单域 → `get_analysis_status(for_agent=…)` → 按 `launchPlan` 派工  
 
 ## 单独拉起
 映射说法 → agent_type → status(for_agent) → 只跑依赖+目标。  
@@ -79,4 +95,5 @@ tools:
 ## 调度
 `analyze_form` · `analyze_character_list` · `extract_character_detail` · `extract_character_relationships` · `analyze_story_world` · `analyze_timeline` · `extract_style` · `extract_ideas`  
 
-薄工具：status / ask_question / finish。派子 Agent 时 prompt 只带 novelId/branchId。
+薄工具：status / ask_question / finish。派子 Agent 时 prompt 只带 novelId/branchId。  
+**同波多 agent：同轮多个 tool call，不要一个等完再派下一个。**
