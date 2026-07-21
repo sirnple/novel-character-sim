@@ -32,6 +32,7 @@ import { sanitizeUnitNameHit } from "@/core/extractor/character-unit-hit-sanitiz
 import { extractJSON, isChinese, novelFingerprint } from "@/lib/utils";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
 import { runWithTokenContext } from "@/lib/token-usage-context";
+import { resolveMentionScanOptions } from "@/lib/runtime-settings";
 
 import { initRegistry } from "@/core/agents/init";
 import { getAgent } from "@/core/agents/agent-registry";
@@ -494,11 +495,12 @@ async function runCharacterJob(
       : `扫描人名 ${job.completed}/${units.length}（待扫 ${needScan.length}）`;
   touch(job);
 
-  const envC = Number(process.env.CHARACTER_MENTION_CONCURRENCY || "");
-  const scanConcurrency =
-    Number.isFinite(envC) && envC >= 1 ? Math.floor(envC) : 4;
+  const scanOpts = resolveMentionScanOptions({ userId: job.userId });
   console.log(
-    `[char-job] ${jobId} mention-scan units=${units.length} need=${needScan.length} concurrency=${scanConcurrency}`,
+    `[char-job] ${jobId} mention-scan units=${units.length} need=${needScan.length} ` +
+      `concurrency=${scanOpts.concurrency}` +
+      (scanOpts.privilegedConcurrency ? " (privileged)" : "") +
+      ` batchUnits=${scanOpts.batchUnits} mode=${scanOpts.mode}`,
   );
 
   if (needScan.length && !stop()) {
@@ -514,7 +516,8 @@ async function runCharacterJob(
           scanUnitHitsWithLlm(llm, fullText, {
             units: needScan,
             zh,
-            concurrency: scanConcurrency,
+            resolved: scanOpts,
+            userId: job.userId,
             onProgress: (done, total, label) => {
               if (stop()) return;
               const base = units.length - needScan.length;

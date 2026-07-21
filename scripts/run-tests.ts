@@ -27,6 +27,7 @@ import { runAgentPromptRenderTests } from "./tests/agent-prompt-render.test";
 import { runSharePayloadTests } from "./tests/share-payload.test";
 import { runShareStoreTests } from "./tests/share-store.test";
 import { runAnalysisParallelReadyTests } from "./tests/analysis-parallel-ready.test";
+import { runRuntimeSettingsTests } from "./tests/runtime-settings.test";
 
 async function main() {
   resetCounters();
@@ -35,6 +36,7 @@ async function main() {
   runAgentFrontmatterTests();
   runAgentPromptRenderTests();
   runAnalysisParallelReadyTests();
+  runRuntimeSettingsTests();
   runProseGuardTests();
   runIntermediateStoreTests();
   runCriticalMissTests();

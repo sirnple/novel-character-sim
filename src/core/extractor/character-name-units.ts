@@ -7,6 +7,12 @@
  */
 
 import { extractChapterCatalog } from "@/core/form/chapter-catalog";
+import { getRuntimeSettings } from "@/lib/runtime-settings";
+
+export {
+  MENTION_SCAN_BATCH_CHARS_DEFAULT,
+  MENTION_SCAN_BATCH_UNITS_DEFAULT,
+} from "@/lib/runtime-settings";
 
 export interface TextUnit {
   index: number;
@@ -17,39 +23,17 @@ export interface TextUnit {
 }
 
 /**
- * Soft upper bound: Chinese chars sent as novel body per LLM mention-scan call.
- * ~16k CJK ≈ mid context for flash models; keeps recall better than 30k+ dumps.
- * Override: CHARACTER_MENTION_BATCH_CHARS
- */
-export const MENTION_SCAN_BATCH_CHARS_DEFAULT = 16_000;
-
-/** Cap how many units share one LLM call (even if under char budget). */
-export const MENTION_SCAN_BATCH_UNITS_DEFAULT = 6;
-
-/**
  * Group consecutive units into LLM call batches under char + unit caps.
  * Single unit longer than maxChars is still one batch (caller truncates text).
+ * Defaults from {@link getRuntimeSettings} (env + runtime overrides).
  */
 export function packUnitsForMentionScan(
   units: TextUnit[],
   options?: { maxChars?: number; maxUnits?: number },
 ): TextUnit[][] {
-  const maxChars =
-    options?.maxChars ??
-    (() => {
-      const env = Number(process.env.CHARACTER_MENTION_BATCH_CHARS || "");
-      return Number.isFinite(env) && env >= 4_000
-        ? Math.floor(env)
-        : MENTION_SCAN_BATCH_CHARS_DEFAULT;
-    })();
-  const maxUnits =
-    options?.maxUnits ??
-    (() => {
-      const env = Number(process.env.CHARACTER_MENTION_BATCH_UNITS || "");
-      return Number.isFinite(env) && env >= 1
-        ? Math.floor(env)
-        : MENTION_SCAN_BATCH_UNITS_DEFAULT;
-    })();
+  const settings = getRuntimeSettings();
+  const maxChars = options?.maxChars ?? settings.mentionScanBatchChars;
+  const maxUnits = options?.maxUnits ?? settings.mentionScanBatchUnits;
 
   if (!units.length) return [];
   const batches: TextUnit[][] = [];
