@@ -38,8 +38,8 @@ const domainWithLookup: ToolDefinition[] = (() => {
 
 /**
  * 章法：主编只派 agent(analyze_form)。
- * 子 Agent tool-loop 分步：scan_chapter_catalog → build_form_draft → (enrich_form_draft) → submit_form
- * 禁止把流程封进单一 run_form_analysis。
+ * 分步工具：scan → build → list_form_catalog(分页) → apply_catalog_tracks → set_form_narrative → submit_form
+ * 禁止一次 LLM 吐全书 trackLabels；禁止 run_form_analysis 黑盒。
  */
 export const formAnalysisAgent: AgentDef = makeLoopAgent({
   agentId: "analyze_form",
@@ -48,7 +48,9 @@ export const formAnalysisAgent: AgentDef = makeLoopAgent({
       "get_analysis_context",
       "scan_chapter_catalog",
       "build_form_draft",
-      "enrich_form_draft",
+      "list_form_catalog",
+      "apply_catalog_tracks",
+      "set_form_narrative",
       "submit_form",
       "list_text_units",
     ],
@@ -56,7 +58,8 @@ export const formAnalysisAgent: AgentDef = makeLoopAgent({
   ),
   submitTool: "submit_form",
   okMarker: ANALYSIS_OK.form,
-  maxSteps: 12,
+  // Long books: many list_form_catalog pages + track batches
+  maxSteps: 36,
   temperature: 0.2,
 });
 
@@ -233,6 +236,7 @@ export const novelAnalysisAgent: AgentDef = {
 - 依赖已齐的兄弟域：同一回复里多个 agent()，系统并行执行；禁止无谓串行
 - **用户点名单域**：get_analysis_status(for_agent=目标) → launchPlan
 - 范围不清 → ask_question（收尾须含保存选项）
+- **已 done 的域**：用户再要求分析 → 必须 ask 是否重新分析/覆盖，禁止静默重跑
 - 章法：agent(analyze_form)（禁止主编直接 run_form_analysis）
 - 用户要求保存或点选保存 → finish_novel_analysis(userConfirmed=true)
 `;

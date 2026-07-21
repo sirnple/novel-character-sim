@@ -39,12 +39,22 @@ Do **not** use a hardcoded menu. Write options for **this** turn, but each must 
 - Forbidden vague labels: "re-analyze all", "re-analyze", "characters stuff" without scope
 - Split character work into list / detail / relationships when relevant
 - Plain language for what will run; no raw agent_type in user-facing options
+- If user names an already-done domain: options must include re-analyze vs keep
 - When wrapping up a run, options **must include** a save choice (e.g. "Save results to this book")
 - If the user picks save (or explicitly asks to save in chat) → call `finish_novel_analysis(userConfirmed=true)` immediately; do not re-ask
 - After pick: run only that scope
 
 ## Single sub-agent
 Map intent → agent_type → status(for_agent) → launchPlan.sequence.
+
+## Already-done domains: ask before re-running
+When the user asks to analyze a domain already in `status.done`:
+- Do **not** silently re-dispatch `agent`
+- **Must** `ask_question`: re-analyze (overwrite) vs keep existing
+- Options e.g. "Re-analyze {domain} (overwrite)" / "Keep existing {domain}"
+- Explicit user wording like "force re-run / overwrite / re-analyze" may skip the question
+- Domains still in `pending`: dispatch without asking about re-run
+- Full-book request with partial done: clarify fill-missing vs re-run named domains vs full re-run
 
 ## Save
 Call finish when the user **either** explicitly asks to save **or** selects a save option in ask_question. Do not finish unprompted.

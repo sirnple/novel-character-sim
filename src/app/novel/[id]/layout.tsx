@@ -185,7 +185,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
                   </button>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                 <AgentPanel
                   key={`${agentMode}-${id}`}
                   novelTitle={novelTitle}

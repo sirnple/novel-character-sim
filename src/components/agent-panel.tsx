@@ -201,7 +201,10 @@ const TOOL_LABELS: Record<string, string> = {
   run_form_analysis: "程序·章法一键(兼容)",
   scan_chapter_catalog: "扫描章节目录",
   build_form_draft: "建章法草稿",
-  enrich_form_draft: "LLM补全章法",
+  list_form_catalog: "分页列目录",
+  apply_catalog_tracks: "修正章节轨",
+  set_form_narrative: "写入形态字段",
+  enrich_form_draft: "LLM补全章法(旧)",
   submit_form: "提交章法",
   scan_character_mentions: "扫描角色指称",
   list_surface_candidates: "列出称呼候选",
@@ -1282,45 +1285,11 @@ export default function AgentPanel({
   }, [isAnalysis, novelId]);
 
   return (
-    <div className="flex flex-col h-full bg-card">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 shrink-0 gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <Bot className="w-3.5 h-3.5 text-primary shrink-0" />
-          <h3 className="text-sm font-semibold text-muted-foreground truncate">
-            {isAnalysis ? "分析 Agent" : "主编 Agent"}
-          </h3>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {status === "generating" ? (
-            <span className="text-xs text-primary flex items-center gap-1">
-              <Loader2 className="w-2.5 h-2.5 animate-spin" />工作中
-            </span>
-          ) : isAnalysis ? (
-            <button
-              type="button"
-              onClick={() => handleOneClickAnalyze()}
-              disabled={!novelId}
-              title="章法→角色→故事/时间线/文风/点子"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <Zap className="w-3 h-3" />
-              一键分析
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => handleOneClickContinue()}
-              disabled={!branchId || !novelId}
-              title="大纲→正文→审查→接受；所有审核卡点自动通过"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border border-amber-500/40 bg-amber-500/10 text-amber-200/90 hover:bg-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <Zap className="w-3 h-3" />
-              一键续写
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="flex flex-col h-full bg-card min-h-0">
+      {/*
+        No second title bar — layout already shows「分析助手」/「助手」+ 关闭.
+        One-click actions live in empty state / stay available near input when chat has messages.
+      */}
 
       {/* Messages */}
       <div
@@ -1596,9 +1565,42 @@ export default function AgentPanel({
         </div>
       )}
 
-      {/* Input */}
-      <div className="p-3 border-t border-border/60 shrink-0">
-        <div className="flex gap-2">
+      {/* Input + one-click (title is only on layout shell) */}
+      <div className="p-3 border-t border-border/60 shrink-0 space-y-2">
+        {messages.length > 0 && status !== "generating" && (
+          <div className="flex items-center gap-2">
+            {isAnalysis ? (
+              <button
+                type="button"
+                onClick={() => handleOneClickAnalyze()}
+                disabled={!novelId}
+                title="章法→角色→故事/时间线/文风/点子"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 transition-colors"
+              >
+                <Zap className="w-3 h-3" />
+                一键分析
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleOneClickContinue()}
+                disabled={!branchId || !novelId}
+                title="大纲→正文→审查→接受；所有审核卡点自动通过"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border border-amber-500/40 bg-amber-500/10 text-amber-200/90 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
+              >
+                <Zap className="w-3 h-3" />
+                一键续写
+              </button>
+            )}
+          </div>
+        )}
+        <div className="flex gap-2 items-center">
+          {status === "generating" && (
+            <span className="text-xs text-primary flex items-center gap-1 shrink-0">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              工作中
+            </span>
+          )}
           <input
             value={input}
             onChange={e => setInput(e.target.value)}

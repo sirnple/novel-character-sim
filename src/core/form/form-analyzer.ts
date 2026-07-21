@@ -20,7 +20,12 @@ import { buildNovelContext, parseNovel } from "@/core/parser/novel-parser";
 const CONFIDENCE_ENABLE = 0.55;
 /** Chars before/after chapter offset for LLM local inspection */
 const WINDOW_RADIUS = 280;
+/** Max rows of catalog detail sent to enrich LLM (not full 400+ chapter dump). */
 const MAX_CATALOG_FOR_LLM = 40;
+/** Max non-main / suspicious rows for track override review (full-catalog indices). */
+const MAX_TRACK_REVIEW_ROWS = 48;
+/** Enrich response is small architecture JSON + sparse overrides — keep budget modest but enough. */
+const ENRICH_MAX_TOKENS = 4096;
 
 export function emptyFormProfile(novelId: string): NovelFormProfile {
   return {
@@ -412,6 +417,143 @@ function parseDropList(
   return out;
 }
 
+/**
+ * Build a sparse review payload for long catalogs (e.g. 400+ chapters).
+ * Full track seed stays on program rows; LLM only sees non-main / suspicious + head/tail samples.
+ */
+export function buildSparseCatalogReview(
+  text: string,
+  catalog: ChapterCatalogEntry[],
+  opts?: { maxReview?: number; sampleMain?: number },
+): {
+  catalogTotal: number;
+  trackSeedStats: Record<string, number>;
+  /** Full-catalog indices for uncertain rows */
+  reviewRows: Array<{
+    index: number;
+    number?: number;
+    title: string;
+    trackSeed: string;
+    kind?: string;
+    rawLine: string;
+    nameSuspicious: boolean;
+  }>;
+  mainSamples: Array<{ index: number; number?: number; title: string }>;
+} {
+  const maxReview = opts?.maxReview ?? MAX_TRACK_REVIEW_ROWS;
+  const sampleMain = opts?.sampleMain ?? 6;
+  const trackSeedStats: Record<string, number> = {};
+  const reviewRows: Array<{
+    index: number;
+    number?: number;
+    title: string;
+    trackSeed: string;
+    kind?: string;
+    rawLine: string;
+    nameSuspicious: boolean;
+  }> = [];
+  const mainIdx: number[] = [];
+
+  for (let i = 0; i < catalog.length; i++) {
+    const c = catalog[i];
+    const trackSeed = c.track || "main";
+    trackSeedStats[trackSeed] = (trackSeedStats[trackSeed] || 0) + 1;
+    const rawLine = (rawLineAtOffset(text, c.startOffset) || c.title).slice(0, 100);
+    const { suspicious } = flagSuspiciousChapterName(c.title, rawLine);
+    if (trackSeed === "main") mainIdx.push(i);
+    if (trackSeed !== "main" || suspicious) {
+      if (reviewRows.length < maxReview) {
+        reviewRows.push({
+          index: i,
+          number: c.number,
+          title: (c.title || "").slice(0, 80),
+          trackSeed,
+          kind: c.kind,
+          rawLine,
+          nameSuspicious: suspicious,
+        });
+      }
+    }
+  }
+
+  const mainSamples: Array<{ index: number; number?: number; title: string }> = [];
+  const take = Math.min(sampleMain, mainIdx.length);
+  for (let k = 0; k < take; k++) {
+    const i = mainIdx[k];
+    mainSamples.push({
+      index: i,
+      number: catalog[i].number,
+      title: (catalog[i].title || "").slice(0, 60),
+    });
+  }
+  if (mainIdx.length > take) {
+    for (let k = Math.max(take, mainIdx.length - sampleMain); k < mainIdx.length; k++) {
+      const i = mainIdx[k];
+      if (mainSamples.some((s) => s.index === i)) continue;
+      mainSamples.push({
+        index: i,
+        number: catalog[i].number,
+        title: (catalog[i].title || "").slice(0, 60),
+      });
+    }
+  }
+
+  return {
+    catalogTotal: catalog.length,
+    trackSeedStats,
+    reviewRows,
+    mainSamples,
+  };
+}
+
+const ENRICH_FORM_TOOL: {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+} = {
+  name: "form_enrich_result",
+  description: "Sparse form enrich JSON (architecture + optional track/drop overrides)",
+  parameters: {
+    type: "object",
+    properties: {
+      formType: { type: "string" },
+      chapteringEnabled: { type: "boolean" },
+      chapteringConfidence: { type: "number" },
+      primaryTemplate: { type: "string" },
+      povScheme: { type: "string" },
+      timeScheme: { type: "string" },
+      evidenceNotes: { type: "string" },
+      genreHints: { type: "array", items: { type: "string" } },
+      continuationRules: { type: "array", items: { type: "string" } },
+      catalogIssues: { type: "array", items: { type: "string" } },
+      coherenceOk: { type: "boolean" },
+      trackOverrides: {
+        type: "array",
+        description:
+          "Only rows that differ from trackSeed. index = full catalog index. Empty if seed ok.",
+        items: {
+          type: "object",
+          properties: {
+            index: { type: "number" },
+            track: { type: "string" },
+          },
+        },
+      },
+      dropCatalog: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            index: { type: "number" },
+            reason: { type: "string" },
+          },
+        },
+      },
+    },
+    required: ["formType", "chapteringEnabled", "chapteringConfidence"],
+  },
+};
+
 async function enrichFormWithLlm(
   base: NovelFormProfile,
   text: string,
@@ -420,98 +562,87 @@ async function enrichFormWithLlm(
   llm: LLMProvider,
 ): Promise<{ profile: NovelFormProfile; catalog: ChapterCatalogEntry[] }> {
   const parsed = parseNovel(text);
-  // Light book overview only — not a substitute for per-chapter windows
-  const overview = buildNovelContext(parsed, 2).slice(0, 2500);
+  const overview = buildNovelContext(parsed, 2).slice(0, 1800);
   const coherence = analyzeCatalogCoherence(catalog);
-  const items = buildCatalogLlmItems(text, catalog);
-  // Always attach nearText for suspicious; for short catalogs attach all windows
-  const catalogForLlm = items.map((it) => {
-    const includeWindow =
-      it.nameSuspicious || catalog.length <= 12 || !coherence.coherent;
+  const sparse = buildSparseCatalogReview(text, catalog);
+  // Drop guardrails still use a small item index map for reviewed rows only
+  const items = sparse.reviewRows.map((r) => {
+    const rawLine = r.rawLine;
+    const { suspicious, reasons } = flagSuspiciousChapterName(r.title, rawLine);
     return {
-      index: it.index,
-      number: it.number,
-      title: it.title,
-      startOffset: it.startOffset,
-      rawLine: it.rawLine,
-      nameSuspicious: it.nameSuspicious,
-      suspicionReasons: it.suspicionReasons,
-      ...(includeWindow ? { nearText: it.nearText } : {}),
-    };
+      index: r.index,
+      number: r.number,
+      title: r.title,
+      startOffset: catalog[r.index]?.startOffset ?? 0,
+      rawLine,
+      nameSuspicious: suspicious || r.nameSuspicious,
+      suspicionReasons: reasons,
+      nearText: "",
+    } as CatalogLlmItem;
   });
 
-  const catalogForLlmWithTrack = catalogForLlm.map((it, i) => ({
-    ...it,
-    trackSeed: catalog[i]?.track || "main",
-    kind: catalog[i]?.kind,
-  }));
+  console.log(
+    `[form] enrich catalogTotal=${sparse.catalogTotal} reviewRows=${sparse.reviewRows.length} ` +
+      `trackSeed=${JSON.stringify(sparse.trackSeedStats)}`,
+  );
 
-  const prompt = `你是叙事形态分析师，负责校验程序抽出的章节目录，标注主线/番外轨，并补充形态字段。只输出 JSON。
+  const prompt = `你是叙事形态分析师。目录已由程序扫出并 seed 了 track。你只做两件事：
+1) 补全书形态字段（formType / chaptering / 叙事模板等）
+2) 仅在程序 seed 有误时输出 trackOverrides；不要输出全部 ${sparse.catalogTotal} 条 track
 
-## 校验顺序（必须按此执行，不可跳步）
-1. **轨（track）**：为每条目录指定 track（见下）。程序给了 trackSeed，可改。
-2. **连贯性**：只对 track=main 的条目看章号是否大体递增（允许少量跳号）。**不要把番外章号并进主线序列。**
-3. **章名是否像章节**：标题是否像章名；不像的包括正文句子、对话、站点水印、过长叙述句。
-4. **仅对「可疑」条目查原文**：nearText / rawLine 证明是标题则保留；是正文/误检才可 drop 并写 reason。
-5. **默认保留**：不确定则保留，写入 catalogIssues。
-6. **禁止**：因 overview 未见就删；无 reason 批量删；编造新章节。
+## 禁止
+- 禁止输出覆盖全书的 trackLabels 数组（会超长截断）
+- 禁止因 overview 未见某章就 drop
+- 默认保留目录；dropCatalog 仅针对 reviewRows 里明显误检
 
 ## track 取值
-- main：主线正文章（第N章等）
-- extra：番外、外传、特别篇、加更等
-- front_matter：序章、楔子、引子、前言
-- back_matter：尾声、后记、终章
-- volume：卷标（非章）
+main | extra | front_matter | back_matter | volume
 
-## 程序连贯性预检（已按主线过滤）
-${JSON.stringify(coherence, null, 0)}
+## 规模
+全目录 ${sparse.catalogTotal} 条。程序 track seed 统计：${JSON.stringify(sparse.trackSeedStats)}
+主线连贯预检：${JSON.stringify(coherence, null, 0)}
 
-## 程序目录（含 trackSeed / rawLine；可疑项带 nearText）
-${JSON.stringify(catalogForLlmWithTrack, null, 0)}
+## 主线样例（全库 index）
+${JSON.stringify(sparse.mainSamples, null, 0)}
 
-## 书摘 overview（仅题材/文风参考，不是验章依据）
+## 待审行（非 main 或标题可疑；index 为全库下标；seed 可信则 trackOverrides 填 []）
+${JSON.stringify(sparse.reviewRows, null, 0)}
+
+## 书摘 overview（题材参考，非验章依据）
 ${overview || "（无）"}
 
-## 其他程序提示
-${hints.join("；") || "无"}
+## 其它程序提示
+${hints.slice(0, 8).join("；") || "无"}
 
-## 输出 JSON
+## 输出 JSON（必须短小完整）
 {
   "formType": "web_novel|trad_novel|novella|short_story|essay_prose|epistolary|script_like|mixed|unknown",
-  "chapteringEnabled": true/false,
-  "chapteringConfidence": 0-1,
+  "chapteringEnabled": true,
+  "chapteringConfidence": 0.0,
   "primaryTemplate": "three_act|episodic|multi_plot|chronicle|quest|slice_of_life|loose|unknown",
   "povScheme": "一句话",
   "timeScheme": "linear|nonlinear|mixed|unknown",
-  "evidenceNotes": "一两句依据",
+  "evidenceNotes": "一两句",
   "genreHints": ["题材"],
-  "continuationRules": ["给续写的短规则，须提及番外与主线勿混号"],
-  "catalogIssues": ["疑虑备注，无则 []"],
-  "coherenceOk": true/false,
-  "trackLabels": [{"index": 0, "track": "main"}],
-  "dropCatalog": [{"index": 0, "reason": "必须引用 nearText/rawLine 中的证据，至少一句"}]
+  "continuationRules": ["短规则"],
+  "catalogIssues": [],
+  "coherenceOk": true,
+  "trackOverrides": [{"index": 12, "track": "extra"}],
+  "dropCatalog": []
 }
 
-trackLabels：尽量覆盖全部 index；缺省保留 trackSeed。
-chapteringEnabled：主线 ≥2 条真标题且大体连贯时应为 true。
-dropCatalog：无误检时输出 []。`;
+trackOverrides：只列与 trackSeed 不同的项；多数书应是 []。
+dropCatalog：无误检则 []。
+chapteringEnabled：主线 ≥2 且大体连贯时 true。`;
 
-  const raw = await llm.chat(
-    [
-      {
-        role: "system",
-        content:
-          "只输出合法 JSON。先标 track，再只对 main 验章号连贯。默认保留目录。",
-      },
-      { role: "user", content: prompt },
-    ],
-    { temperature: 0.2, maxTokens: 2200 },
-  );
-
-  const data = extractJSON(raw) as Record<string, unknown>;
-  if (!data || typeof data !== "object") return { profile: base, catalog };
+  const data = await callEnrichLlm(llm, prompt);
+  if (!data) {
+    console.warn("[form] enrich JSON failed — keep program seed catalog/profile");
+    return { profile: base, catalog };
+  }
 
   const dropList = parseDropList(data);
+  // Map drop indices: items use full-catalog index already
   let catalogPatched = applyCatalogDrops(catalog, dropList, items, coherence);
   catalogPatched = applyTrackLabelsFromLlm(catalogPatched, data);
 
@@ -530,18 +661,17 @@ dropCatalog：无误检时输出 []。`;
   const confProgram = base.chaptering.confidence;
   let conf = Number.isFinite(confLlm) ? confLlm : confProgram;
 
-  // Re-infer from (possibly) patched catalog
   const inferred = inferChapteringFromCatalog(text, catalogPatched);
   conf = Math.max(conf, inferred.confidence * 0.9);
 
   let enabled =
     data.chapteringEnabled === true && conf >= CONFIDENCE_ENABLE;
-  // If program + remaining catalog still coherent sequential, prefer enabled
   const postCoherence = analyzeCatalogCoherence(catalogPatched);
-  if (postCoherence.coherent && catalogPatched.length >= 2) {
+  const mainN = catalogPatched.filter((c) => !c.track || c.track === "main").length;
+  if (postCoherence.coherent && mainN >= 2) {
     enabled = true;
     conf = Math.max(conf, CONFIDENCE_ENABLE, inferred.confidence);
-  } else if (data.chapteringEnabled === false && catalogPatched.length < 2) {
+  } else if (data.chapteringEnabled === false && mainN < 2) {
     enabled = false;
   }
 
@@ -572,7 +702,7 @@ dropCatalog：无误检时输出 []。`;
         ...base.unitHierarchy,
         chapter: enabled
           ? "present"
-          : catalogPatched.length === 1
+          : mainN === 1
             ? "weak"
             : base.unitHierarchy.chapter,
       },
@@ -594,11 +724,58 @@ dropCatalog：无误检时输出 []。`;
   };
 }
 
+async function callEnrichLlm(
+  llm: LLMProvider,
+  prompt: string,
+): Promise<Record<string, unknown> | null> {
+  const system =
+    "只输出一个合法短 JSON 对象。禁止输出全书 track 列表。trackOverrides 仅列改动。";
+
+  // Prefer structured tool path (json_object / schema) when available
+  try {
+    const viaTool = await llm.chatWithTool<Record<string, unknown>>(
+      [
+        { role: "system", content: system },
+        { role: "user", content: prompt + "\n\nReturn json matching the schema." },
+      ],
+      ENRICH_FORM_TOOL,
+      { temperature: 0.15, maxTokens: ENRICH_MAX_TOKENS },
+    );
+    if (viaTool && typeof viaTool === "object") return viaTool;
+  } catch (e) {
+    console.warn(
+      "[form] enrich chatWithTool failed, fallback chat:",
+      (e as Error).message?.slice(0, 200),
+    );
+  }
+
+  try {
+    const raw = await llm.chat(
+      [
+        { role: "system", content: system },
+        { role: "user", content: prompt },
+      ],
+      { temperature: 0.15, maxTokens: ENRICH_MAX_TOKENS },
+    );
+    const data = extractJSON(raw) as Record<string, unknown>;
+    if (data && typeof data === "object") return data;
+  } catch (e) {
+    console.warn(
+      "[form] enrich chat/extractJSON failed:",
+      (e as Error).message?.slice(0, 240),
+    );
+  }
+  return null;
+}
+
 function applyTrackLabelsFromLlm(
   catalog: ChapterCatalogEntry[],
   data: Record<string, unknown>,
 ): ChapterCatalogEntry[] {
-  const raw = data.trackLabels;
+  // Prefer sparse trackOverrides; accept legacy trackLabels
+  const raw = Array.isArray(data.trackOverrides)
+    ? data.trackOverrides
+    : data.trackLabels;
   if (!Array.isArray(raw)) return catalog;
   const labels = raw.map((row) => {
     if (!row || typeof row !== "object") return null;

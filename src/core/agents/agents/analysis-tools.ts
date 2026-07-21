@@ -23,15 +23,28 @@ import {
   getBranchChapterMeta,
   saveBranchChapterMeta,
 } from "@/lib/db";
-import type { BranchChapterMeta, ChapterCatalogEntry } from "@/types";
+import type {
+  BranchChapterMeta,
+  ChapterCatalogEntry,
+  ChapterTrack,
+  NovelFormProfile,
+} from "@/types";
 import { parseNovel } from "@/core/parser/novel-parser";
 import { buildNovelContext } from "@/core/parser/novel-parser";
 import {
   analyzeNovelForm,
   buildFormDraftFromText,
-  enrichFormDraftWithLlm,
+  analyzeCatalogCoherence,
+  flagSuspiciousChapterName,
+  rawLineAtOffset,
 } from "@/core/form/form-analyzer";
 import { buildNameScanUnits } from "@/core/extractor/character-name-units";
+import {
+  applyTrackLabels,
+  catalogTrackStats,
+  effectiveTrack,
+  isChapterTrack,
+} from "@/core/form/chapter-track";
 import { entitiesToProfiles } from "./character-extract-tools";
 import {
   ANALYSIS_AGENT_DEPENDENCIES,
@@ -69,7 +82,14 @@ import { buildLocalEntitiesFromUnitHits } from "@/core/extractor/character-local
 import { relationshipTypePromptList } from "@/core/extractor/relationship-types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { isChinese } from "@/lib/utils";
-import type { StoryInfo, WritingStyle, ChapterTimeline, CharacterProfile, IdeaLibraryEntry, LLMProvider } from "@/types";
+import type {
+  StoryInfo,
+  WritingStyle,
+  ChapterTimeline,
+  CharacterProfile,
+  IdeaLibraryEntry,
+  LLMProvider,
+} from "@/types";
 
 function ids(ctx: { userId: string; novelId: string; branchId: string }) {
   return {
@@ -506,19 +526,22 @@ export const analysisDomainTools: ToolDefinition[] = [
         formCatalogHints: draft.catalogHints,
         formDraft: null, // catalog only; draft built next
       });
-      const samples = draft.catalog.slice(0, 12).map((c, i) => {
+      const stats = catalogTrackStats(draft.catalog);
+      const samples = draft.catalog.slice(0, 8).map((c, i) => {
         const num = c.number != null ? String(c.number) : "?";
         const title = (c.title || "").slice(0, 40);
-        return `${i + 1}. #${num} ${title} @${c.startOffset}`;
+        const tr = effectiveTrack(c);
+        return `${i}. #${num} [${tr}] ${title} @${c.startOffset}`;
       });
       return {
         content:
-          `目录扫描完成：catalog=${draft.catalog.length} 条\n` +
+          `目录扫描完成：catalog=${draft.catalog.length} 条 ` +
+          `track≈ main ${stats.main} · extra ${stats.extra} · 序/尾/卷 ${stats.front_matter + stats.back_matter + stats.volume}\n` +
           (draft.catalogHints.length
             ? `提示：${draft.catalogHints.slice(0, 5).join("；")}\n`
             : "") +
           `样例：\n${samples.join("\n") || "（无）"}\n` +
-          `下一步：build_form_draft`,
+          `下一步：build_form_draft → list_form_catalog（分页审轨）→ apply_catalog_tracks → set_form_narrative → submit_form`,
         messages: [],
       };
     },
@@ -545,65 +568,265 @@ export const analysisDomainTools: ToolDefinition[] = [
         formCatalogHints: draft.catalogHints,
       });
       const ch = draft.profile.chaptering;
+      const stats = catalogTrackStats(draft.catalog);
+      const coherence = analyzeCatalogCoherence(draft.catalog);
       return {
         content:
           `章法草稿已建：formType=${draft.profile.formType} ` +
           `chaptering.enabled=${ch?.enabled} confidence=${ch?.confidence ?? 0} ` +
-          `catalog=${draft.catalog.length}\n` +
+          `catalog=${draft.catalog.length}（main ${stats.main} / extra ${stats.extra}）\n` +
+          `主线连贯：${coherence.coherent ? "ok" : "弱"} ${coherence.notes.slice(0, 2).join("；")}\n` +
           `samples=${(ch?.samples || []).slice(0, 3).join(" / ") || "无"}\n` +
-          `可选：enrich_form_draft（LLM 校验目录）→ 必须 submit_form 落盘`,
+          `下一步：list_form_catalog 分页审轨 → apply_catalog_tracks 修正 → set_form_narrative 补形态 → submit_form\n` +
+          `（不要一次要模型输出全书 track 列表）`,
         messages: [],
       };
     },
   },
   {
-    name: "enrich_form_draft",
+    name: "list_form_catalog",
     description:
-      "【章法子 Agent】用 LLM 校验目录、补叙事形态字段。需已有 formDraft。失败可跳过直接 submit_form。",
-    parameters: { type: "object", properties: {}, required: [] },
-    execute: async (_args, ctx, llm) => {
+      "【章法子 Agent】分页列出目录（全库 index）。长书必须多轮调用。" +
+      "filter=all|main|non_main|suspicious。每页默认 40、最多 80 条，只含 title/track/number，无大段正文。",
+    parameters: {
+      type: "object",
+      properties: {
+        offset: { type: "number", description: "起始 index，默认 0" },
+        limit: { type: "number", description: "本页条数 1–80，默认 40" },
+        filter: {
+          type: "string",
+          description: "all | main | non_main | suspicious（默认 all）",
+        },
+      },
+      required: [],
+    },
+    execute: async (args, ctx) => {
       const { userId, novelId, branchId } = ids(ctx);
       const text = loadText(userId, novelId, branchId);
       const ws = getNovelAnalysisWorkspace(userId, novelId, branchId);
-      if (!ws?.formDraft) {
-        return {
-          content: "无 formDraft：请先 build_form_draft",
-          messages: [],
-        };
-      }
-      const catalog = ws.formCatalog?.length
+      const catalog = ws?.formCatalog?.length
         ? ws.formCatalog
         : buildFormDraftFromText(novelId, text).catalog;
-      const hints = ws.formCatalogHints || [];
-      try {
-        const provider = llm || createLLMProvider("analysis");
-        const enriched = await enrichFormDraftWithLlm(
-          ws.formDraft,
-          text,
-          catalog,
-          hints,
-          provider,
-        );
-        patchNovelAnalysisWorkspace(userId, novelId, branchId, {
-          formDraft: enriched.profile,
-          formCatalog: enriched.catalog,
-          formCatalogHints: hints,
-        });
+      if (!catalog.length) {
+        return { content: "无目录：请先 scan_chapter_catalog", messages: [] };
+      }
+      const filter = String(args.filter || "all").toLowerCase();
+      const offset = Math.max(0, Math.floor(Number(args.offset) || 0));
+      const limit = Math.min(80, Math.max(1, Math.floor(Number(args.limit) || 40)));
+
+      const indices: number[] = [];
+      for (let i = 0; i < catalog.length; i++) {
+        const c = catalog[i];
+        const tr = effectiveTrack(c);
+        const raw = rawLineAtOffset(text, c.startOffset) || c.title;
+        const sus = flagSuspiciousChapterName(c.title, raw).suspicious;
+        if (filter === "main" && tr !== "main") continue;
+        if (filter === "non_main" && tr === "main") continue;
+        if (filter === "suspicious" && !sus && tr === "main") continue;
+        indices.push(i);
+      }
+
+      const pageIdx = indices.slice(offset, offset + limit);
+      const rows = pageIdx.map((i) => {
+        const c = catalog[i];
+        const raw = (rawLineAtOffset(text, c.startOffset) || c.title).slice(0, 80);
+        const sus = flagSuspiciousChapterName(c.title, raw).suspicious;
         return {
-          content:
-            `LLM enrich 完成：formType=${enriched.profile.formType} ` +
-            `catalog=${enriched.catalog.length} ` +
-            `chaptering.enabled=${enriched.profile.chaptering?.enabled}\n` +
-            `evidence=${(enriched.profile.narrativeArchitecture?.evidenceNotes || "").slice(0, 200)}\n` +
-            `下一步：submit_form`,
-          messages: [],
+          index: i,
+          number: c.number ?? null,
+          title: (c.title || "").slice(0, 80),
+          track: effectiveTrack(c),
+          kind: c.kind || null,
+          suspicious: sus,
+          rawLine: raw,
         };
-      } catch (e) {
+      });
+      const nextOffset =
+        offset + limit < indices.length ? offset + limit : null;
+      const stats = catalogTrackStats(catalog);
+      return {
+        content: JSON.stringify(
+          {
+            catalogTotal: catalog.length,
+            filter,
+            matched: indices.length,
+            offset,
+            limit,
+            nextOffset,
+            trackStats: stats,
+            rows,
+            hint:
+              nextOffset != null
+                ? `还有下一页：list_form_catalog(offset=${nextOffset}, limit=${limit}, filter=${filter})`
+                : "本 filter 已读完；可 apply_catalog_tracks 或 set_form_narrative / submit_form",
+          },
+          null,
+          0,
+        ),
+        messages: [],
+      };
+    },
+  },
+  {
+    name: "apply_catalog_tracks",
+    description:
+      "【章法子 Agent】按全库 index 批量修正 track（可多次调用）。" +
+      "overrides_json: [{\"index\":12,\"track\":\"extra\"},...]。单次最多 100 条。" +
+      "track=main|extra|front_matter|back_matter|volume。只改正误 seed，不要为全书每条 main 再写一遍。",
+    parameters: {
+      type: "object",
+      properties: {
+        overrides_json: {
+          type: "string",
+          description: 'JSON 数组，如 [{"index":3,"track":"extra"}]',
+        },
+      },
+      required: ["overrides_json"],
+    },
+    execute: async (args, ctx) => {
+      const { userId, novelId, branchId } = ids(ctx);
+      const ws = getNovelAnalysisWorkspace(userId, novelId, branchId);
+      const catalog = ws?.formCatalog;
+      if (!catalog?.length) {
+        return { content: "无 formCatalog：请先 scan/build", messages: [] };
+      }
+      let raw: unknown;
+      try {
+        raw =
+          typeof args.overrides_json === "string"
+            ? JSON.parse(args.overrides_json)
+            : args.overrides_json;
+      } catch {
+        return { content: "overrides_json 不是合法 JSON", messages: [] };
+      }
+      if (!Array.isArray(raw)) {
+        return { content: "overrides_json 须为数组", messages: [] };
+      }
+      if (raw.length > 100) {
         return {
-          content: `enrich 失败（可直接 submit 程序草稿）: ${(e as Error).message}`,
+          content: `单次最多 100 条，本次 ${raw.length}。请拆成多轮 apply_catalog_tracks。`,
           messages: [],
         };
       }
+      const labels = raw.map((row) => {
+        if (!row || typeof row !== "object") return null;
+        const o = row as { index?: unknown; track?: unknown };
+        const track = typeof o.track === "string" ? o.track : "";
+        if (!isChapterTrack(track)) return null;
+        return { index: Number(o.index), track };
+      });
+      const valid = labels.filter(Boolean) as { index: number; track: string }[];
+      const next = applyTrackLabels(catalog, valid);
+      const changed = valid.filter((v) => {
+        const before = effectiveTrack(catalog[v.index]);
+        return before !== v.track;
+      }).length;
+      patchNovelAnalysisWorkspace(userId, novelId, branchId, {
+        formCatalog: next,
+      });
+      const stats = catalogTrackStats(next);
+      return {
+        content:
+          `已应用 track 覆盖 ${valid.length} 条（约 ${changed} 条相对 seed 有变）。` +
+          `现 track≈ main ${stats.main} · extra ${stats.extra} · 其它 ${stats.total - stats.main - stats.extra}。` +
+          `可继续 list_form_catalog / apply_catalog_tracks，或 set_form_narrative → submit_form。`,
+        messages: [],
+      };
+    },
+  },
+  {
+    name: "set_form_narrative",
+    description:
+      "【章法子 Agent】写入/覆盖 formDraft 的形态字段（不写 DB）。" +
+      "fields_json 可含 formType、chapteringEnabled、chapteringConfidence、primaryTemplate、" +
+      "povScheme、timeScheme、evidenceNotes、genreHints、continuationRules。" +
+      "可多次调用；最后 submit_form。",
+    parameters: {
+      type: "object",
+      properties: {
+        fields_json: {
+          type: "string",
+          description: "形态字段 JSON 对象",
+        },
+      },
+      required: ["fields_json"],
+    },
+    execute: async (args, ctx) => {
+      const { userId, novelId, branchId } = ids(ctx);
+      const text = loadText(userId, novelId, branchId);
+      let ws = getNovelAnalysisWorkspace(userId, novelId, branchId);
+      if (!ws?.formDraft) {
+        const built = buildFormDraftFromText(novelId, text);
+        ws = beginNovelAnalysisWorkspace(userId, novelId, branchId, {
+          fullText: text,
+        });
+        patchNovelAnalysisWorkspace(userId, novelId, branchId, {
+          formDraft: built.profile,
+          formCatalog: built.catalog,
+          formCatalogHints: built.catalogHints,
+        });
+        ws = getNovelAnalysisWorkspace(userId, novelId, branchId)!;
+      }
+      let fields: Record<string, unknown>;
+      try {
+        fields =
+          typeof args.fields_json === "string"
+            ? JSON.parse(args.fields_json)
+            : (args.fields_json as Record<string, unknown>);
+      } catch {
+        return { content: "fields_json 不是合法 JSON", messages: [] };
+      }
+      if (!fields || typeof fields !== "object") {
+        return { content: "fields_json 须为对象", messages: [] };
+      }
+      const draft = { ...ws.formDraft } as NovelFormProfile;
+      if (typeof fields.formType === "string") {
+        draft.formType = fields.formType as NovelFormProfile["formType"];
+      }
+      const ch = { ...(draft.chaptering || {}) };
+      if (typeof fields.chapteringEnabled === "boolean") {
+        ch.enabled = fields.chapteringEnabled;
+      }
+      if (Number.isFinite(Number(fields.chapteringConfidence))) {
+        ch.confidence = Number(fields.chapteringConfidence);
+      }
+      draft.chaptering = ch as NovelFormProfile["chaptering"];
+      const na = { ...(draft.narrativeArchitecture || {}) };
+      if (typeof fields.primaryTemplate === "string") {
+        na.primaryTemplate =
+          fields.primaryTemplate as NovelFormProfile["narrativeArchitecture"]["primaryTemplate"];
+      }
+      if (typeof fields.povScheme === "string") na.povScheme = fields.povScheme;
+      if (typeof fields.timeScheme === "string") {
+        na.timeScheme =
+          fields.timeScheme as NovelFormProfile["narrativeArchitecture"]["timeScheme"];
+      }
+      if (typeof fields.evidenceNotes === "string") {
+        na.evidenceNotes = fields.evidenceNotes;
+      }
+      if (Array.isArray(fields.genreHints)) {
+        na.genreHints = fields.genreHints.map(String);
+      }
+      draft.narrativeArchitecture =
+        na as NovelFormProfile["narrativeArchitecture"];
+      if (Array.isArray(fields.continuationRules)) {
+        draft.continuationRules = fields.continuationRules
+          .map(String)
+          .filter(Boolean)
+          .slice(0, 10);
+      }
+      draft.updatedAt = new Date().toISOString();
+      patchNovelAnalysisWorkspace(userId, novelId, branchId, {
+        formDraft: draft,
+      });
+      return {
+        content:
+          `形态字段已更新：formType=${draft.formType} ` +
+          `chaptering.enabled=${draft.chaptering?.enabled} ` +
+          `template=${draft.narrativeArchitecture?.primaryTemplate || "?"}\n` +
+          `可继续 set_form_narrative 或 submit_form。`,
+        messages: [],
+      };
     },
   },
   {
@@ -1293,7 +1516,7 @@ export const analysisMasterTools: ToolDefinition[] = [
     description:
       "查看各分析域完成状态、依赖图、建议下一步。" +
       "用户点名单域时传 for_agent（如 extract_character_detail）→ 返回 launchPlan（缺依赖则 sequence 先依赖后目标）。" +
-      "已完成域不要重复执行；单域按 launchPlan.sequence 调度。",
+      "done 中的域：用户再要求分析时须 ask 是否重新分析，禁止静默重跑；单域按 launchPlan.sequence 调度。",
     parameters: {
       type: "object",
       properties: {
@@ -1514,6 +1737,7 @@ export const analysisMasterTools: ToolDefinition[] = [
             "「全书重跑」必须写明含章法且很慢；与「只重角色」严格分开",
             "本轮分析告一段落时：options 必须包含「确认保存到本书」或「保存分析结果」",
             "用户点了保存类选项，或文字要求保存 → finish_novel_analysis(userConfirmed=true)，不要再追问",
+            "用户要求分析已在 done 中的域：必须 ask 是否重新分析（覆盖）还是保留；禁止静默重跑",
             "parallelReady 有多项时：同轮多个 agent() 并行，禁止无谓串行",
             "选项数量适中（一般 2～5 个），只放与当前用户意图相关的，不要堆无关全书菜单",
           ],

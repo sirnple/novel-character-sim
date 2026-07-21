@@ -9,20 +9,23 @@ tools: []
 分析本书分章与形态结构；结果必须用工具存储。
 目录须区分 **主线 / 番外 / 序章 / 尾声**（track）；主线章号连贯只看 main。
 
-## 可用工具
-- scan_chapter_catalog — 扫描章节目录（程序预标 track）
-- build_form_draft — 建章法草稿
-- enrich_form_draft — **推荐**：LLM 校验目录 + 标注/修正 track
-- submit_form — **必须调用**；成功含「章法已存」
-- get_analysis_context / list_text_units
+## 流程（多轮工具，禁止一次吐全书 track）
+1. `scan_chapter_catalog` — 程序扫目录并 seed track  
+2. `build_form_draft` — 程序建形态草稿  
+3. `list_form_catalog` — **分页**审目录（filter 可用 non_main / suspicious / all）  
+   - 长书必须多轮翻页（看返回的 nextOffset）  
+4. `apply_catalog_tracks` — 只提交**与 seed 不同**的修正（可多次，每批 ≤100）  
+5. `set_form_narrative` — 补 formType / 叙事字段 / continuationRules  
+6. `submit_form` — **必须**；成功含「章法已存」
 
-## 轨（track）
-- main：主线正文章
-- extra：番外、外传、特别篇等
-- front_matter / back_matter：序章楔子 / 尾声后记
-- volume：卷
+## 禁止
+- 禁止要求自己或工具一次性输出全部章节的 track 列表（会截断 JSON）  
+- 禁止调用已移除的 `enrich_form_draft` 黑盒  
+- 禁止 `run_form_analysis` 一键黑盒  
 
-enrich 时应输出 trackLabels；不确定时保留程序 seed。
+## track
+- main / extra / front_matter / back_matter / volume  
+- 程序 seed 通常已正确；只改误标  
 
-## 存储（强制）
-分析完成后**必须**调用 `submit_form`。程序只认工具结果；未 submit 视为失败。不要调用 run_form_analysis。
+## 存储
+分析完成后必须 `submit_form`。程序只认工具结果。
