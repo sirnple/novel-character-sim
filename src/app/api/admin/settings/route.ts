@@ -7,17 +7,48 @@ import {
   resetRuntimeSettings,
   type RuntimeSettings,
 } from "@/lib/runtime-settings";
+import {
+  CHARACTER_COREF_ENV_KEYS,
+  CHARACTER_COREF_FIELD_DOCS,
+  resolveCharacterCorefConfig,
+} from "@/lib/character-coref-config";
 
 export const dynamic = "force-dynamic";
+
+const COREF_RUNTIME_KEYS: (keyof RuntimeSettings)[] = [
+  "corefWindowChars",
+  "corefOverlapChars",
+  "corefAutoMergeThreshold",
+  "corefGreyLowThreshold",
+  "corefWeightExclusive",
+  "corefWeightJaccard",
+  "corefJaccardSparseMinCount",
+  "corefJaccardSparseDiscount",
+  "corefTemporalHighOverlap",
+  "corefTemporalMidOverlap",
+  "corefTemporalPenaltyHigh",
+  "corefTemporalPenaltyMid",
+  "corefTemporalPenaltyLow",
+  "corefChunkGapMax",
+  "corefAliasHardMergeMin",
+  "corefAliasBucketMax",
+  "corefGreyContextChars",
+  "corefHardRejectSameUnit",
+  "corefHardRejectGenderConflict",
+  "corefHardRejectAgeConflict",
+  "corefHardMergeSameFullName",
+];
 
 /** GET — current effective settings + env bootstrap + docs. */
 export async function GET(req: NextRequest) {
   if (!isAdmin(req)) {
     return NextResponse.json({ error: "未授权" }, { status: 401 });
   }
+  const effective = getRuntimeSettings();
   return NextResponse.json({
-    effective: getRuntimeSettings(),
+    effective,
     envDefaults: envRuntimeSettings(),
+    corefResolved: resolveCharacterCorefConfig(undefined, effective),
     docs: {
       mentionScanConcurrency: "普通用户并行 LLM 数，默认 4",
       mentionScanBatchUnits: "普通用户每 call 打包 unit 数，默认 4",
@@ -25,13 +56,17 @@ export async function GET(req: NextRequest) {
       privilegedMentionScanConcurrency:
         "admin/debug 并行 LLM 数，默认 20（更高但仍限流友好，非一次拉满）",
       adminMentionScanBatchUnits: "管理员每 call unit 数，默认 1",
+      coref: CHARACTER_COREF_FIELD_DOCS,
       env: [
         "CHARACTER_MENTION_CONCURRENCY",
         "CHARACTER_MENTION_BATCH_UNITS",
         "CHARACTER_MENTION_BATCH_CHARS",
         "CHARACTER_MENTION_PRIVILEGED_CONCURRENCY",
         "CHARACTER_MENTION_ADMIN_BATCH_UNITS",
+        ...Object.values(CHARACTER_COREF_ENV_KEYS),
       ],
+      howTo:
+        "1) .env.local 写 CHARACTER_* 后重启；2) Admin「运行配置」PATCH 写入 data/runtime-settings.json 立即生效；3) 代码/测试传 partial 给 resolveCharacterCorefConfig / getCharacterCorefConfig。优先级：调用参数 > runtime-settings.json > env > 内置默认。",
     },
   });
 }
@@ -51,31 +86,27 @@ export async function PATCH(req: NextRequest) {
         effective: resetRuntimeSettings(),
       });
     }
-    const {
-      mentionScanConcurrency,
-      mentionScanBatchUnits,
-      mentionScanBatchChars,
-      privilegedMentionScanConcurrency,
-      adminMentionScanBatchUnits,
-    } = body;
-    const effective = patchRuntimeSettings({
-      ...(mentionScanConcurrency !== undefined
-        ? { mentionScanConcurrency }
-        : {}),
-      ...(mentionScanBatchUnits !== undefined
-        ? { mentionScanBatchUnits }
-        : {}),
-      ...(mentionScanBatchChars !== undefined
-        ? { mentionScanBatchChars }
-        : {}),
-      ...(privilegedMentionScanConcurrency !== undefined
-        ? { privilegedMentionScanConcurrency }
-        : {}),
-      ...(adminMentionScanBatchUnits !== undefined
-        ? { adminMentionScanBatchUnits }
-        : {}),
+
+    const patch: Partial<RuntimeSettings> = {};
+    const mentionKeys: (keyof RuntimeSettings)[] = [
+      "mentionScanConcurrency",
+      "mentionScanBatchUnits",
+      "mentionScanBatchChars",
+      "privilegedMentionScanConcurrency",
+      "adminMentionScanBatchUnits",
+    ];
+    for (const k of [...mentionKeys, ...COREF_RUNTIME_KEYS]) {
+      if (body[k] !== undefined) {
+        (patch as Record<string, unknown>)[k] = body[k];
+      }
+    }
+
+    const effective = patchRuntimeSettings(patch);
+    return NextResponse.json({
+      ok: true,
+      effective,
+      corefResolved: resolveCharacterCorefConfig(undefined, effective),
     });
-    return NextResponse.json({ ok: true, effective });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "invalid body" },

@@ -42,6 +42,7 @@ import {
   getCharacterExtractWorkspace,
 } from "@/core/extractor/character-extract-workspace";
 import { sanitizeUnitNameHit } from "@/core/extractor/character-unit-hit-sanitize";
+import { resolveResidualCooccur } from "@/core/extractor/character-cooccur-resolve";
 
 import { extractJSON, isChinese, novelFingerprint } from "@/lib/utils";
 import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
@@ -615,8 +616,49 @@ async function runCharacterJob(
     `[char-job] ${jobId} overlap-merge seed entities=${seededN} (from local ${localEntities.length})`,
   );
 
+  // Stage residual: hard rules + co-occur score + grey LLM (design 2026-07-22)
+  job.message = `共现残差消解（overlap 种子 ${seededN} 人）…`;
+  touch(job);
+  const cws0 = getCharacterExtractWorkspace(
+    job.userId,
+    job.novelId,
+    job.branchId,
+  );
+  let residualN = seededN;
+  let residualNote = "";
+  if (cws0?.entities?.length) {
+    try {
+      const residual = await resolveResidualCooccur(cws0.entities, {
+        fullText,
+        llm,
+      });
+      cws0.entities = residual.entities;
+      residualN = residual.entities.length;
+      const hardM = residual.log.decisions.filter(
+        (d) => d.route === "hard_merge",
+      ).length;
+      const autoM = residual.log.decisions.filter(
+        (d) => d.route === "auto_merge",
+      ).length;
+      const llmM = residual.log.decisions.filter(
+        (d) => d.route === "llm_merge",
+      ).length;
+      residualNote =
+        `共现残差 ${seededN}→${residualN}` +
+        `（硬合${hardM}/分合${autoM}/LLM合${llmM}` +
+        `/候选${residual.log.candidateCount}/灰区问${residual.log.greyAsked}）`;
+      console.log(`[char-job] ${jobId} ${residualNote}`);
+    } catch (e) {
+      console.warn(
+        `[char-job] ${jobId} residual cooccur failed:`,
+        (e as Error).message,
+      );
+      residualNote = `共现残差跳过（${(e as Error).message.slice(0, 80)}）`;
+    }
+  }
+
   job.message =
-    `全书消解（overlap 归并 ${seededN} · 局部 ${localEntities.length} · mention ${catalog.stats.length}）…`;
+    `全书消解（${residualNote || `overlap ${seededN}`} · 局部 ${localEntities.length} · mention ${catalog.stats.length}）…`;
   touch(job);
 
   const resolveAgent = getAgent("character_entity_resolve");
@@ -627,9 +669,11 @@ async function runCharacterJob(
   const agentResult = await resolveAgent.execute(
     {
       prompt:
-        `阶段1–2已完成：扫名 + overlap 归并，当前名单约 ${seededN} 人` +
-        `（局部 ${localEntities.length}、mention ${catalog.stats.length}）。` +
-        `你只做残差全局消解：悬空主名、双挂/互挂、合不上的异名；` +
+        `阶段1–2+共现残差已完成：扫名 + overlap 归并 + 硬规则/共现打分/灰区LLM，` +
+        `当前名单约 ${residualN} 人` +
+        `（overlap种子 ${seededN}、局部 ${localEntities.length}、mention ${catalog.stats.length}` +
+        `${residualNote ? `；${residualNote}` : ""}）。` +
+        `你只做剩余残差：悬空主名、双挂/互挂、程序未合并的异名灰区；` +
         `list_cross_name_candidates → lookup → merge / resolve；` +
         `主名禁止女朋友/弟弟/他爸；一人一行。禁止无故重扫。`,
       novelId: job.novelId,

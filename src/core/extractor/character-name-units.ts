@@ -11,17 +11,24 @@
  */
 
 import { extractChapterCatalog } from "@/core/form/chapter-catalog";
-import { getRuntimeSettings } from "@/lib/runtime-settings";
+import {
+  getCharacterCorefConfig,
+  getRuntimeSettings,
+} from "@/lib/runtime-settings";
+import {
+  COREF_OVERLAP_CHARS_DEFAULT,
+  COREF_WINDOW_CHARS_DEFAULT,
+} from "@/lib/character-coref-config";
 
 export {
   MENTION_SCAN_BATCH_CHARS_DEFAULT,
   MENTION_SCAN_BATCH_UNITS_DEFAULT,
 } from "@/lib/runtime-settings";
 
-/** Default window body size (chars) for overlap scan */
-export const DEFAULT_OVERLAP_WINDOW_CHARS = 6_000;
-/** Default overlap between adjacent windows (chars); tune later */
-export const DEFAULT_OVERLAP_CHARS = 800;
+/** @deprecated Prefer getCharacterCorefConfig().windowChars — default product value */
+export const DEFAULT_OVERLAP_WINDOW_CHARS = COREF_WINDOW_CHARS_DEFAULT;
+/** @deprecated Prefer getCharacterCorefConfig().overlapChars — default product value */
+export const DEFAULT_OVERLAP_CHARS = COREF_OVERLAP_CHARS_DEFAULT;
 
 export interface TextUnit {
   index: number;
@@ -133,12 +140,13 @@ export function buildOverlapScanUnits(
     return [{ index: 0, label: "全文", start: 0, end: text.length, text }];
   }
 
+  // Defaults from runtime/env (CHARACTER_COREF_WINDOW_CHARS / OVERLAP_CHARS)
+  const coref = getCharacterCorefConfig();
   const windowChars = Math.max(
     500,
-    options?.windowChars ?? DEFAULT_OVERLAP_WINDOW_CHARS,
+    options?.windowChars ?? coref.windowChars,
   );
-  let overlapChars =
-    options?.overlapChars ?? DEFAULT_OVERLAP_CHARS;
+  let overlapChars = options?.overlapChars ?? coref.overlapChars;
   overlapChars = Math.max(0, Math.min(overlapChars, windowChars - 100));
   const step = Math.max(1, windowChars - overlapChars);
 
@@ -189,7 +197,8 @@ export function buildNameScanUnits(
   }
 
   if (options.preferChapters) {
-    const windowChars = options.windowChars ?? DEFAULT_OVERLAP_WINDOW_CHARS;
+    const coref = getCharacterCorefConfig();
+    const windowChars = options.windowChars ?? coref.windowChars;
     const packWhenExceed = options.packWhenChaptersExceed ?? 150;
     const minChapterChars = options.minChapterChars ?? 400;
     const packTarget = options.packTargetChars ?? 8_000;

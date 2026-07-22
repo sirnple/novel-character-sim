@@ -35,6 +35,28 @@ interface RuntimeSettingsShape {
   mentionScanBatchChars: number;
   privilegedMentionScanConcurrency: number;
   adminMentionScanBatchUnits: number;
+  // coref
+  corefWindowChars: number;
+  corefOverlapChars: number;
+  corefAutoMergeThreshold: number;
+  corefGreyLowThreshold: number;
+  corefWeightExclusive: number;
+  corefWeightJaccard: number;
+  corefJaccardSparseMinCount: number;
+  corefJaccardSparseDiscount: number;
+  corefTemporalHighOverlap: number;
+  corefTemporalMidOverlap: number;
+  corefTemporalPenaltyHigh: number;
+  corefTemporalPenaltyMid: number;
+  corefTemporalPenaltyLow: number;
+  corefChunkGapMax: number;
+  corefAliasHardMergeMin: number;
+  corefAliasBucketMax: number;
+  corefGreyContextChars: number;
+  corefHardRejectSameUnit: boolean;
+  corefHardRejectGenderConflict: boolean;
+  corefHardRejectAgeConflict: boolean;
+  corefHardMergeSameFullName: boolean;
 }
 
 interface TokenAggRow {
@@ -266,11 +288,20 @@ function RuntimeSettingsPanel({ adminToken }: { adminToken: string }) {
     load();
   }, [load]);
 
-  const setNum = (key: keyof RuntimeSettingsShape, raw: string) => {
+  const setNum = (
+    key: keyof RuntimeSettingsShape,
+    raw: string,
+    floor = true,
+  ) => {
     if (!form) return;
     const n = Number(raw);
     if (!Number.isFinite(n)) return;
-    setForm({ ...form, [key]: Math.floor(n) });
+    setForm({ ...form, [key]: floor ? Math.floor(n) : n } as RuntimeSettingsShape);
+  };
+
+  const setBool = (key: keyof RuntimeSettingsShape, on: boolean) => {
+    if (!form) return;
+    setForm({ ...form, [key]: on } as RuntimeSettingsShape);
   };
 
   const handleSave = async () => {
@@ -334,11 +365,13 @@ function RuntimeSettingsPanel({ adminToken }: { adminToken: string }) {
     }
   };
 
-  const fields: {
+  const scanFields: {
     key: keyof RuntimeSettingsShape;
     label: string;
     hint: string;
     min?: number;
+    step?: number;
+    kind?: "number" | "bool";
   }[] = [
     {
       key: "mentionScanConcurrency",
@@ -372,17 +405,154 @@ function RuntimeSettingsPanel({ adminToken }: { adminToken: string }) {
     },
   ];
 
+  const corefFields: typeof scanFields = [
+    {
+      key: "corefWindowChars",
+      label: "扫名窗大小（字）",
+      hint: "默认 6000。↑窗更大=同窗更全/更贵；↓窗小=API 次数↑",
+      min: 500,
+    },
+    {
+      key: "corefOverlapChars",
+      label: "相邻窗 overlap（字）",
+      hint: "默认 800。↑更易跨窗对齐(R↑)，窗数↑；↓链易断",
+      min: 0,
+    },
+    {
+      key: "corefAutoMergeThreshold",
+      label: "自动合并阈值",
+      hint: "默认 0.85。↑更严(P↑,R↓) 更多灰区；↓更松(R↑,P↓)",
+      min: 0,
+      step: 0.01,
+    },
+    {
+      key: "corefGreyLowThreshold",
+      label: "灰区下界 / 拒合阈值",
+      hint: "默认 0.45。[low,auto) 灰；须 < 自动合并阈值",
+      min: 0,
+      step: 0.01,
+    },
+    {
+      key: "corefWeightExclusive",
+      label: "专属度权重",
+      hint: "默认 0.5。共同绑死配角的权重",
+      min: 0,
+      step: 0.05,
+    },
+    {
+      key: "corefWeightJaccard",
+      label: "Jaccard 权重",
+      hint: "默认 0.3。朋友圈重叠权重",
+      min: 0,
+      step: 0.05,
+    },
+    {
+      key: "corefJaccardSparseMinCount",
+      label: "Jaccard 稀疏门槛",
+      hint: "默认 3。出现次数 < 此则打折",
+      min: 1,
+    },
+    {
+      key: "corefJaccardSparseDiscount",
+      label: "Jaccard 稀疏折扣",
+      hint: "默认 0.5。乘在稀疏对的 S_J 上",
+      min: 0,
+      step: 0.05,
+    },
+    {
+      key: "corefTemporalHighOverlap",
+      label: "时序高重叠界",
+      hint: "默认 0.8。重叠率 > 此不惩罚",
+      min: 0,
+      step: 0.05,
+    },
+    {
+      key: "corefTemporalMidOverlap",
+      label: "时序中重叠界",
+      hint: "默认 0.2。低于此用重惩罚",
+      min: 0,
+      step: 0.05,
+    },
+    {
+      key: "corefTemporalPenaltyHigh",
+      label: "时序惩罚·高重叠",
+      hint: "默认 0（应 ≤0）",
+      step: 0.01,
+    },
+    {
+      key: "corefTemporalPenaltyMid",
+      label: "时序惩罚·中重叠",
+      hint: "默认 -0.05",
+      step: 0.01,
+    },
+    {
+      key: "corefTemporalPenaltyLow",
+      label: "时序惩罚·低/无重叠",
+      hint: "默认 -0.2。更负→远距更难自动合",
+      step: 0.01,
+    },
+    {
+      key: "corefChunkGapMax",
+      label: "共现候选最大块间距",
+      hint: "默认 10。仅剪共现通道，不剪别名通道",
+      min: 0,
+    },
+    {
+      key: "corefAliasHardMergeMin",
+      label: "别名硬合并最少共享数",
+      hint: "默认 2。=1 则单别名硬合(R↑,P↓)",
+      min: 1,
+    },
+    {
+      key: "corefAliasBucketMax",
+      label: "别名倒排桶上限",
+      hint: "默认 12。防「队长」泛称爆炸；0=不限",
+      min: 0,
+    },
+    {
+      key: "corefGreyContextChars",
+      label: "灰区 LLM 上下文（字/侧）",
+      hint: "默认 200",
+      min: 50,
+    },
+    {
+      key: "corefHardRejectSameUnit",
+      label: "硬规则：同块同现拒合",
+      hint: "默认开。关则同场两人可能误合(P↓)",
+      kind: "bool",
+    },
+    {
+      key: "corefHardRejectGenderConflict",
+      label: "硬规则：性别冲突拒合",
+      hint: "默认开。缺字段则跳过",
+      kind: "bool",
+    },
+    {
+      key: "corefHardRejectAgeConflict",
+      label: "硬规则：年龄冲突拒合",
+      hint: "默认开。噪声多可关",
+      kind: "bool",
+    },
+    {
+      key: "corefHardMergeSameFullName",
+      label: "硬规则：全名相同合并",
+      hint: "默认开。重名异人书慎用",
+      kind: "bool",
+    },
+  ];
+
   return (
     <div className="flex-1 overflow-y-auto p-6 custom-scrollbar space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Settings className="w-4 h-4 text-primary" />
-            运行配置 · 角色扫名
+            运行配置 · 扫名 / 指代消解
           </h2>
-          <p className="text-[11px] text-fog mt-1 max-w-xl leading-relaxed">
-            统一管理扫名并发与打包。保存后立即生效；也可写 env（见 .env.example）。
-            Admin/Debug 使用更高并发（默认 20），不是无上限并行。
+          <p className="text-[11px] text-fog mt-1 max-w-2xl leading-relaxed">
+            扫名并发、窗/overlap、共现阈值与权重均可配。保存写入{" "}
+            <code className="text-muted-foreground">data/runtime-settings.json</code>{" "}
+            立即生效；也可用 env（见 .env.example）。R↑/P↑ 见各字段说明。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -439,32 +609,58 @@ function RuntimeSettingsPanel({ adminToken }: { adminToken: string }) {
           加载中…
         </div>
       ) : form ? (
-        <div className="grid gap-4 sm:grid-cols-2 max-w-3xl">
-          {fields.map((f) => (
-            <label
-              key={f.key}
-              className="block p-4 rounded-lg border border-border bg-card space-y-2"
-            >
-              <span className="text-xs font-medium text-foreground block">
-                {f.label}
-              </span>
-              <span className="text-[11px] text-fog block leading-snug">
-                {f.hint}
-                {envDefaults && (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    · env 默认 {envDefaults[f.key]}
-                  </span>
-                )}
-              </span>
-              <input
-                type="number"
-                min={f.min ?? 1}
-                value={form[f.key]}
-                onChange={(e) => setNum(f.key, e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-[#1a1a1a] border border-border rounded text-sm text-foreground font-mono"
-              />
-            </label>
+        <div className="space-y-8 max-w-3xl">
+          {(
+            [
+              { title: "扫名并发 / 打包", fields: scanFields },
+              { title: "指代消解 · 窗 / 阈值 / 权重 / 硬规则", fields: corefFields },
+            ] as const
+          ).map((section) => (
+            <div key={section.title} className="space-y-3">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                {section.title}
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {section.fields.map((f) => (
+                  <label
+                    key={f.key}
+                    className="block p-4 rounded-lg border border-border bg-card space-y-2"
+                  >
+                    <span className="text-xs font-medium text-foreground block">
+                      {f.label}
+                    </span>
+                    <span className="text-[11px] text-fog block leading-snug">
+                      {f.hint}
+                      {envDefaults && (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · env 默认 {String(envDefaults[f.key])}
+                        </span>
+                      )}
+                    </span>
+                    {f.kind === "bool" ? (
+                      <input
+                        type="checkbox"
+                        checked={!!form[f.key]}
+                        onChange={(e) => setBool(f.key, e.target.checked)}
+                        className="h-4 w-4 accent-primary"
+                      />
+                    ) : (
+                      <input
+                        type="number"
+                        min={f.min}
+                        step={f.step ?? 1}
+                        value={form[f.key] as number}
+                        onChange={(e) =>
+                          setNum(f.key, e.target.value, f.step == null || f.step >= 1)
+                        }
+                        className="w-full px-2.5 py-1.5 bg-[#1a1a1a] border border-border rounded text-sm text-foreground font-mono"
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       ) : null}

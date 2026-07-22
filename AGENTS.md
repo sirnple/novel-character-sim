@@ -69,6 +69,20 @@ Legacy `DEEPSEEK_*` / `OPENCODE_API_KEY` still fall back if `LLM_*` unset.
 - Frontend is a single-page state machine in `page.tsx`. All shared state (novel, characters, story, scene) lives in `Home`; pass it down as props.
 - DB at `data/novels.db` via `better-sqlite3`. Don't delete the `data/` directory.
 
+### Character coref knobs (window / residual)
+
+All stage-① window/overlap and residual co-occur thresholds/weights are **configurable** — see `src/lib/character-coref-config.ts` and design `docs/superpowers/specs/2026-07-22-cooccur-residual-coref-design.md` §10 (recall/precision impact).
+
+| Source | How |
+|--------|-----|
+| Call | `getCharacterCorefConfig({ windowChars: 4000 })` |
+| Admin | `/admin` 运行配置 or `PATCH /api/admin/settings` → `data/runtime-settings.json` |
+| Env | `CHARACTER_COREF_WINDOW_CHARS`, `CHARACTER_COREF_OVERLAP_CHARS`, `CHARACTER_COREF_*` (`.env.example`) |
+
+Priority: call args > runtime-settings.json > env > defaults (window 6000, overlap 800, auto-merge 0.85, grey 0.45, weights 0.5/0.3).  
+`buildNameScanUnits` / `buildOverlapScanUnits` already read window/overlap from config.  
+Residual co-occur after ②: `resolveResidualCooccur` in `character-cooccur-resolve.ts` (hard → score → grey LLM), wired in `character-extract-job` before the resolve agent.
+
 ### Common issues
 
 - **DeepSeek "Premature close"**: Network error, retry logic in `openai.ts` handles it with exponential backoff (3 retries). If persistent, reduce context size in extractor constructor.

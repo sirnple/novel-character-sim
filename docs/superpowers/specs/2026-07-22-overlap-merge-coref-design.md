@@ -19,7 +19,7 @@
 
 ## 2. Non-goals（本 spec）
 
-- 不定 overlap 最终字数（**先字符切，后调**）。  
+- overlap / 窗大小为**可配置**（`CHARACTER_COREF_WINDOW_CHARS` / `OVERLAP_CHARS`，见 residual design §10）；默认 6000 / 800，可后调。  
 - 不在此实现代码迁移（现有 `surface` 字段/API 的 rename 另开）。  
 - 不规定详情/关系抽取。  
 - 不以封号词表自动并人为主路径。
