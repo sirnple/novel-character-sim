@@ -41,17 +41,28 @@ aliases 里已有真名（如 name=女朋友、aliases 含秦予嫣）→ 把真
 
 若 lookup 后仍无法对应任何人：不要用悬空词充数；可丢弃空壳，或仅在全书确无真名/外号时用**非悬空**外号。
 
-## 硬约束：主名/别名不得双挂
-若名单上已有主名行 `A`，则 **禁止** 另一行 `B` 的 aliases/surfaces 再挂 `A` 同时保留两行：
+## 硬约束：双挂 ≠ 互挂（都要消，解法不同）
+
+### 双挂（单向也可）
+有主名行 `X`，且另一行的 aliases/surfaces 含 `X`（**不必**互相写）。
 
 | 错误 | 正确 |
 |------|------|
 | `name=雪棠` 且 `洛雪棠.aliases` 含雪棠 | `merge keep=洛雪棠 absorb=["雪棠"]` |
-| `name=战女王` 与 `name=唐兰嫣` 分列且知同一人 | `merge keep=唐兰嫣 absorb=["战女王"]` |
-| `name=魔都女王` 与 `姜璎玑` 分列 | `merge keep=姜璎玑 absorb=["魔都女王","璎玑阿姨"]` |
-| 多人 aliases 都挂同一真人名（污染） | **先删错误 alias**，再 merge 到正确一人 |
+| 封号行与真名分列且知同一人 | `merge keep=真名 absorb=[封号]` |
+| 多人 aliases 误挂同一真人名 | **先删错误 alias**，再 merge 到正确一人 |
 
-程序会在 submit 时**拒绝任何主名/别名双挂**（含单点 claim）；仅对短名⊂全名（雪棠⊂洛雪棠）做安全折叠。**封号/外号/误挂 aliases 须你 merge 或清理**。
+### 互挂（A↔B 互相写在对方 aliases）
+两边都是主名，且 `A.aliases` 含 B、`B.aliases` 含 A。**不是**「双挂」的同义词。
+
+| 情况 | 怎么解 |
+|------|--------|
+| **双方都不是真名**（两个外号/封号/悬空称谓） | 可能**共同指向第三者**：lookup 后 `merge keep=真名 absorb=["A","B"]`，禁止 keep=悬空词 |
+| **一方真名、一方代词/悬空称谓**（女朋友、弟弟、他爸…） | **消解到真名**：`merge keep=真名 absorb=[代词侧]` |
+| 一方真名、一方稳定封号 | `merge keep=真名 absorb=[封号]` |
+| 查证后并非同一人 | 双方 aliases 里删掉对方，或 split；可 `resolve_cross_name_pair(distinct)` |
+
+程序 submit 会拦「主名又被别人 alias claim」；互挂通常表现为**双向双挂**。仅对短名⊂全名做安全折叠；其余须你 merge/清理。
 
 ## 其它任务
 | 情况 | 处理 |
@@ -69,7 +80,8 @@ aliases 里已有真名（如 name=女朋友、aliases 含秦予嫣）→ 把真
    - 同一人 → `ops merge keep=真名 absorb=[称呼]`  
    - 非同一人 → `resolve_cross_name_pair(nameA,nameB,verdict=distinct)`  
    - 存疑 → `resolve_cross_name_pair(..., verdict=uncertain)`（两行可留，算已处理）  
-6. 双挂：merge 或清误挂 alias  
+6. 双挂 / **互挂**：按上表（第三者 / 真名+代词 / 真名+封号）merge 或清误挂  
+
 7. list_uncovered_surfaces  
 8. submit_character_entities  
 
@@ -85,15 +97,24 @@ submit 返回「未写入 / 双挂 / 异名未处理」→ **只** merge 或 res
 {"op":"merge","keep":"洛雪棠","absorb":["雪棠"]}
 {"op":"merge","keep":"唐兰嫣","absorb":["战女王"]}
 {"op":"merge","keep":"姜璎玑","absorb":["魔都女王","璎玑阿姨"]}
+{"op":"merge","keep":"秦予嫣","absorb":["女朋友","校花女友"]}
+```
+
+互挂且双方皆非真名 → 并到第三者：
+```json
+{"op":"merge","keep":"洛雪棠","absorb":["洛大小姐","未婚妻"]}
 ```
 
 ## 正确 / 错误
 - ✅ 一人一行，name 为真人可指称标签  
 - ✅ 悬空指代、封号、外号只在 aliases  
+- ✅ 互挂：真名+代词 → keep 真名；双方非真名 → keep 第三者真名  
 - ❌ name=女朋友 / 弟弟 / 他爸  
+- ❌ 互挂时 keep=女朋友 把真名吸进去  
 - ❌ name=战女王 与 唐兰嫣 分列（已知同一人时）  
 - ❌ 多人粘进一个关系称谓行  
 - ❌ aliases 含 我爸/你妈  
-- ❌ 同一称呼既是独立主名又挂在另一人 aliases  
+- ❌ 同一称呼既是独立主名又挂在另一人 aliases（双挂）  
+
 
 提交成功后继续处理未覆盖 surface，直至名单完整。

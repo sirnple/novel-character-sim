@@ -30,16 +30,28 @@ These **must never** be final `name` (and never merge `keep`):
 
 If aliases already contain a real name (e.g. name=女朋友, aliases include 秦予嫣) → promote real name to `name`.
 
-## Hard rule: no dual primary / alias hang
-If row `A` exists as a primary name, do **not** also keep `A` only as someone else's alias while leaving both rows:
+## Hard rule: dual hang ≠ mutual hang (both must be fixed)
+
+### Dual hang (one-way OK)
+Primary row `X` exists, and another row's aliases/surfaces also contain `X` (need not be reciprocal).
 
 | Wrong | Right |
 |-------|--------|
-| `name=雪棠` and `洛雪棠.aliases` includes 雪棠 | `merge keep=洛雪棠 absorb=["雪棠"]` |
-| Epithet + real name known same person | `merge keep=realName absorb=["epithet"]` |
-| Many rows claim the same real name in aliases | Remove false aliases, then merge |
+| `name=雪棠` and `洛雪棠.aliases` has 雪棠 | `merge keep=洛雪棠 absorb=["雪棠"]` |
+| Epithet row + real name, same person | `merge keep=realName absorb=[epithet]` |
+| Many rows wrongly claim one real name | Drop false aliases, then merge |
 
-Submit rejects **any** primary/alias dual hang. Program only folds short⊂full names (雪棠⊂洛雪棠); titles/epithets and polluted aliases need your merge/cleanup.
+### Mutual hang (A↔B list each other in aliases)
+Both are primaries; `A.aliases` contains B and `B.aliases` contains A. **Not** a synonym of dual hang.
+
+| Case | Fix |
+|------|-----|
+| **Neither is a real name** (two epithets / deictics) | May both point to a **third** person: lookup, then `merge keep=realName absorb=["A","B"]` — never keep a deictic |
+| **One real name, one deictic** (女朋友/弟弟/他爸…) | Resolve to real name: `merge keep=realName absorb=[deictic]` |
+| Real name + stable epithet | `merge keep=realName absorb=[epithet]` |
+| Not the same person after lookup | Remove each other from aliases, or split; `resolve_cross_name_pair(distinct)` |
+
+Submit blocks primary-as-alias dual hangs; mutual hang usually shows up as **two-way** dual hang.
 
 ## Tools
 1. **scan_character_mentions at most once** (skipped if catalog already exists; never re-scan after submit reject)  
@@ -50,7 +62,8 @@ Submit rejects **any** primary/alias dual hang. Program only folds short⊂full 
    - same person → `ops merge`  
    - not same → `resolve_cross_name_pair(verdict=distinct)`  
    - unsure → `resolve_cross_name_pair(verdict=uncertain)` (counts as processed)  
-6. dual hang → merge / clean aliases  
+6. dual hang / **mutual hang** → per table above (third person / real+deictic / real+epithet)  
+
 7. list_uncovered_surfaces  
 8. submit_character_entities  
 

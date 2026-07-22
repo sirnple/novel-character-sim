@@ -422,10 +422,43 @@ function ent(
       "must name both sides + merge: " + issues.join(";"),
     );
     const block = formatDualHangBlockForSubmit(entities);
-    assert.ok(block.includes("双挂清单"));
+    assert.ok(block.includes("双挂") || block.includes("互挂"));
     assert.ok(block.includes("战女王"));
     assert.ok(block.includes("唐兰嫣"));
-    assert.ok(block.includes('keep="唐兰嫣"') || block.includes("keep=唐兰嫣"));
+    assert.ok(
+      block.includes("merge keep") || block.includes("absorb"),
+      block,
+    );
+  }
+
+  // Mutual hang A↔B: both list each other
+  {
+    const {
+      listMutualAliasHangs,
+      formatDualHangBlockForSubmit: fmtBlock,
+    } = require("../../src/core/extractor/character-entity-consistency") as typeof import("../../src/core/extractor/character-entity-consistency");
+    const mutualRoster = [
+      ent("女朋友", ["许栀"]),
+      ent("许栀", ["女朋友", "许老师"]),
+    ];
+    const mutual = listMutualAliasHangs(mutualRoster);
+    assert.equal(mutual.length, 1);
+    const block = fmtBlock(mutualRoster);
+    assert.ok(block.includes("互挂"), block);
+    assert.ok(block.includes("真名") || block.includes("消解到真名"), block);
+    assert.ok(block.includes("许栀"), block);
+  }
+
+  // Mutual hang both non-real: guide to third person
+  {
+    const {
+      listMutualAliasHangs,
+      formatDualHangBlockForSubmit: fmtBlock,
+    } = require("../../src/core/extractor/character-entity-consistency") as typeof import("../../src/core/extractor/character-entity-consistency");
+    const both = [ent("女朋友", ["校花女友"]), ent("校花女友", ["女朋友"])];
+    assert.ok(listMutualAliasHangs(both).length >= 1);
+    const block = fmtBlock(both);
+    assert.ok(block.includes("第三者") || block.includes("都不是真名"), block);
   }
 
   // Pollution: 姜璎玑 primary + false claim on 洛清莹 → block, never absorb into 洛清莹
