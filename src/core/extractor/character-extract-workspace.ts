@@ -21,6 +21,8 @@ import {
   type CrossNameCandidate,
   type CrossNamePairResolution,
 } from "./character-cross-name";
+import type { UnitNameHit } from "./character-name-aggregate";
+import { mergeLocalEntitiesByOverlap } from "./character-overlap-merge";
 
 export interface CharacterExtractWorkspace {
   fullText: string;
@@ -67,20 +69,31 @@ export function beginCharacterExtractWorkspace(
     unitCount: number;
     localEntities?: LocalEntity[];
     units?: TextUnit[];
+    /** Per-unit hits for stage-② overlap merge (preferred seed) */
+    unitHits?: UnitNameHit[][];
   },
 ): void {
   const locals = data.localEntities || [];
-  // Program coref: same name within D units → one row; far same-name /
-  // different names left for the global agent (see seedGlobalEntitiesFromLocal).
-  const seeded =
-    locals.length > 0 ? seedGlobalEntitiesFromLocal(locals) : null;
+  const units = data.units || [];
+  // Stage ②: overlap criterion A merge when we have units + hits.
+  // Fallback: near same-name seed only (legacy).
+  let seeded: ResolvedEntity[] | null = null;
+  if (units.length && data.unitHits?.length) {
+    seeded = mergeLocalEntitiesByOverlap(
+      units,
+      data.unitHits,
+      data.fullText,
+    );
+  } else if (locals.length > 0) {
+    seeded = seedGlobalEntitiesFromLocal(locals);
+  }
   const crossNameCandidates = listCrossNameCandidates(locals, {
     catalog: data.catalog,
   });
   store().set(key(userId, novelId, branchId), {
     fullText: data.fullText,
     catalog: data.catalog,
-    units: data.units || [],
+    units,
     localEntities: locals,
     entities: seeded,
     unitCount: data.unitCount,

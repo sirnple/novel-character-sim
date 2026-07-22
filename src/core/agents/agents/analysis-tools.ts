@@ -172,6 +172,7 @@ async function seedCharacterCatalogViaLlm(
     unitCount: scannedUnits.length,
     localEntities,
     units: scannedUnits,
+    unitHits,
   });
   return {
     surfaceCount: catalog.stats.length,

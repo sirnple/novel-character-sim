@@ -605,9 +605,18 @@ async function runCharacterJob(
     unitCount: units.length,
     localEntities,
     units,
+    unitHits,
   });
 
-  job.message = `全书消解（局部 ${localEntities.length} · surface ${catalog.stats.length}）…`;
+  const seededN =
+    getCharacterExtractWorkspace(job.userId, job.novelId, job.branchId)
+      ?.entities?.length || 0;
+  console.log(
+    `[char-job] ${jobId} overlap-merge seed entities=${seededN} (from local ${localEntities.length})`,
+  );
+
+  job.message =
+    `全书消解（overlap 归并 ${seededN} · 局部 ${localEntities.length} · mention ${catalog.stats.length}）…`;
   touch(job);
 
   const resolveAgent = getAgent("character_entity_resolve");
@@ -618,9 +627,11 @@ async function runCharacterJob(
   const agentResult = await resolveAgent.execute(
     {
       prompt:
-        `阶段1已产出 ${localEntities.length} 条局部实体、${catalog.stats.length} 个 surface。` +
-        `请 list_near_alias_candidates → lookup → merge；` +
-        `主名禁止女朋友/弟弟/他爸等悬空指代，须消解到真实实体；一人一行。`,
+        `阶段1–2已完成：扫名 + overlap 归并，当前名单约 ${seededN} 人` +
+        `（局部 ${localEntities.length}、mention ${catalog.stats.length}）。` +
+        `你只做残差全局消解：悬空主名、双挂/互挂、合不上的异名；` +
+        `list_cross_name_candidates → lookup → merge / resolve；` +
+        `主名禁止女朋友/弟弟/他爸；一人一行。禁止无故重扫。`,
       novelId: job.novelId,
       branchId: job.branchId,
       userId: job.userId,

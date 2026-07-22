@@ -9,10 +9,7 @@ import { makeLoopAgent } from "./make-loop-agent";
 import { characterExtractTools } from "./character-extract-tools";
 import { analysisDomainTools } from "./analysis-tools";
 import { getCharacterExtractWorkspace } from "@/core/extractor/character-extract-workspace";
-import {
-  collapseTechnicalFarSameNameKeys,
-  seedGlobalEntitiesFromLocal,
-} from "@/core/extractor/character-local-entities";
+import { collapseTechnicalFarSameNameKeys } from "@/core/extractor/character-local-entities";
 import { SUBMIT_ENTITIES_OK } from "@/core/extractor/character-entity-types";
 import { listRelationPrimaryNames } from "@/core/extractor/character-entity-coverage";
 import {
@@ -73,17 +70,9 @@ const characterListLoop = makeLoopAgent({
 /** 子 Agent：工具循环由模型调度；成功后校验 workspace 实体 */
 export const characterEntityResolveAgent: AgentDef = {
   execute: async (ctx, llm, onChunk, onTrail) => {
-    // Re-seed from local entities: program near same-name coref (D=5), not
-    // stale submit. Far same-name + different names remain for this agent.
+    // Do not re-seed from localEntities (would wipe stage-② overlap merge).
+    // Workspace entities are set by scan/job via mergeLocalEntitiesByOverlap.
     const branchId = ctx.branchId || "main";
-    const existing = getCharacterExtractWorkspace(
-      ctx.userId,
-      ctx.novelId,
-      branchId,
-    );
-    if (existing?.localEntities?.length) {
-      existing.entities = seedGlobalEntitiesFromLocal(existing.localEntities);
-    }
     if (getNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId)) {
       patchNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId, {
         charactersDraft: null,
