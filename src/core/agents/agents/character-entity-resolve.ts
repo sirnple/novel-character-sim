@@ -1,6 +1,7 @@
 /**
  * analyze_character_list: 角色列表子 Agent。
- * 由 Agent 自行调用 scan_character_mentions → list/lookup → submit_character_entities。
+ * 由 Agent 调用 scan_character_mentions（默认新 pipeline ①窗扫+②overlap+③coref）
+ * → 核对 list/lookup → submit_character_entities。
  * 程序不预跑扫描（禁止入口直接 ensure/scan）。
  */
 
@@ -61,8 +62,8 @@ const characterListLoop = makeLoopAgent({
   ),
   submitTool: "submit_character_entities",
   okMarker: SUBMIT_ENTITIES_OK,
-  // Long books: local list + multi-batch merge/split + dual-primary cleanup
-  maxSteps: 72,
+  // Pipeline scan already does stage1–3; agent mostly verifies + submit
+  maxSteps: 48,
   temperature: 0.25,
   maxTokens: 8192,
 });

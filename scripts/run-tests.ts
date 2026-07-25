@@ -28,11 +28,17 @@ import { runSharePayloadTests } from "./tests/share-payload.test";
 import { runShareStoreTests } from "./tests/share-store.test";
 import { runAnalysisParallelReadyTests } from "./tests/analysis-parallel-ready.test";
 import { runRuntimeSettingsTests } from "./tests/runtime-settings.test";
+import { runCharacterAnalysisWindowsTests } from "./tests/character-analysis-windows.test";
+import { runCharacterAnalysisMergeTests } from "./tests/character-analysis-merge.test";
+import { runCharacterAnalysisCorefTests } from "./tests/character-analysis-coref.test";
 
 async function main() {
   resetCounters();
   console.log("novel-character-sim — agent continuation core tests\n");
 
+  runCharacterAnalysisWindowsTests();
+  runCharacterAnalysisMergeTests();
+  await runCharacterAnalysisCorefTests();
   runAgentFrontmatterTests();
   runAgentPromptRenderTests();
   runAnalysisParallelReadyTests();

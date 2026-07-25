@@ -83,9 +83,10 @@ export function entitiesToProfiles(entities: ResolvedEntity[]): CharacterProfile
       unitLabel: a.unitLabel,
       surface: a.surface,
     }));
+    const displayName = (e.canonicalName || e.name || "").trim() || e.name;
     return {
-      id: `char_${i}_${e.name.replace(/\s+/g, "").slice(0, 24)}`,
-      name: e.name,
+      id: `char_${i}_${displayName.replace(/\s+/g, "").slice(0, 24)}`,
+      name: displayName,
       aliases: e.aliases || [],
       // brief stays only as optional one-liner on appearance for list UI, short enough
       // that profileHasDetail still fails until multi-dimension detail is submitted

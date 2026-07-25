@@ -1,0 +1,453 @@
+/**
+ * Stage ③ rule scoring + thresholds (no network).
+ */
+import { assert, suite, suiteAsync, test, testAsync } from "../lib/test-harness";
+import type { MergedCharacter } from "../../src/core/character-analysis/merge-adjacent";
+import { selectCanonicalName } from "../../src/core/character-analysis/stage4-canonical";
+import {
+  buildCooccurGraph,
+  buildPairFeatures,
+  decideByThresholds,
+  formatMentionContexts,
+  mergeStage3Config,
+  pairCooccurMetrics,
+  resolveCorefWithRulesAndAgent,
+  sanitizePositiveWeight,
+  scorePair,
+  sliceContextFromFullText,
+  surfacesForCoref,
+  STAGE3_DEFAULT_CONFIG,
+} from "../../src/core/character-analysis/coref";
+import type { PairContext } from "../../src/core/character-analysis/coref";
+import type { AnalysisWindow } from "../../src/core/character-analysis/types";
+
+function mc(
+  id: string,
+  surfaces: string[],
+  extra?: Partial<MergedCharacter>,
+): MergedCharacter {
+  return {
+    id,
+    windowLo: extra?.windowLo ?? 0,
+    windowHi: extra?.windowHi ?? 0,
+    gender: extra?.gender,
+    age: extra?.age,
+    mentions: surfaces.map((surface, i) => ({
+      surface,
+      textAnchor: surface,
+      offsetAnchor: {
+        localStart: i,
+        localEnd: i + surface.length,
+        globalStart: (extra?.windowLo ?? 0) * 1000 + i * 10,
+        globalEnd: (extra?.windowLo ?? 0) * 1000 + i * 10 + surface.length,
+      },
+    })),
+  };
+}
+
+function ctx(a: MergedCharacter, b: MergedCharacter): PairContext {
+  const config = mergeStage3Config();
+  return {
+    a,
+    b,
+    features: buildPairFeatures(a, b, config),
+    windows: [],
+    fullTextLength: 10000,
+    config,
+  };
+}
+
+export async function runCharacterAnalysisCorefTests(): Promise<void> {
+  suite("character-analysis stage3 coref rules", () => {
+    test("stage4 picks personal name over 我/老师 when both present", () => {
+      const c = mc("x", ["小星老师", "黎星", "我", "老师"], {
+        gender: "女",
+      });
+      // bump 黎星 frequency
+      c.mentions.push(
+        {
+          surface: "黎星",
+          textAnchor: "黎星",
+          offsetAnchor: {
+            localStart: 0,
+            localEnd: 2,
+            globalStart: 50,
+            globalEnd: 52,
+          },
+        },
+        {
+          surface: "黎星",
+          textAnchor: "黎星",
+          offsetAnchor: {
+            localStart: 0,
+            localEnd: 2,
+            globalStart: 60,
+            globalEnd: 62,
+          },
+        },
+      );
+      const pick = selectCanonicalName(c);
+      assert.equal(pick.canonicalName, "黎星");
+      assert.ok(pick.aliases.includes("小星老师"));
+      assert.ok(pick.aliases.includes("我"));
+    });
+
+    test("strip deictic pronouns when entity also has a name", () => {
+      const named = mc("n", ["将军", "我", "他"], { gender: "男" });
+      const pure = mc("p", ["我"], { gender: "男" });
+      assert.deepEqual(surfacesForCoref(named, true).sort(), ["将军"]);
+      assert.deepEqual(surfacesForCoref(pure, true), ["我"]);
+      assert.ok(surfacesForCoref(named, false).includes("我"));
+
+      const feat = buildPairFeatures(
+        named,
+        pure,
+        mergeStage3Config({ stripDeicticWhenHasName: true }),
+      );
+      // no shared surface after strip — 将军 vs 我
+      assert.deepEqual(feat.sharedSurfaces, []);
+      assert.ok(feat.exclusiveStrongA.includes("将军"));
+    });
+
+    test("agent context marks mention in fullText snippet", () => {
+      const novel = "前文前文前文小星老师走进教室后文后文后文";
+      // 小星老师 starts at index of 小
+      const g0 = novel.indexOf("小星老师");
+      assert.ok(g0 >= 0);
+      const hit = sliceContextFromFullText(novel, g0, g0 + 4, 4);
+      assert.ok(hit);
+      assert.ok(hit!.snippet.includes("小星"));
+      const c = mc("t", ["小星老师"], {
+        windowLo: 0,
+        windowHi: 0,
+      });
+      c.mentions[0]!.offsetAnchor = {
+        localStart: g0,
+        localEnd: g0 + 4,
+        globalStart: g0,
+        globalEnd: g0 + 4,
+      };
+      c.mentions[0]!.textAnchor = "小星老师走进";
+      const lines = formatMentionContexts(c, {
+        fullText: novel,
+        contextRadius: 6,
+      });
+      assert.ok(lines.length >= 1);
+      assert.ok(lines[0]!.includes("【小星老师】"), lines[0]);
+    });
+
+    test("gender conflict hard reject", () => {
+      const a = mc("a", ["张三"], { gender: "男" });
+      const b = mc("b", ["李四"], { gender: "女" });
+      const s = scorePair(ctx(a, b));
+      assert.equal(s.hard, "reject");
+      assert.equal(decideByThresholds(s, STAGE3_DEFAULT_CONFIG), "auto_reject");
+    });
+
+    test("shared strong surface: hard merge when n>3 and never same window", () => {
+      // n=4 shared strong surfaces, different windows → hard merge
+      const names = ["甲名", "乙名", "丙名", "丁名"];
+      const a = mc("a", names, { gender: "女", windowLo: 0, windowHi: 0 });
+      const b = mc("b", [...names, "戊名"], {
+        gender: "女",
+        windowLo: 2,
+        windowHi: 2,
+      });
+      // no cooccur graph → neverSameWindow defaults true
+      const s = scorePair(ctx(a, b));
+      assert.equal(s.hard, "merge");
+      assert.equal(decideByThresholds(s, STAGE3_DEFAULT_CONFIG), "auto_merge");
+      const line = s.breakdown.find((r) => r.ruleId === "shared_strong_surface");
+      assert.ok(line?.reason.includes("n=4"));
+      assert.ok(line?.reason.includes("neverSameWindow"));
+    });
+
+    test("shared strong surface: n>3 but same window → no hard merge", () => {
+      const names = ["甲名", "乙名", "丙名", "丁名"];
+      const windows: AnalysisWindow[] = [
+        { index: 0, label: "w0", start: 0, end: 100, text: "x".repeat(100) },
+      ];
+      // both mentions in window 0 → sameWindow
+      const a = mc("a", names, { gender: "女", windowLo: 0, windowHi: 0 });
+      const b = mc("b", [...names, "戊名"], {
+        gender: "女",
+        windowLo: 0,
+        windowHi: 0,
+      });
+      // force offsets into w0
+      for (const c of [a, b]) {
+        for (const m of c.mentions) {
+          if (m.offsetAnchor) {
+            m.offsetAnchor.globalStart = 10;
+            m.offsetAnchor.globalEnd = 12;
+          }
+        }
+      }
+      const graph = buildCooccurGraph([a, b], windows);
+      const config = mergeStage3Config();
+      const features = buildPairFeatures(a, b, config, graph);
+      assert.equal(features.neverSameWindow, false);
+      const s = scorePair({
+        a,
+        b,
+        features,
+        windows,
+        fullTextLength: 100,
+        config,
+      });
+      assert.notEqual(s.hard, "merge");
+      const line = s.breakdown.find((r) => r.ruleId === "shared_strong_surface")!;
+      assert.equal(line.hard, undefined);
+      assert.ok(line.delta <= 0.12, `same-window soft capped, got ${line.delta}`);
+      assert.ok(line.reason.includes("sameWindow"));
+    });
+
+    test("shared strong surface: n≤3 soft positive, higher n → higher delta", () => {
+      // n=1: one long name still soft only
+      const a1 = mc("a1", ["小星老师"], { gender: "女" });
+      const b1 = mc("b1", ["小星老师", "黎星"], { gender: "女" });
+      const s1 = scorePair(ctx(a1, b1));
+      assert.notEqual(s1.hard, "merge");
+      const l1 = s1.breakdown.find((r) => r.ruleId === "shared_strong_surface")!;
+      assert.equal(l1.hard, undefined);
+      assert.equal(l1.delta, 0.15);
+
+      // n=2
+      const a2 = mc("a2", ["甲名", "乙名"], { gender: "女" });
+      const b2 = mc("b2", ["甲名", "乙名", "丙名"], { gender: "女" });
+      const s2 = scorePair(ctx(a2, b2));
+      const l2 = s2.breakdown.find((r) => r.ruleId === "shared_strong_surface")!;
+      assert.equal(l2.delta, 0.28);
+      assert.ok(l2.delta > l1.delta);
+
+      // n=3
+      const a3 = mc("a3", ["甲名", "乙名", "丙名"], { gender: "女" });
+      const b3 = mc("b3", ["甲名", "乙名", "丙名"], { gender: "女" });
+      const s3 = scorePair(ctx(a3, b3));
+      const l3 = s3.breakdown.find((r) => r.ruleId === "shared_strong_surface")!;
+      assert.equal(l3.delta, 0.4);
+      assert.ok(l3.delta > l2.delta);
+      assert.notEqual(s3.hard, "merge"); // hard only when n>3
+    });
+
+    test("exclusive proper names is soft only (aliases may evolve)", () => {
+      // 一个老者 vs 老者 — different exclusive strings, no shared strong
+      const a = mc("a", ["一个老者"], { gender: "男", windowLo: 0, windowHi: 0 });
+      const b = mc("b", ["老者"], { gender: "男", windowLo: 1, windowHi: 1 });
+      const s = scorePair(ctx(a, b));
+      assert.notEqual(s.hard, "reject");
+      const excl = s.breakdown.find((x) => x.ruleId === "exclusive_proper_names");
+      assert.ok(excl, "rule should fire");
+      assert.ok(excl!.weighted < 0, "soft negative");
+      assert.equal(excl!.hard, undefined);
+      // soft only — may still auto_reject if score ≤ threshold (0.4), but never hard
+      const dec = decideByThresholds(s, STAGE3_DEFAULT_CONFIG);
+      assert.ok(
+        dec === "agent" ||
+          dec === "auto_merge" ||
+          dec === "auto_reject",
+        `unexpected ${dec} score=${s.score}`,
+      );
+      if (dec === "auto_reject") {
+        assert.ok(
+          s.score <= STAGE3_DEFAULT_CONFIG.autoRejectThreshold,
+          "soft auto_reject only by score threshold",
+        );
+      }
+    });
+
+    test("disable rule via config", () => {
+      const a = mc("a", ["小星老师"]);
+      const b = mc("b", ["小星老师"]);
+      const config = mergeStage3Config({
+        rules: { shared_strong_surface: { enabled: false } },
+      });
+      const c: PairContext = {
+        ...ctx(a, b),
+        config,
+        features: buildPairFeatures(a, b, config),
+      };
+      const s = scorePair(c);
+      assert.ok(s.breakdown.some((r) => r.ruleId === "shared_strong_surface" && !r.enabled));
+    });
+
+    test("weight scales delta", () => {
+      const a = mc("a", ["我"], { windowLo: 0, windowHi: 0 });
+      const b = mc("b", ["我"], { windowLo: 0, windowHi: 0 });
+      const base = scorePair(ctx(a, b));
+      const config = mergeStage3Config({
+        rules: { shared_weak_surface: { weight: 3 } },
+      });
+      const c: PairContext = {
+        ...ctx(a, b),
+        config,
+        features: buildPairFeatures(a, b, config),
+      };
+      const weighted = scorePair(c);
+      assert.ok(typeof weighted.score === "number");
+      assert.ok(base.score >= 0 && base.score <= 1);
+    });
+
+    test("weight must be positive; non-positive falls back", () => {
+      assert.equal(sanitizePositiveWeight(2, 1), 2);
+      assert.equal(sanitizePositiveWeight(0.5, 1), 0.5);
+      assert.equal(sanitizePositiveWeight(0, 1), 1);
+      assert.equal(sanitizePositiveWeight(-3, 1), 1);
+      assert.equal(sanitizePositiveWeight(Number.NaN, 1.5), 1.5);
+    });
+
+    test("cooccur exclusivity and jaccard from shared companion", () => {
+      // Windows: 0 has A+X, 1 has B+X, 2 has A+B+X (optional)
+      // A in {0,2}, B in {1,2}, X in {0,1,2}
+      // never force same window for A,B if we only use 0 and 1
+      const windows: AnalysisWindow[] = [
+        { index: 0, label: "w0", start: 0, end: 100, text: "a".repeat(100) },
+        { index: 1, label: "w1", start: 100, end: 200, text: "b".repeat(100) },
+        { index: 2, label: "w2", start: 200, end: 300, text: "c".repeat(100) },
+      ];
+      // surface single-char so exclusive_proper_names does not fire
+      const mk = (
+        id: string,
+        surface: string,
+        offs: number[],
+        lo: number,
+        hi: number,
+      ): MergedCharacter => ({
+        id,
+        windowLo: lo,
+        windowHi: hi,
+        mentions: offs.map((g) => ({
+          surface,
+          textAnchor: surface,
+          offsetAnchor: {
+            localStart: 0,
+            localEnd: 1,
+            globalStart: g,
+            globalEnd: g + 1,
+          },
+        })),
+      });
+      // A @ 10 (w0), 210 (w2); B @ 110 (w1), 220 (w2); X @ 20,120,230
+      const A = mk("A", "甲", [10, 210], 0, 2);
+      const B = mk("B", "乙", [110, 220], 1, 2);
+      const X = mk("X", "丙", [20, 120, 230], 0, 2);
+      const graph = buildCooccurGraph([A, B, X], windows);
+      const m = pairCooccurMetrics("A", "B", graph);
+      // A units {0,2}, B {1,2}, shared window 2 only → sameWindowCount=1
+      assert.equal(m.sameWindowCount, 1);
+      assert.equal(m.neverSameWindow, false);
+      // N(A) includes X (and maybe B); neighbors exclude B → X
+      // count(A,X): windows 0 and 2 → 2; count(A)=2 → raw 1.0
+      // count(B,X): windows 1 and 2 → 2; count(B)=2 → raw 1.0
+      // min(count)=2 < sparseMin 3 → exclusivity zeroed; jaccard ×0.5
+      assert.ok(m.exclusivityRaw >= 0.99, `exclRaw=${m.exclusivityRaw}`);
+      assert.equal(m.exclusivity, 0, `excl (sparse zero)=${m.exclusivity}`);
+      assert.equal(m.sparse, true);
+      assert.ok(m.jaccardRaw > 0, `j=${m.jaccardRaw}`);
+
+      // A only w0, B only w1, X both → never same window A-B; raw excl=1 but sparse→0
+      const A2 = mk("A2", "甲", [10], 0, 0);
+      const B2 = mk("B2", "乙", [110], 1, 1);
+      const X2 = mk("X2", "丙", [20, 120], 0, 1);
+      const g2 = buildCooccurGraph([A2, B2, X2], windows);
+      const m2 = pairCooccurMetrics("A2", "B2", g2);
+      assert.equal(m2.neverSameWindow, true);
+      assert.ok(m2.exclusivityRaw >= 0.99, `exclRaw=${m2.exclusivityRaw}`);
+      assert.equal(m2.exclusivity, 0, `excl (sparse zero)=${m2.exclusivity}`);
+      assert.ok(m2.jaccardRaw >= 0.99);
+      assert.ok(
+        Math.abs(m2.jaccard - 0.5) < 0.01,
+        `jacc (sparse)=${m2.jaccard}`,
+      );
+
+      // Non-sparse: both appear in ≥3 windows → full exclusivity
+      const A3 = mk("A3", "甲", [10, 110, 210], 0, 2);
+      const B3 = mk("B3", "乙", [20, 120, 220], 0, 2);
+      const X3 = mk("X3", "丙", [30, 130, 230], 0, 2);
+      const g3 = buildCooccurGraph([A3, B3, X3], windows);
+      const m3 = pairCooccurMetrics("A3", "B3", g3);
+      assert.equal(m3.sparse, false);
+      assert.ok(m3.exclusivity >= 0.99, `excl full=${m3.exclusivity}`);
+      assert.equal(m3.exclusivity, m3.exclusivityRaw);
+
+      const config = mergeStage3Config();
+      const feat = buildPairFeatures(A2, B2, config, g2);
+      assert.equal(feat.neverSameWindow, true);
+      assert.equal(feat.cooccurSparse, true);
+      assert.equal(feat.cooccurExclusivity, 0);
+      const s = scorePair({
+        a: A2,
+        b: B2,
+        features: feat,
+        windows,
+        fullTextLength: 300,
+        config,
+      });
+      // excl contributes 0 when sparse (not 0.25×1)
+      const exclLine = s.breakdown.find((b) => b.ruleId === "cooccur_exclusivity");
+      assert.ok(exclLine, "exclusivity rule should fire (zero)");
+      assert.equal(exclLine!.weighted, 0);
+      assert.ok(
+        exclLine!.reason.includes("sparse→zero"),
+        exclLine!.reason,
+      );
+      // without excl freebie, should not auto_merge on cooccur alone
+      assert.ok(
+        s.score < config.autoMergeThreshold,
+        `score=${s.score} should be below auto_merge`,
+      );
+    });
+  });
+
+  await suiteAsync("character-analysis stage3 resolve", async () => {
+    await testAsync("resolve without agent hard-merges when >3 shared surfaces", async () => {
+      const shared = ["甲名", "乙名", "丙名", "丁名"];
+      const chars = [
+        mc("c1", shared, { gender: "女", windowLo: 0, windowHi: 0 }),
+        mc("c2", [...shared, "戊名"], { gender: "女", windowLo: 1, windowHi: 1 }),
+        mc("c3", ["阿东"], { gender: "男", windowLo: 0, windowHi: 0 }),
+      ];
+      const result = await resolveCorefWithRulesAndAgent(chars, [], {
+        config: { agentEnabled: false },
+        llm: null,
+      });
+      assert.ok(result.characters.length <= 2);
+      assert.ok(result.stats.autoMerge >= 1);
+      assert.equal(result.stats.sameSurfacePass, 0);
+    });
+
+    await testAsync("same-surface residual pass forces agent on leftover shared names", async () => {
+      const calls: string[] = [];
+      const llm = {
+        chatWithTool: async (
+          _msgs: unknown,
+          _tool: { name: string },
+        ) => {
+          calls.push("judge");
+          return { same: true, reason: "same surface residual" };
+        },
+      };
+      // Single shared surface → soft score, likely agent/auto_reject path;
+      // after grey, residual still forces agent if not merged.
+      const chars = [
+        mc("c1", ["加代子"], { gender: "女", windowLo: 0, windowHi: 0 }),
+        mc("c2", ["加代子"], { gender: "女", windowLo: 2, windowHi: 2 }),
+        mc("c3", ["路人甲"], { gender: "男", windowLo: 0, windowHi: 0 }),
+      ];
+      const result = await resolveCorefWithRulesAndAgent(chars, [], {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        llm: llm as any,
+        config: { agentEnabled: true, sameSurfaceAgentPass: true },
+      });
+      assert.ok(calls.length >= 1, "agent should be called");
+      // c1+c2 should merge via grey and/or same-surface pass
+      const hasJia = result.characters.filter((c) =>
+        c.mentions.some((m) => m.surface === "加代子"),
+      );
+      assert.equal(hasJia.length, 1, "加代子 should be one entity");
+      assert.ok(
+        result.stats.agentMerge >= 1 || result.stats.sameSurfaceMerge >= 1,
+      );
+    });
+  });
+}

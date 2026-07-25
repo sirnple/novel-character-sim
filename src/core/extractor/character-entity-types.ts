@@ -11,8 +11,13 @@ import {
 export type { MentionAnchor };
 
 export interface ResolvedEntity {
-  /** Real personal name or stable third-person referent */
+  /** Real personal name or stable third-person referent (= canonicalName) */
   name: string;
+  /**
+   * Explicit canonical display name (same as `name` when set by stage④).
+   * Prefer this when present for UI / submit.
+   */
+  canonicalName?: string;
   /** Third-person titles / nicknames only (no 我爸/你妈) */
   aliases: string[];
   role?: string;

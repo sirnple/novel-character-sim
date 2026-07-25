@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import OpenAI from "openai";
 import type { LLMProvider, LLMMessage, ToolSchema } from "@/types";
 import type { StreamEvent } from "@/core/agents/types";
@@ -5,6 +7,69 @@ import { extractJSON } from "@/lib/utils";
 import { logSession } from "@/lib/session-log";
 import { recordTokenUsage, usageFromOpenAI } from "@/lib/token-meter";
 import { toOpenAIFunctionTools } from "@/core/agents/analysis-allowlist";
+import { recordChatWithToolAttempt } from "@/core/llm/chat-with-tool-metrics";
+
+/**
+ * Persist DeepSeek-style reasoning_content when LLM_SAVE_COT=1 (or "true").
+ * Files: scripts/eval/results/cot/<stamp>-<tool>-<thinking>.txt
+ */
+function maybeSaveCot(opts: {
+  toolName: string;
+  model: string;
+  thinking: string;
+  finish: string | undefined;
+  content: string;
+  reasoning: string;
+}): void {
+  const flag = (process.env.LLM_SAVE_COT || "").toLowerCase();
+  if (flag !== "1" && flag !== "true" && flag !== "yes") return;
+
+  const reasoning = opts.reasoning || "";
+  const content = opts.content || "";
+  if (!reasoning.trim() && !content.trim()) return;
+
+  const dir = path.join(
+    process.cwd(),
+    "scripts",
+    "eval",
+    "results",
+    "cot",
+  );
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {
+    /* ignore */
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeTool = (opts.toolName || "tool").replace(/[^\w.-]+/g, "_");
+  const file = path.join(
+    dir,
+    `${stamp}-${safeTool}-${opts.thinking}.txt`,
+  );
+  const body = [
+    `model=${opts.model}`,
+    `tool=${opts.toolName}`,
+    `thinking=${opts.thinking}`,
+    `finish=${opts.finish ?? ""}`,
+    `reasoningLen=${reasoning.length}`,
+    `contentLen=${content.length}`,
+    ``,
+    `===== REASONING (CoT) =====`,
+    reasoning || "(empty)",
+    ``,
+    `===== CONTENT (final JSON) =====`,
+    content || "(empty)",
+    ``,
+  ].join("\n");
+  try {
+    fs.writeFileSync(file, body, "utf8");
+    console.log(`[LLM:chatWithTool] saved CoT → ${file}`);
+  } catch (e) {
+    console.warn(
+      `[LLM:chatWithTool] failed to save CoT: ${(e as Error).message}`,
+    );
+  }
+}
 
 function len(m: LLMMessage): number {
   const c = m.content;
@@ -92,6 +157,25 @@ function effectiveMaxTokens(
 }
 
 /**
+ * Thinking=enabled budgets for reasoning models (CoT + final JSON share max_tokens).
+ * Escalate on empty content / JSON parse failure: 30k → 40k → 60k → 100k.
+ */
+export const THINKING_MAX_TOKEN_LADDER = [30_000, 40_000, 60_000, 100_000] as const;
+export const THINKING_MAX_TOKEN_DEFAULT = THINKING_MAX_TOKEN_LADDER[0];
+export const THINKING_MAX_TOKEN_CAP = THINKING_MAX_TOKEN_LADDER[THINKING_MAX_TOKEN_LADDER.length - 1];
+
+/** Rungs at or above `start`, capped at 100k. */
+export function thinkingMaxTokenLadder(start?: number): number[] {
+  const floor = Math.min(
+    THINKING_MAX_TOKEN_CAP,
+    Math.max(THINKING_MAX_TOKEN_DEFAULT, start ?? THINKING_MAX_TOKEN_DEFAULT),
+  );
+  const onLadder = THINKING_MAX_TOKEN_LADDER.filter((n) => n >= floor);
+  if (onLadder.length) return [...onLadder];
+  return [THINKING_MAX_TOKEN_CAP];
+}
+
+/**
  * OpenAI-compatible provider. Supports OpenAI, DeepSeek, and any other
  * OpenAI-compatible API by passing a custom baseURL.
  */
@@ -163,23 +247,26 @@ export class OpenAIProvider implements LLMProvider {
     const model = options?.model || this.defaultModel;
     const inputLen = messages.reduce((sum, m) => sum + len(m), 0);
     const reasoning = isReasoningModel(model);
-    // Quality path: thinking ON shares max_tokens with final JSON — raise floor hard.
-    // DeepSeek docs: JSON lives in content; CoT in reasoning_content (same budget).
-    const qualityMaxTokens = effectiveMaxTokens(
+    // Thinking ON: default 30k; escalate 30→40→60→100k on JSON/empty failures.
+    // CoT + final JSON share max_tokens on DeepSeek-style reasoning models.
+    const qualityStart = effectiveMaxTokens(
       options?.maxTokens,
-      8192,
-      reasoning ? 12_288 : 2048,
+      THINKING_MAX_TOKEN_DEFAULT,
+      reasoning ? THINKING_MAX_TOKEN_DEFAULT : 2048,
     );
-    // Fallback path: thinking OFF — smaller budget is enough for JSON only.
+    const thinkingLadder = reasoning
+      ? thinkingMaxTokenLadder(qualityStart)
+      : [qualityStart];
+    // Fallback: thinking OFF — JSON-only budget (no need for 30k+ CoT headroom)
     const fallbackMaxTokens = effectiveMaxTokens(
       options?.maxTokens,
-      4096,
-      4096,
+      8192,
+      8192,
     );
 
     console.log(
       `[LLM:chatWithTool] model=${model} tool=${toolSchema.name} ` +
-        `inputLen=${inputLen} qualityMax=${qualityMaxTokens} ` +
+        `inputLen=${inputLen} thinkingLadder=[${thinkingLadder.join(",")}] ` +
         `fallbackMax=${fallbackMaxTokens} json_object=1 starting...`,
     );
     const t0 = Date.now();
@@ -211,18 +298,39 @@ export class OpenAIProvider implements LLMProvider {
       if (!rawText.trim()) {
         rawText = assistantMessageText(msg);
       }
-      const contentLen =
-        typeof msg?.content === "string" ? msg.content.length : 0;
-      const reasoningLen =
+      const contentStr =
+        typeof msg?.content === "string" ? msg.content : "";
+      const contentLen = contentStr.length;
+      const reasoningStr =
         typeof msg?.reasoning_content === "string"
-          ? msg.reasoning_content.length
-          : 0;
+          ? msg.reasoning_content
+          : typeof msg?.reasoning === "string"
+            ? msg.reasoning
+            : "";
+      const reasoningLen = reasoningStr.length;
       const finish = response.choices[0]?.finish_reason;
+      const usage = response.usage as
+        | {
+            completion_tokens?: number;
+            prompt_tokens?: number;
+          }
+        | undefined;
       console.log(
         `[LLM:chatWithTool] model=${model} tool=${toolSchema.name} ` +
           `thinking=${thinking} maxTokens=${maxTokens} finish=${finish} ` +
-          `outputLen=${rawText.length} contentLen=${contentLen} reasoningLen=${reasoningLen}`,
+          `outputLen=${rawText.length} contentLen=${contentLen} reasoningLen=${reasoningLen}` +
+          (usage?.completion_tokens != null
+            ? ` completionTokens=${usage.completion_tokens}`
+            : ""),
       );
+      maybeSaveCot({
+        toolName: toolSchema.name,
+        model,
+        thinking,
+        finish,
+        content: contentStr || rawText,
+        reasoning: reasoningStr,
+      });
       recordTokenUsage({
         model,
         operation: `chatWithTool:${toolSchema.name}`,
@@ -231,15 +339,31 @@ export class OpenAIProvider implements LLMProvider {
         outputText: rawText,
       });
 
+      const baseMetric = {
+        model,
+        tool: toolSchema.name,
+        thinking,
+        maxTokens,
+        finish: finish ?? null,
+        contentLen,
+        reasoningLen,
+        completionTokens: usage?.completion_tokens ?? null,
+        promptTokens: usage?.prompt_tokens ?? null,
+      };
+
       if (!rawText.trim()) {
+        recordChatWithToolAttempt({ ...baseMetric, parseOk: false });
         throw new Error(
           `JSON parse error (retryable): empty content ` +
             `(tool=${toolSchema.name}, thinking=${thinking}, finish=${finish})`,
         );
       }
       try {
-        return extractJSON<T>(rawText);
+        const parsed = extractJSON<T>(rawText);
+        recordChatWithToolAttempt({ ...baseMetric, parseOk: true });
+        return parsed;
       } catch (jsonError) {
+        recordChatWithToolAttempt({ ...baseMetric, parseOk: false });
         const errMsg =
           jsonError instanceof Error ? jsonError.message : String(jsonError);
         throw new Error(`JSON parse error (retryable): ${errMsg}`);
@@ -247,23 +371,41 @@ export class OpenAIProvider implements LLMProvider {
     };
 
     const result = await withRetry(async () => {
-      // 1) Quality: thinking enabled + large max_tokens (prefer this)
-      try {
-        return await attempt(
-          reasoning ? "enabled" : "default",
-          qualityMaxTokens,
-        );
-      } catch (e1) {
-        // 2) Reliability only: disable thinking so entire budget → JSON content
-        if (reasoning) {
+      if (!reasoning) {
+        return await attempt("default", qualityStart);
+      }
+
+      // 1) thinking=enabled, escalate max_tokens on empty/JSON failures
+      let lastErr: Error | null = null;
+      for (let i = 0; i < thinkingLadder.length; i++) {
+        const maxTok = thinkingLadder[i]!;
+        try {
+          return await attempt("enabled", maxTok);
+        } catch (e) {
+          lastErr = e instanceof Error ? e : new Error(String(e));
+          const next = thinkingLadder[i + 1];
+          if (next != null) {
+            console.warn(
+              `[LLM:chatWithTool] tool=${toolSchema.name} thinking=enabled ` +
+                `maxTokens=${maxTok} failed, escalate maxTokens=${next}: ` +
+                `${lastErr.message?.slice(0, 120)}`,
+            );
+            continue;
+          }
           console.warn(
-            `[LLM:chatWithTool] tool=${toolSchema.name} thinking=enabled failed, ` +
+            `[LLM:chatWithTool] tool=${toolSchema.name} thinking=enabled ` +
+              `ladder exhausted (last maxTokens=${maxTok}), ` +
               `retry thinking=disabled maxTokens=${fallbackMaxTokens}: ` +
-              `${(e1 as Error).message?.slice(0, 120)}`,
+              `${lastErr.message?.slice(0, 120)}`,
           );
-          return await attempt("disabled", fallbackMaxTokens);
         }
-        throw e1;
+      }
+
+      // 2) Last resort: thinking OFF so entire budget → JSON content
+      try {
+        return await attempt("disabled", fallbackMaxTokens);
+      } catch (e2) {
+        throw lastErr ?? e2;
       }
     }, `chatWithTool(tool=${toolSchema.name}, model=${model})`);
 

@@ -71,6 +71,7 @@ import {
 import {
   beginCharacterExtractWorkspace,
   getCharacterExtractWorkspace,
+  saveResolvedEntities,
 } from "@/core/extractor/character-extract-workspace";
 import {
   BATCH_TEXT_BUDGET,
@@ -78,6 +79,11 @@ import {
 } from "../batch-tool-limits";
 import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
 import { scanUnitHitsWithLlm } from "@/core/extractor/character-name-scan";
+import {
+  runCharacterAnalysisPipeline,
+  pipelineResultToExtractSeed,
+  sealCrossNameLedgerFromEntities,
+} from "@/core/character-analysis";
 import { buildLocalEntitiesFromUnitHits } from "@/core/extractor/character-local-entities";
 import { relationshipTypePromptList } from "@/core/extractor/relationship-types";
 import { createLLMProvider } from "@/core/llm/factory";
@@ -130,8 +136,78 @@ function ensureWs(userId: string, novelId: string, branchId: string) {
 }
 
 /**
- * LLM unit-scan → surface catalog (same path as character-extract-job).
- * Never uses programmatic surname heuristics for product roster.
+ * New character analysis pipeline (stage① window extract → ② overlap merge → ③ coref)
+ * → seed character-extract workspace for analyze_character_list.
+ */
+async function seedCharacterCatalogViaPipeline(
+  userId: string,
+  novelId: string,
+  branchId: string,
+  text: string,
+  llm: LLMProvider,
+  onProgress?: (done: number, total: number, label: string) => void,
+): Promise<{
+  surfaceCount: number;
+  unitCount: number;
+  localEntityCount: number;
+  entityCount: number;
+}> {
+  const result = await runCharacterAnalysisPipeline(text, llm, {
+    concurrency: 8,
+    stage3Agent: true,
+    stage3Concurrency: 12,
+    agentContextRadius: 220,
+    onProgress: (msg) => onProgress?.(0, 1, msg),
+    onStage1Window: (r, i, total) => {
+      onProgress?.(
+        i + 1,
+        total,
+        r.error
+          ? `${r.window.label} 失败`
+          : `${r.window.label} characters=${r.characters.length}`,
+      );
+    },
+    onStage3AgentPair: (info) => {
+      const phase = info.phase === "same_surface" ? "surface" : "grey";
+      onProgress?.(
+        info.index + 1,
+        info.total,
+        `stage3 ${phase} ${info.idA}~${info.idB}`,
+      );
+    },
+  });
+
+  const seed = pipelineResultToExtractSeed(result, text);
+  beginCharacterExtractWorkspace(userId, novelId, branchId, {
+    fullText: text,
+    catalog: seed.catalog,
+    unitCount: seed.units.length,
+    localEntities: seed.localEntities,
+    units: seed.units,
+    unitHits: seed.unitHits,
+  });
+  // Prefer stage③ global entities over overlap-seed
+  const saved = saveResolvedEntities(
+    userId,
+    novelId,
+    branchId,
+    seed.entities,
+    { replace: true },
+  );
+  const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
+  if (ws) {
+    sealCrossNameLedgerFromEntities(ws, saved.entities);
+  }
+  return {
+    surfaceCount: seed.catalog.stats.length,
+    unitCount: seed.units.length,
+    localEntityCount: seed.localEntities.length,
+    entityCount: saved.entities.length,
+  };
+}
+
+/**
+ * Legacy LLM unit-scan path (kept for tests / fallback).
  */
 async function seedCharacterCatalogViaLlm(
   userId: string,
@@ -990,11 +1066,11 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "scan_character_mentions",
     description:
-      "【角色列表】LLM 分段：扫角色 + **窗内局部消解**，写入 catalog 与 localEntities；" +
-      "surface 带锚点 a@offset。成功含「角色指称已扫描」。" +
-      "之后 list_near_alias_candidates → list_local_entities → lookup → submit（merge/split）。" +
-      "**默认跳过**：本会话已有 catalog/localEntities 时直接返回缓存摘要，不重扫。" +
-      "仅 forceRefresh=true 时全书重扫。submit 被拒（双挂/悬空指代）时禁止重扫，应 merge/清 alias 后重交。",
+      "【角色列表】新流水线：①滑窗抽取 → ②overlap 相同 mention 合并 → ③规则+agent 跨窗消解 → ④从 surfaces 选 **canonicalName**；" +
+      "写入 catalog、localEntities 与 **entities 初稿**（name=canonicalName）。成功含「角色指称已扫描」。" +
+      "之后核对 list_local_entities / list_cross_name_candidates，按需 merge 后 **submit_character_entities**。" +
+      "**默认跳过**：本会话已有 catalog/localEntities 时直接返回缓存摘要。" +
+      "forceRefresh=true 全书重跑流水线。submit 被拒时禁止无故重扫，应 merge/清 alias 后重交。",
     parameters: {
       type: "object",
       properties: {
@@ -1002,6 +1078,11 @@ export const analysisDomainTools: ToolDefinition[] = [
           type: "boolean",
           description:
             "true=强制全书重扫；默认 false/省略则复用已有 catalog",
+        },
+        legacyUnitScan: {
+          type: "boolean",
+          description:
+            "true=旧路径（按章 unit 扫名，无 stage3）；默认 false 用新 pipeline",
         },
       },
       required: [],
@@ -1018,11 +1099,15 @@ export const analysisDomainTools: ToolDefinition[] = [
         unitCount: number,
         topLines: string[],
         localEntityCount?: number,
+        entityCount?: number,
         skipped?: boolean,
+        pipeline?: boolean,
       ) => {
         const head = skipped
           ? `${ANALYSIS_OK.scan}（已缓存，跳过重扫）`
-          : `${ANALYSIS_OK.scan}（LLM 分段：扫名+局部消解）`;
+          : pipeline
+            ? `${ANALYSIS_OK.scan}（pipeline ①窗扫+②overlap+③coref）`
+            : `${ANALYSIS_OK.scan}（LLM 分段：扫名+局部消解）`;
         const top =
           topLines.length > 0
             ? topLines.map((s, i) => `${i + 1}. ${s}`).join("\n")
@@ -1032,13 +1117,23 @@ export const analysisDomainTools: ToolDefinition[] = [
             ? localEntityCount
             : getCharacterExtractWorkspace(userId, novelId, branchId)
                 ?.localEntities?.length ?? 0;
+        const entN =
+          entityCount != null
+            ? entityCount
+            : getCharacterExtractWorkspace(userId, novelId, branchId)?.entities
+                ?.length ?? 0;
         const nextHint = skipped
-          ? `请继续消解：list_near_alias_candidates → merge/submit；` +
+          ? `请继续：list_local_entities / list_cross_name_candidates → 必要时 merge → submit_character_entities；` +
             `勿因双挂/submit 失败再扫。须重扫时 forceRefresh=true。`
-          : `全书消解：list_near_alias_candidates → list_local_entities → lookup(u@) → submit merge/split；补漏 list_uncovered_surfaces。`;
+          : pipeline
+            ? `entities 已由 stage3 预填（${entN} 人）。请 list 核对后 submit_character_entities（可少量 merge/split）；` +
+              `异名对已按 stage3 预销账。补漏 list_uncovered_surfaces。`
+            : `全书消解：list_near_alias_candidates → list_local_entities → lookup(u@) → submit merge/split；补漏 list_uncovered_surfaces。`;
         return (
           `${head}\n` +
-          `units=${unitCount} surfaces=${surfaceCount} localEntities=${localN}（锚点=扫名窗 u@）\n` +
+          `units=${unitCount} surfaces=${surfaceCount} localEntities=${localN}` +
+          (entN ? ` entities=${entN}` : "") +
+          `\n` +
           `前 ${Math.min(30, topLines.length)} 个 surface：\n${top}\n` +
           nextHint
         );
@@ -1062,6 +1157,7 @@ export const analysisDomainTools: ToolDefinition[] = [
         });
 
       const forceRefresh = args?.forceRefresh === true;
+      const legacyUnitScan = args?.legacyUnitScan === true;
       const existing = getCharacterExtractWorkspace(userId, novelId, branchId);
       const hasCatalog =
         (existing?.catalog?.stats?.length || 0) > 0 &&
@@ -1073,7 +1169,9 @@ export const analysisDomainTools: ToolDefinition[] = [
             existing!.unitCount || existing!.localEntities?.length || 0,
             topSurfaceLines(existing!.catalog.stats),
             existing!.localEntities?.length ?? 0,
+            existing!.entities?.length ?? 0,
             true,
+            (existing!.entities?.length || 0) > 0,
           ),
           messages: [],
         };
@@ -1082,7 +1180,7 @@ export const analysisDomainTools: ToolDefinition[] = [
       if (!llm) {
         return {
           content:
-            "扫描失败：缺少 LLM（scan_character_mentions 须分段模型抽取指称）",
+            "扫描失败：缺少 LLM（scan_character_mentions 须模型抽取）",
           messages: [],
         };
       }
@@ -1093,32 +1191,73 @@ export const analysisDomainTools: ToolDefinition[] = [
       }
       try {
         let lastEmit = 0;
-        const { surfaceCount, unitCount } = await seedCharacterCatalogViaLlm(
+        const emit = (done: number, total: number, label: string) => {
+          const now = Date.now();
+          if (done < total && now - lastEmit < 250) return;
+          lastEmit = now;
+          const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+          onChunk?.(
+            `【进度】角色分析 ${done}/${total}（${pct}%）· ${label}`,
+          );
+        };
+
+        if (legacyUnitScan) {
+          const { surfaceCount, unitCount, localEntityCount } =
+            await seedCharacterCatalogViaLlm(
+              userId,
+              novelId,
+              branchId,
+              text,
+              units,
+              llm,
+              emit,
+            );
+          const after = getCharacterExtractWorkspace(userId, novelId, branchId);
+          return {
+            content: formatScanSummary(
+              surfaceCount,
+              unitCount,
+              topSurfaceLines(after?.catalog?.stats || []),
+              localEntityCount,
+              after?.entities?.length ?? 0,
+              false,
+              false,
+            ),
+            messages: [],
+          };
+        }
+
+        const seeded = await seedCharacterCatalogViaPipeline(
           userId,
           novelId,
           branchId,
           text,
-          units,
           llm,
-          (done, total, label) => {
-            const now = Date.now();
-            // Throttle UI/SSE (~4/s); always emit first & last
-            if (done < total && now - lastEmit < 250) return;
-            lastEmit = now;
-            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-            onChunk?.(
-              `【进度】扫描角色指称 ${done}/${total}（${pct}%）· ${label}`,
-            );
-          },
+          emit,
         );
         const after = getCharacterExtractWorkspace(userId, novelId, branchId);
+        // Stage draft for UI / later detail agent
+        try {
+          if (after?.entities?.length) {
+            const staged = entitiesToProfiles(after.entities);
+            if (getNovelAnalysisWorkspace(userId, novelId, branchId)) {
+              patchNovelAnalysisWorkspace(userId, novelId, branchId, {
+                charactersDraft: staged,
+              });
+            }
+          }
+        } catch {
+          /* best-effort draft */
+        }
         return {
           content: formatScanSummary(
-            surfaceCount,
-            unitCount,
+            seeded.surfaceCount,
+            seeded.unitCount,
             topSurfaceLines(after?.catalog?.stats || []),
-            after?.localEntities?.length ?? 0,
+            seeded.localEntityCount,
+            seeded.entityCount,
             false,
+            true,
           ),
           messages: [],
         };
