@@ -62,7 +62,13 @@ export class ClaudeProvider implements LLMProvider {
   async chatWithTool<T>(
     messages: LLMMessage[],
     toolSchema: ToolSchema,
-    options?: { model?: string; maxTokens?: number; temperature?: number }
+    options?: {
+      model?: string;
+      maxTokens?: number;
+      temperature?: number;
+      cotTag?: string;
+      saveCotPrompt?: boolean;
+    }
   ): Promise<T> {
     // ... same implementation
     const systemMsg = messages.find((m) => m.role === "system");

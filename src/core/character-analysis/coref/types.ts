@@ -13,11 +13,28 @@ export interface PairFeatures {
   surfacesB: string[];
   /** Intersection of normalized surfaces */
   sharedSurfaces: string[];
-  /** Shared surfaces with length ≥ 2 (stronger name signal) */
+  /**
+   * Shared identity-strong surfaces (kind proper | personal_nick on both sides).
+   * Generic epithets (这小子) / titles / kinship are NOT strong.
+   */
   sharedStrongSurfaces: string[];
-  /** Surfaces only in A / only in B with length ≥ 2 */
+  /** Shared surfaces with kind=proper on both sides */
+  sharedProperSurfaces: string[];
+  /** Surfaces only in A / only in B that are identity-strong */
   exclusiveStrongA: string[];
   exclusiveStrongB: string[];
+  /** Surfaces only in A / only in B with kind=proper */
+  exclusiveProperA: string[];
+  exclusiveProperB: string[];
+  /**
+   * Shared surfaces whose **weaker** side kind is the given bucket
+   * (not identity-strong). Used by weak-surface / cooccur gates.
+   */
+  sharedDeicticSurfaces: string[];
+  sharedGenericSurfaces: string[];
+  sharedKinshipSurfaces: string[];
+  sharedTitleSurfaces: string[];
+  sharedDescSurfaces: string[];
   genderA?: string;
   genderB?: string;
   ageA?: string;
@@ -39,8 +56,8 @@ export interface PairFeatures {
   /**
    * 专属度 S_excl after sparse gate.
    * Raw: max_X min( count(A,X)/count(A), count(B,X)/count(B) ) over shared companions X.
-   * When min(appearCountA, appearCountB) < jaccardSparseMinCount → exclusivity **zeroed**.
-   * (Jaccard still × jaccardSparseDiscount under the same gate.)
+   * When min(appearCountA, appearCountB) < jaccardSparseMinCount →
+   * exclusivity × exclusivitySparseDiscount (default 0.1).
    */
   cooccurExclusivity: number;
   cooccurExclusivityRaw: number;
@@ -48,7 +65,7 @@ export interface PairFeatures {
   /** Jaccard of neighbor sets after sparse discount ∈ [0,1] */
   cooccurJaccard: number;
   cooccurJaccardRaw: number;
-  /** True when sparse gate applied (excl zeroed, jaccard discounted) */
+  /** True when sparse gate applied (excl + jaccard discounted) */
   cooccurSparse: boolean;
   /** Windows both A and B appear in */
   sameWindowCount: number;
@@ -117,13 +134,14 @@ export interface Stage3CorefConfig {
    */
   cooccurWindowChars: number;
   /**
-   * min(count(A),count(B)) below this → sparse gate:
-   * - exclusivity **zeroed** (do not count)
-   * - Jaccard × jaccardSparseDiscount
-   * Single-window pairs otherwise get S_excl=1 for free.
+   * min(count(A),count(B)) below this → sparse gate
+   * (single-window pairs would otherwise get S_excl=1 for free).
    */
   jaccardSparseMinCount: number;
+  /** Jaccard × this when sparse. Default 0.5. */
   jaccardSparseDiscount: number;
+  /** Exclusivity × this when sparse. Default 0.1 (stricter than Jaccard). */
+  exclusivitySparseDiscount: number;
   /**
    * Added to exclusivity/jaccard **delta** when neverSameWindow && shared neighbors.
    * Keep small — large boosts + prior 0.5 easily hit auto_merge.
@@ -152,6 +170,44 @@ export interface Stage3CorefConfig {
    * Pure-pronoun entities (e.g. narrator 我 only) keep them. Default true.
    */
   stripDeicticWhenHasName: boolean;
+  /**
+   * Soft auto_merge (score ≥ threshold, no hard merge) requires ≥1 shared
+   * identity-strong surface (kind proper | personal_nick). Blocks pure
+   * co-occur / weak-surface auto_merge (g4-style). Hard-rule merge still allowed.
+   * Default true.
+   */
+  requireSharedStrongForAutoMerge: boolean;
+  /**
+   * When there is no shared identity-strong surface, multiply positive
+   * co-occur rule deltas (close_cooccur / exclusivity / jaccard) by this
+   * factor ∈ (0,1]. Default 0.25 → co-occur alone cannot hit auto_merge.
+   */
+  cooccurNoIdentityScale: number;
+  /**
+   * window_proximity: r = windowGap / (nWindows-1).
+   * r < near → soft +; r < mid → light −; r < far → −0.10; else −0.15.
+   * Defaults ~2/26, 5/26, 10/26 on a 27-window book.
+   */
+  proximityNearFrac: number;
+  proximityMidFrac: number;
+  proximityFarFrac: number;
+  /**
+   * Grey LLM routing (score ∈ (autoReject, autoMerge)):
+   * edgeReject = exp(-u²/(2 σ_reject²)), edgeMerge = exp(-(1-u)²/(2 σ_merge²)).
+   * deep if max(edges) ≥ greyEdgeTau; else oneshot.
+   * **σ_merge > σ_reject** → wider deep band near auto_merge (asymmetric care).
+   */
+  /** σ in u-space for reject-edge Gaussian. Default 0.16. */
+  greySigmaReject: number;
+  /** σ in u-space for merge-edge Gaussian. Default 0.26 (wider than reject). */
+  greySigmaMerge: number;
+  /** Edge strength threshold for deep mode. Default 0.45. */
+  greyEdgeTau: number;
+  /**
+   * If true, grey pairs near merge side without sharedStrong force deep.
+   * Default true.
+   */
+  greyForceDeepNearMergeNoStrong: boolean;
 }
 
 export const STAGE3_DEFAULT_CONFIG: Stage3CorefConfig = {
@@ -163,6 +219,7 @@ export const STAGE3_DEFAULT_CONFIG: Stage3CorefConfig = {
   cooccurWindowChars: 800,
   jaccardSparseMinCount: 3,
   jaccardSparseDiscount: 0.5,
+  exclusivitySparseDiscount: 0.1,
   neverSameWindowBoost: 0.05,
   rules: {},
   agentMaxPairs: 200,
@@ -170,6 +227,15 @@ export const STAGE3_DEFAULT_CONFIG: Stage3CorefConfig = {
   agentConcurrency: 6,
   sameSurfaceAgentPass: true,
   stripDeicticWhenHasName: true,
+  requireSharedStrongForAutoMerge: true,
+  cooccurNoIdentityScale: 0.25,
+  proximityNearFrac: 0.08,
+  proximityMidFrac: 0.2,
+  proximityFarFrac: 0.4,
+  greySigmaReject: 0.16,
+  greySigmaMerge: 0.26,
+  greyEdgeTau: 0.45,
+  greyForceDeepNearMergeNoStrong: true,
 };
 
 export type PairDecisionKind = "auto_merge" | "auto_reject" | "agent" | "agent_merge" | "agent_reject" | "agent_skipped";
@@ -193,6 +259,9 @@ export interface PairScoreResult {
   decision: PairDecisionKind;
   agentAnswer?: boolean;
   agentReason?: string;
+  /** Grey LLM path: oneshot pairwise vs deep multi-turn agent. */
+  llmMode?: "oneshot" | "deep";
+  llmModeReason?: string;
 }
 
 export interface Stage3ResolveResult {
@@ -208,6 +277,10 @@ export interface Stage3ResolveResult {
     agentMerge: number;
     agentReject: number;
     agentSkipped: number;
+    /** Grey pairs routed to single-shot LLM */
+    agentOneshot: number;
+    /** Grey pairs routed to deep multi-turn agent */
+    agentDeep: number;
     /** Same-surface residual pass: pairs sent to agent */
     sameSurfacePass: number;
     sameSurfaceMerge: number;

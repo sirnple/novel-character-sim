@@ -1,9 +1,10 @@
 /**
  * Stage ④: pick a **canonicalName** from each entity's surfaces for roster submit.
  *
- * Rules prefer: non-deictic, name-like, high mention frequency, stable personal names
- * over pure kinship/title when alternatives exist.
- * Optional LLM tie-break when top candidates are close.
+ * Flow:
+ * 1. **Program rules** first (always produce a candidate + confidence).
+ * 2. **Confident** picks skip LLM (e.g. exactly one `proper`, clear score lead).
+ * 3. **Uncertain** only → optional LLM among top surfaces; else keep rule pick.
  */
 
 import type { LLMProvider, ToolSchema } from "@/types";
@@ -13,6 +14,11 @@ import {
   isUnanchoredRelationLabel,
 } from "@/core/extractor/character-entity-types";
 import { isDeicticPronounSurface } from "./coref/features";
+import {
+  isProperKind,
+  resolveMentionKind,
+  type MentionKind,
+} from "./mention-kind";
 import {
   normalizeMentionSurface,
   type MergedCharacter,
@@ -32,6 +38,11 @@ export interface CanonicalPick {
   surfaces: string[];
   reason: string;
   ranked: SurfaceScoreRow[];
+  /**
+   * True when rule pick is trusted enough to skip LLM.
+   * False → caller may ask LLM; still always has a rule fallback name.
+   */
+  ruleConfident: boolean;
 }
 
 function surfaceCounts(c: MergedCharacter): Map<string, number> {
@@ -41,11 +52,19 @@ function surfaceCounts(c: MergedCharacter): Map<string, number> {
     if (!s) continue;
     m.set(s, (m.get(s) || 0) + 1);
   }
-  // Also include any surface that only appears as unique set member
-  for (const s of m.keys()) {
-    /* already counted */
-  }
   return m;
+}
+
+/** Distinct surfaces whose kind is proper (LLM/rule kind on mentions). */
+export function uniqueProperSurfaces(c: MergedCharacter): string[] {
+  const set = new Set<string>();
+  for (const ment of c.mentions || []) {
+    const s = normalizeMentionSurface(ment.surface);
+    if (!s) continue;
+    const k: MentionKind = ment.kind ?? resolveMentionKind(s, ment.kind);
+    if (isProperKind(k)) set.add(s);
+  }
+  return Array.from(set);
 }
 
 function looksPersonalName(s: string): boolean {
@@ -87,7 +106,6 @@ export function scoreSurfaceAsCanonical(
   score += count * 4;
   flags.push(`count=${count}`);
 
-  // Prefer moderate length personal names; slight bonus for longer full names
   const len = s.replace(/\s+/g, "").length;
   score += Math.min(len, 6) * 0.8;
 
@@ -104,7 +122,6 @@ export function scoreSurfaceAsCanonical(
     flags.push("invalid-primary");
   }
 
-  // If a shorter form is contained in a longer personal-looking surface, prefer longer
   const hasLongerSuperstring = allSurfaces.some((o) => {
     const t = normalizeMentionSurface(o);
     return t !== s && t.includes(s) && t.length > s.length && looksPersonalName(t);
@@ -113,7 +130,6 @@ export function scoreSurfaceAsCanonical(
     score -= 3;
     flags.push("has-longer-form");
   }
-  // Contained full name: bonus for being the longer form
   const isLongerForm = allSurfaces.some((o) => {
     const t = normalizeMentionSurface(o);
     return t !== s && s.includes(t) && s.length > t.length && t.length >= 2;
@@ -127,9 +143,63 @@ export function scoreSurfaceAsCanonical(
 }
 
 /**
- * Pure rule-based canonical pick (no LLM).
+ * Decide if the rule pick is confident enough to skip LLM.
  */
-export function selectCanonicalName(c: MergedCharacter): CanonicalPick {
+export function isRuleConfidentCanonical(
+  c: MergedCharacter,
+  ranked: SurfaceScoreRow[],
+  scoreGapForLlm: number,
+): { confident: boolean; reason: string } {
+  const propers = uniqueProperSurfaces(c);
+  if (propers.length === 1) {
+    return {
+      confident: true,
+      reason: `single-proper「${propers[0]}」`,
+    };
+  }
+
+  const viable = ranked.filter((r) => r.score > -1e5);
+  if (viable.length === 0) {
+    // only deictics / empty — still skip LLM (nothing good to ask)
+    return { confident: true, reason: "no-viable-surface" };
+  }
+  if (viable.length === 1) {
+    return {
+      confident: true,
+      reason: `single-viable「${viable[0]!.surface}」`,
+    };
+  }
+
+  // Clear score winner
+  if (viable[0]!.score - viable[1]!.score > scoreGapForLlm) {
+    return {
+      confident: true,
+      reason: `score-lead Δ=${(viable[0]!.score - viable[1]!.score).toFixed(1)}`,
+    };
+  }
+
+  // Multiple propers or close scores → LLM
+  if (propers.length >= 2) {
+    return {
+      confident: false,
+      reason: `multi-proper(${propers.join("、")})`,
+    };
+  }
+
+  return {
+    confident: false,
+    reason: `close-scores top=${viable[0]!.surface}/${viable[1]!.surface}`,
+  };
+}
+
+/**
+ * Pure rule-based canonical pick (no LLM). Always sets canonicalName.
+ */
+export function selectCanonicalName(
+  c: MergedCharacter,
+  opts?: { scoreGapForLlm?: number },
+): CanonicalPick {
+  const gap = opts?.scoreGapForLlm ?? 3;
   const counts = surfaceCounts(c);
   const surfaces = Array.from(
     new Set(
@@ -146,6 +216,7 @@ export function selectCanonicalName(c: MergedCharacter): CanonicalPick {
       surfaces: [],
       reason: "no surfaces",
       ranked: [],
+      ruleConfident: true,
     };
   }
 
@@ -159,32 +230,51 @@ export function selectCanonicalName(c: MergedCharacter): CanonicalPick {
         a.surface.localeCompare(b.surface, "zh"),
     );
 
-  // Prefer best non-deictic; if all deictic, fall back to most frequent surface
-  const best =
-    ranked.find((r) => r.score > -1e5) ||
-    ranked[0] || {
-      surface: surfaces[0]!,
-      count: 1,
-      score: 0,
-      flags: [],
+  // Prefer single proper when present (even if frequency lower than a title)
+  const propers = uniqueProperSurfaces(c);
+  let best: SurfaceScoreRow | undefined;
+  let forceReason: string | undefined;
+  if (propers.length === 1) {
+    const p = propers[0]!;
+    best = ranked.find((r) => r.surface === p) || {
+      surface: p,
+      count: counts.get(p) || 1,
+      score: 999,
+      flags: ["single-proper"],
     };
+    forceReason = `single-proper「${p}」`;
+  } else {
+    best =
+      ranked.find((r) => r.score > -1e5) ||
+      ranked[0] || {
+        surface: surfaces[0]!,
+        count: 1,
+        score: 0,
+        flags: [],
+      };
+  }
 
+  const conf = isRuleConfidentCanonical(c, ranked, gap);
   const canonicalName = best.surface || "未知";
   const aliases = surfaces.filter((s) => s !== canonicalName);
   const reason =
+    forceReason ||
     `score=${best.score.toFixed(1)} flags=${best.flags.join(",") || "—"} ` +
-    `among ${surfaces.length} surfaces`;
+      `among ${surfaces.length} surfaces`;
 
   return {
     canonicalName,
     aliases,
     surfaces,
-    reason,
+    reason: conf.confident
+      ? `rule-confident(${conf.reason}): ${reason}`
+      : `rule-uncertain(${conf.reason}): ${reason}`,
     ranked,
+    ruleConfident: conf.confident,
   };
 }
 
-/** Attach canonicalName on each character (mutates copy). */
+/** Attach canonicalName on each character (rules only). */
 export function applyStage4CanonicalNames(
   characters: MergedCharacter[],
 ): MergedCharacter[] {
@@ -214,23 +304,23 @@ const CANONICAL_TOOL: ToolSchema = {
 };
 
 /**
- * When top-2 rule scores are close, ask LLM to pick among candidates.
- * Falls back to rules on any failure / invalid pick.
+ * Rules first; LLM only when `ruleConfident` is false.
  */
 export async function selectCanonicalNameWithOptionalLlm(
   c: MergedCharacter,
   llm: LLMProvider | null | undefined,
   opts?: { scoreGapForLlm?: number },
 ): Promise<CanonicalPick> {
-  const base = selectCanonicalName(c);
-  if (!llm || base.ranked.length < 2) return base;
+  const base = selectCanonicalName(c, opts);
+  if (base.ruleConfident || !llm) return base;
 
-  const gap = opts?.scoreGapForLlm ?? 3;
   const top = base.ranked.filter((r) => r.score > -1e5);
-  if (top.length < 2) return base;
-  if (top[0]!.score - top[1]!.score > gap) return base;
+  const candidates =
+    top.length >= 2
+      ? top.slice(0, 6).map((r) => r.surface)
+      : base.surfaces.slice(0, 6);
+  if (candidates.length < 2) return { ...base, ruleConfident: true };
 
-  const candidates = top.slice(0, 6).map((r) => r.surface);
   try {
     const raw = await llm.chatWithTool<{
       canonicalName?: string;
@@ -247,11 +337,15 @@ export async function selectCanonicalNameWithOptionalLlm(
             `候选: ${JSON.stringify(candidates)}`,
             `频次: ${JSON.stringify(
               Object.fromEntries(
-                top.slice(0, 6).map((r) => [r.surface, r.count]),
+                candidates.map((s) => {
+                  const row = base.ranked.find((r) => r.surface === s);
+                  return [s, row?.count ?? 0];
+                }),
               ),
             )}`,
             c.gender ? `gender=${c.gender}` : "",
             c.age ? `age=${c.age}` : "",
+            `ruleFallback=${base.canonicalName}`,
           ]
             .filter(Boolean)
             .join("\n"),
@@ -266,8 +360,9 @@ export async function selectCanonicalNameWithOptionalLlm(
         canonicalName: pick,
         aliases: base.surfaces.filter((s) => s !== pick),
         surfaces: base.surfaces,
-        reason: `llm: ${raw?.reason || "tie-break"} (rule was ${base.canonicalName})`,
+        reason: `llm: ${raw?.reason || "uncertain-rule"} (rule was ${base.canonicalName})`,
         ranked: base.ranked,
+        ruleConfident: false,
       };
     }
   } catch {
@@ -285,13 +380,32 @@ export async function applyStage4CanonicalNamesWithLlm(
     onDone?: (i: number, total: number, name: string) => void;
   },
 ): Promise<MergedCharacter[]> {
-  const concurrency = Math.max(1, Math.min(16, opts?.concurrency ?? 6));
+  const concurrency = Math.max(1, Math.min(32, opts?.concurrency ?? 6));
   const out = new Array<MergedCharacter>(characters.length);
-  let next = 0;
 
+  // Pass 1: rules for everyone
+  const picks = characters.map((c) => selectCanonicalName(c, opts));
+  const needLlm: number[] = [];
+  for (let i = 0; i < characters.length; i++) {
+    const pick = picks[i]!;
+    if (pick.ruleConfident || !llm) {
+      out[i] = { ...characters[i]!, canonicalName: pick.canonicalName };
+      opts?.onDone?.(i + 1, characters.length, pick.canonicalName);
+    } else {
+      needLlm.push(i);
+    }
+  }
+
+  if (!llm || needLlm.length === 0) {
+    return out.map((c, i) => c ?? { ...characters[i]!, canonicalName: picks[i]!.canonicalName });
+  }
+
+  // Pass 2: LLM only for uncertain
+  let cursor = 0;
   async function worker() {
-    while (next < characters.length) {
-      const i = next++;
+    while (cursor < needLlm.length) {
+      const k = cursor++;
+      const i = needLlm[k]!;
       const c = characters[i]!;
       const pick = await selectCanonicalNameWithOptionalLlm(c, llm, {
         scoreGapForLlm: opts?.scoreGapForLlm,
@@ -302,9 +416,11 @@ export async function applyStage4CanonicalNamesWithLlm(
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(concurrency, characters.length || 1) }, () =>
-      worker(),
+    Array.from(
+      { length: Math.min(concurrency, needLlm.length) },
+      () => worker(),
     ),
   );
+
   return out;
 }

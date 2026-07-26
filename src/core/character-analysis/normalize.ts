@@ -1,3 +1,4 @@
+import { resolveMentionKind } from "./mention-kind";
 import type { Character, Mention } from "./types";
 
 function asString(v: unknown): string {
@@ -17,7 +18,11 @@ function normalizeMention(raw: unknown): Mention | null {
     asString(o.text_anchor) ||
     asString(o.anchor) ||
     surface;
-  return { surface, textAnchor };
+  const kind = resolveMentionKind(
+    surface,
+    asString(o.kind) || asString(o.mentionKind) || asString(o.tag) || null,
+  );
+  return { surface, textAnchor, kind };
 }
 
 function normalizeCharacter(raw: unknown): Character | null {

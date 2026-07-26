@@ -16,7 +16,12 @@ export {
   normalizeGender,
   surfacesOf,
   surfacesForCoref,
+  identityStrongSurfacesForCoref,
   isDeicticPronounSurface,
+  surfaceKindOn,
+  sharedSurfaceKind,
+  isStrongSurfaceOn,
+  isProperSurfaceOn,
 } from "./features";
 export {
   buildCooccurGraph,
@@ -35,6 +40,8 @@ export {
   ruleExclusiveProperNames,
   ruleWindowProximity,
   ruleCloseCooccur,
+  ruleCloseMentionDifferent,
+  ruleSameWindowCooccur,
   ruleNarratorFar,
   ruleCooccurExclusivity,
   ruleCooccurJaccard,
@@ -45,6 +52,11 @@ export {
   scorePair,
   decideByThresholds,
 } from "./score";
+export {
+  selectGreyLlmMode,
+  type GreyLlmMode,
+  type GreyLlmModeResult,
+} from "./grey-llm-mode";
 export { UnionFind } from "./union-find";
 export {
   agentJudgeSamePerson,

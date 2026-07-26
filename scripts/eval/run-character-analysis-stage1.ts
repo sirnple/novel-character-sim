@@ -2,8 +2,18 @@
  * Stage ① window LLM extract + ② pairwise overlap merge + optional ③ coref rules/agent.
  *
  *   npx tsx scripts/eval/run-character-analysis-stage1.ts --maxWindows=1 "C:\path\novel.txt"
+ *   npx tsx scripts/eval/run-character-analysis-stage1.ts --stage1Only "C:\path\novel.txt"
  *   npx tsx scripts/eval/run-character-analysis-stage1.ts --stage3 "C:\path\novel.txt"
  *   npx tsx scripts/eval/run-character-analysis-stage1.ts --stage3 --noAgent path.txt
+ *
+ * Each run writes one folder (result + CoT together):
+ *   scripts/eval/results/char-s1-<slug>-<stamp>/
+ *     result.json
+ *     result.md
+ *     cot/extract_window_characters/<stamp>-wN-enabled.txt
+ *     cot/coref_pair_judge/…   (when --stage3 + agent)
+ *
+ * CoT requires LLM_SAVE_COT=1 (default for this script).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -110,6 +120,7 @@ function parseArgs() {
   let overlapChars = 800;
   let novelId: string | null = null;
   let stage3 = false;
+  let stage1Only = false;
   let agent = true;
   const positional: string[] = [];
   for (const a of process.argv.slice(2)) {
@@ -138,6 +149,10 @@ function parseArgs() {
       stage3 = true;
       continue;
     }
+    if (a === "--stage1Only" || a === "--stage1-only") {
+      stage1Only = true;
+      continue;
+    }
     if (a === "--noAgent") {
       agent = false;
       continue;
@@ -152,6 +167,7 @@ function parseArgs() {
     windowChars,
     overlapChars,
     stage3,
+    stage1Only,
     agent,
   };
 }
@@ -208,6 +224,16 @@ async function main() {
       `concurrency=${args.concurrency}`,
   );
 
+  // One folder per run: result.json/md + cot/<tool>/…
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const slug = title.replace(/[^\w\u4e00-\u9fff-]+/g, "_").slice(0, 40);
+  const runDir = path.join("scripts", "eval", "results", `char-s1-${slug}-${stamp}`);
+  const cotDir = path.join(runDir, "cot");
+  fs.mkdirSync(cotDir, { recursive: true });
+  process.env.LLM_COT_DIR = path.resolve(cotDir);
+  console.log(`[stage1] runDir=${runDir}`);
+  console.log(`[stage1] cotDir=${process.env.LLM_COT_DIR}`);
+
   const llm = createLLMProvider("analysis");
   const t0 = Date.now();
   const { config, windows, byWindow } = await runStage1WindowScan(text, llm, {
@@ -234,21 +260,31 @@ async function main() {
 
   const elapsed = Math.round((Date.now() - t0) / 1000);
 
-  // Stage ②: pairwise hierarchical merge (1⊕2, 3⊕4, …) using overlap + offsetAnchor
-  const { characters: merged, traces } = mergeAdjacentWindowCharacters(
-    byWindow,
-    windows,
-  );
-  const mergeHit = traces.reduce((n, t) => n + t.merges.length, 0);
-  console.log(
-    `\n[stage2] pairwise merge → characters=${merged.length} ` +
-      `(pairLevels=${traces.length} mergeEdges=${mergeHit})`,
-  );
+  // Stage ② (skip when --stage1Only)
+  let merged: Awaited<
+    ReturnType<typeof mergeAdjacentWindowCharacters>
+  >["characters"] = [];
+  let traces: Awaited<
+    ReturnType<typeof mergeAdjacentWindowCharacters>
+  >["traces"] = [];
+  let mergeHit = 0;
+  if (!args.stage1Only) {
+    const s2 = mergeAdjacentWindowCharacters(byWindow, windows);
+    merged = s2.characters;
+    traces = s2.traces;
+    mergeHit = traces.reduce((n, t) => n + t.merges.length, 0);
+    console.log(
+      `\n[stage2] pairwise merge → characters=${merged.length} ` +
+        `(pairLevels=${traces.length} mergeEdges=${mergeHit})`,
+    );
+  } else {
+    console.log(`\n[stage1Only] skip stage2/3 — per-window extract only`);
+  }
 
   let stage3Result: Awaited<
     ReturnType<typeof resolveCorefWithRulesAndAgent>
   > | null = null;
-  if (args.stage3) {
+  if (args.stage3 && !args.stage1Only) {
     console.log(
       `\n[stage3] coref rules` +
         (args.agent ? "+agent" : " (no agent)") +
@@ -266,29 +302,31 @@ async function main() {
       onAgentPair: (info) => {
         const phase = info.phase === "same_surface" ? "surface" : "grey";
         process.stdout.write(
-          `\r[stage3] ${phase} ${info.index + 1}/${info.total} ${info.idA}~${info.idB} score=${info.score.toFixed(2)}   `,
+          `\r[stage3] ${phase}${info.llmMode ? "/" + info.llmMode : ""} ${info.index + 1}/${info.total} ${info.idA}~${info.idB} score=${info.score.toFixed(2)}   `,
         );
       },
     });
     console.log(
       `\n[stage3] done characters ${merged.length} → ${stage3Result.characters.length} ` +
         `autoMerge=${stage3Result.stats.autoMerge} autoReject=${stage3Result.stats.autoReject} ` +
-        `agent=${stage3Result.stats.agent} agentMerge=${stage3Result.stats.agentMerge} ` +
+        `agent=${stage3Result.stats.agent} oneshot=${stage3Result.stats.agentOneshot} deep=${stage3Result.stats.agentDeep} ` +
+        `agentMerge=${stage3Result.stats.agentMerge} ` +
         `sameSurfacePass=${stage3Result.stats.sameSurfacePass}` +
         `(merge=${stage3Result.stats.sameSurfaceMerge}) ` +
         `agentConcurrency=${stage3Result.config.agentConcurrency}`,
     );
   }
 
-  const outDir = path.join("scripts", "eval", "results");
-  fs.mkdirSync(outDir, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const slug = title.replace(/[^\w\u4e00-\u9fff-]+/g, "_").slice(0, 40);
-  const jsonPath = path.join(outDir, `char-s1-${slug}-${stamp}.json`);
-  const mdPath = path.join(outDir, `char-s1-${slug}-${stamp}.md`);
+  const jsonPath = path.join(runDir, "result.json");
+  const mdPath = path.join(runDir, "result.md");
 
+  const stageLabel = args.stage1Only
+    ? "1"
+    : args.stage3
+      ? "1+2+3"
+      : "1+2";
   const payload = {
-    stage: args.stage3 ? "1+2+3" : "1+2",
+    stage: stageLabel,
     ranAt: new Date().toISOString(),
     title,
     source,
@@ -296,14 +334,19 @@ async function main() {
     config,
     windowCount: windows.length,
     elapsedSec: elapsed,
-    stage2: {
-      mode: "pairwise-hierarchical-overlap-offset",
-      characterCount: merged.length,
-      pairLevels: traces.length,
-      mergeEdges: mergeHit,
-      characters: merged,
-      traces,
-    },
+    runDir,
+    cotDir: path.relative(process.cwd(), process.env.LLM_COT_DIR || cotDir),
+    cotNote: "CoT under <runDir>/cot/<tool>/ (same folder as result.json/md)",
+    stage2: args.stage1Only
+      ? null
+      : {
+          mode: "pairwise-hierarchical-overlap-offset",
+          characterCount: merged.length,
+          pairLevels: traces.length,
+          mergeEdges: mergeHit,
+          characters: merged,
+          traces,
+        },
     stage3: stage3Result
       ? {
           config: stage3Result.config,
@@ -312,7 +355,6 @@ async function main() {
           pairCount: stage3Result.pairCount,
           stats: stage3Result.stats,
           characters: stage3Result.characters,
-          // full pair scores can be large; keep grey+auto_merge for debug
           scored: stage3Result.scored.filter(
             (s) =>
               s.decision === "auto_merge" ||
@@ -333,20 +375,27 @@ async function main() {
   fs.writeFileSync(jsonPath, JSON.stringify(payload, null, 2), "utf8");
 
   const md: string[] = [
-    `# Character analysis ${args.stage3 ? "Stage1+2+3" : "Stage1+2"} — ${title}`,
+    `# Character analysis Stage${stageLabel} — ${title}`,
     ``,
     `- source: \`${source}\``,
     `- textLen: ${text.length}`,
     `- windows: ${windows.length} (chars=${config.windowChars}, overlap=${config.overlapChars})`,
     `- elapsed: ${elapsed}s`,
-    `- **stage2 merged characters: ${merged.length}** (pairLevels=${traces.length}, mergeEdges=${mergeHit})`,
-    `- stage2 mode: pairwise hierarchical; merge only if shared surface in **overlap** (via offsetAnchor)`,
+    `- runDir: \`${runDir}\``,
+    `- CoT: \`${path.join(runDir, "cot", "extract_window_characters")}/\` (按窗 wN；含 PROMPT + 思维链 + JSON)`,
   ];
+  if (!args.stage1Only) {
+    md.push(
+      `- **stage2 merged characters: ${merged.length}** (pairLevels=${traces.length}, mergeEdges=${mergeHit})`,
+      `- stage2 mode: pairwise hierarchical; auto-merge if shared **proper|personal_nick** surface (any offset) OR identical surface+offset in overlap (strong≥1 / mid≥2 / weak≥3)`,
+    );
+  }
   if (stage3Result) {
     md.push(
       `- **stage3 characters: ${stage3Result.characters.length}** ` +
         `(autoMerge=${stage3Result.stats.autoMerge}, autoReject=${stage3Result.stats.autoReject}, ` +
-        `agent=${stage3Result.stats.agent}, agentMerge=${stage3Result.stats.agentMerge}, ` +
+        `agent=${stage3Result.stats.agent} oneshot=${stage3Result.stats.agentOneshot} deep=${stage3Result.stats.agentDeep}, ` +
+        `agentMerge=${stage3Result.stats.agentMerge}, ` +
         `sameSurfacePass=${stage3Result.stats.sameSurfacePass}/` +
         `merge=${stage3Result.stats.sameSurfaceMerge})`,
     );
@@ -366,18 +415,20 @@ async function main() {
     }
     md.push(``);
   }
-  md.push(`## Stage2 全局人物列表`);
-  md.push(``);
-  for (const c of merged) {
-    const surfaces = Array.from(new Set(c.mentions.map((m) => m.surface)));
-    md.push(
-      `- \`${c.id}\` windows=[${c.windowLo}..${c.windowHi}] ` +
-        `{${surfaces.join("、")}} n=${c.mentions.length}` +
-        (c.gender ? ` gender=${c.gender}` : "") +
-        (c.age ? ` age=${c.age}` : ""),
-    );
+  if (!args.stage1Only) {
+    md.push(`## Stage2 全局人物列表`);
+    md.push(``);
+    for (const c of merged) {
+      const surfaces = Array.from(new Set(c.mentions.map((m) => m.surface)));
+      md.push(
+        `- \`${c.id}\` windows=[${c.windowLo}..${c.windowHi}] ` +
+          `{${surfaces.join("、")}} n=${c.mentions.length}` +
+          (c.gender ? ` gender=${c.gender}` : "") +
+          (c.age ? ` age=${c.age}` : ""),
+      );
+    }
+    md.push(``);
   }
-  md.push(``);
   md.push(`## Stage1 分窗`);
   md.push(``);
   for (const w of byWindow) {
@@ -391,14 +442,24 @@ async function main() {
   }
   fs.writeFileSync(mdPath, md.join("\n"), "utf8");
 
-  const tag = args.stage3 ? "stage1+2+3" : "stage1+2";
+  const tag = args.stage1Only
+    ? "stage1"
+    : args.stage3
+      ? "stage1+2+3"
+      : "stage1+2";
   console.log(
-    `\n[${tag}] done in ${elapsed}s windows=${windows.length} ` +
-      `s2=${merged.length}` +
+    `\n[${tag}] done in ${elapsed}s windows=${windows.length}` +
+      (args.stage1Only
+        ? ""
+        : ` s2=${merged.length}`) +
       (stage3Result ? ` s3=${stage3Result.characters.length}` : ""),
   );
   console.log(`[${tag}] wrote ${jsonPath}`);
   console.log(`[${tag}] wrote ${mdPath}`);
+  console.log(`[${tag}] runDir: ${runDir}`);
+  console.log(
+    `[${tag}] CoT dir: ${path.join(runDir, "cot", "extract_window_characters")}`,
+  );
 }
 
 main().catch((e) => {

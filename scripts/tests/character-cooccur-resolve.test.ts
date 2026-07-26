@@ -28,7 +28,7 @@ function ent(
     anchors: units.map((u) => ({
       offset: u * 1000,
       unitIndex: u,
-      unitLabel: `窗${u + 1}`,
+      unitLabel: `窗${u}`,
       surface: name,
     })),
     role: "supporting",

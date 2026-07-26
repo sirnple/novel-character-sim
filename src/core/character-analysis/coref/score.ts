@@ -1,4 +1,11 @@
-import type { CorefRule, PairContext, PairScoreResult, RuleScoreBreakdown, Stage3CorefConfig } from "./types";
+import type {
+  CorefRule,
+  PairContext,
+  PairFeatures,
+  PairScoreResult,
+  RuleScoreBreakdown,
+  Stage3CorefConfig,
+} from "./types";
 import { ALL_COREF_RULES } from "./rules";
 
 function clamp01(x: number): number {
@@ -82,10 +89,23 @@ export function scorePair(
 export function decideByThresholds(
   scored: Omit<PairScoreResult, "decision" | "agentAnswer" | "agentReason">,
   config: Stage3CorefConfig,
+  features?: PairFeatures | null,
 ): PairScoreResult["decision"] {
   if (scored.hard === "reject") return "auto_reject";
   if (scored.hard === "merge") return "auto_merge";
-  if (scored.score >= config.autoMergeThreshold) return "auto_merge";
+  if (scored.score >= config.autoMergeThreshold) {
+    // Kind gate: soft auto_merge needs identity-strong share (proper|nick)
+    if (
+      config.requireSharedStrongForAutoMerge !== false &&
+      features &&
+      features.sharedStrongSurfaces.length === 0
+    ) {
+      // Still high score → grey agent, not silent merge (g4 co-occur glue)
+      if (scored.score <= config.autoRejectThreshold) return "auto_reject";
+      return "agent";
+    }
+    return "auto_merge";
+  }
   if (scored.score <= config.autoRejectThreshold) return "auto_reject";
   return "agent";
 }

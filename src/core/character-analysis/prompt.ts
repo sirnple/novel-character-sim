@@ -45,7 +45,7 @@ export function formatWindowBodyForPrompt(
 
   if (!hasAnyOverlap) {
     return [
-      `（本窗无相邻重叠区 → 单数「你/他/她」不收；若第一人称叙述仍须建叙述者「我」）`,
+      `（本窗无相邻重叠区 → 单数「你/他/她」不收；专名/称呼可收；若第一人称叙述仍须建叙述者「我」）`,
       ``,
       `【主体 · 全窗】`,
       window.text,
@@ -55,21 +55,24 @@ export function formatWindowBodyForPrompt(
   const parts: string[] = [];
   if (prefixOverlap) {
     parts.push(
-      `【重叠区 · 与上一窗共享 · 可收单数你/他/她；集体我们/你们/他们忽略】`,
+      `【前重叠区 · 与上一窗共享 · 窗头】`,
+      `（姓名/称呼可收；默认不收单数你/他/她/它/您 — 上文不足易绑错；集体我们/你们/他们忽略；不确定不绑）`,
       prefixOverlap,
       ``,
     );
   }
   if (middle) {
     parts.push(
-      `【主体 · 非重叠 · 姓名/称呼 + 第一人称叙述者「我」；不要收你/他/她；集体忽略】`,
+      `【主体 · 非重叠】`,
+      `（姓名/称呼 + 第一人称叙述者「我」；不要收你/他/她；集体忽略）`,
       middle,
       ``,
     );
   }
   if (suffixOverlap) {
     parts.push(
-      `【重叠区 · 与下一窗共享 · 可收单数你/他/她；集体我们/你们/他们忽略】`,
+      `【后重叠区 · 与下一窗共享 · 窗尾】`,
+      `（姓名/称呼可收；单数你/他/她仅在能明确绑定本窗人物时收，「你」=听话人；无标记对白推不出则不收；集体忽略）`,
       suffixOverlap,
       ``,
     );

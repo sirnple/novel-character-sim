@@ -1,6 +1,15 @@
 import type { MergedCharacter } from "../merge-adjacent";
 import { normalizeMentionSurface } from "../merge-adjacent";
 import {
+  isDeicticKind,
+  isIdentityStrongKind,
+  isProperKind,
+  kindOfSurfaceOnCharacter,
+  preferMentionKind,
+  resolveMentionKind,
+  type MentionKind,
+} from "../mention-kind";
+import {
   pairCooccurMetrics,
   type CooccurGraph,
 } from "./cooccur-graph";
@@ -28,35 +37,50 @@ export function surfacesOf(c: MergedCharacter): string[] {
   return Array.from(s);
 }
 
-/** Generic pronouns / deictics — noisy for coref when a real name also exists. */
-const DEICTIC_PRONOUNS = new Set([
-  "我",
-  "你",
-  "您",
-  "他",
-  "她",
-  "它",
-  "咱",
-  "俺",
-  "本人",
-  "自己",
-  "大家",
-  "别人",
-  "人家",
-  "咱们",
-  "我们",
-  "你们",
-  "他们",
-  "她们",
-  "它们",
-]);
-
 export function isDeicticPronounSurface(surface: string): boolean {
   const s = normalizeMentionSurface(surface);
   if (!s) return false;
-  if (DEICTIC_PRONOUNS.has(s)) return true;
-  // bare 们 suffix forms already covered; single-char only beyond set
-  return false;
+  return isDeicticKind(resolveMentionKind(s));
+}
+
+/** Best kind for a surface on this character (mention tags + rule fallback). */
+export function surfaceKindOn(
+  c: MergedCharacter,
+  surface: string,
+): MentionKind {
+  return kindOfSurfaceOnCharacter(c.mentions || [], surface);
+}
+
+/** Identity-strong surface: proper | personal_nick (not generic/title/…). */
+export function isStrongSurfaceOn(
+  c: MergedCharacter,
+  surface: string,
+): boolean {
+  return isIdentityStrongKind(surfaceKindOn(c, surface));
+}
+
+export function isProperSurfaceOn(
+  c: MergedCharacter,
+  surface: string,
+): boolean {
+  return isProperKind(surfaceKindOn(c, surface));
+}
+
+/**
+ * Kind of a surface for pair evidence: take the **weaker** identity kind
+ * of the two sides (conservative — one side tagging 这小子 as nick does not
+ * make it strong).
+ */
+export function sharedSurfaceKind(
+  a: MergedCharacter,
+  b: MergedCharacter,
+  surface: string,
+): MentionKind {
+  const ka = surfaceKindOn(a, surface);
+  const kb = surfaceKindOn(b, surface);
+  // preferMentionKind picks stronger; invert by picking the other when ranks differ
+  const strong = preferMentionKind(ka, kb);
+  return strong === ka ? kb : ka;
 }
 
 /**
@@ -75,10 +99,14 @@ export function surfacesForCoref(
   return all; // pure-pronoun entity (narrator 我) keeps deictics
 }
 
-function isStrongSurface(s: string): boolean {
-  // multi-char or Latin word — weak singles like 我/他/她 handled separately
-  if (s.length >= 2) return true;
-  return /^[A-Za-z]{2,}$/.test(s);
+/** Identity-strong surfaces only (proper | personal_nick). */
+export function identityStrongSurfacesForCoref(
+  c: MergedCharacter,
+  stripDeicticWhenHasName: boolean,
+): string[] {
+  return surfacesForCoref(c, stripDeicticWhenHasName).filter((s) =>
+    isStrongSurfaceOn(c, s),
+  );
 }
 
 export function buildPairFeatures(
@@ -92,14 +120,45 @@ export function buildPairFeatures(
   const surfacesB = surfacesForCoref(b, strip);
   const setB = new Set(surfacesB);
   const sharedSurfaces = surfacesA.filter((s) => setB.has(s));
-  const sharedStrongSurfaces = sharedSurfaces.filter(isStrongSurface);
+  // Shared strong only if BOTH sides treat the surface as identity-strong
+  const sharedStrongSurfaces = sharedSurfaces.filter(
+    (s) => isStrongSurfaceOn(a, s) && isStrongSurfaceOn(b, s),
+  );
   const setShared = new Set(sharedSurfaces);
   const exclusiveStrongA = surfacesA.filter(
-    (s) => isStrongSurface(s) && !setShared.has(s),
+    (s) => isStrongSurfaceOn(a, s) && !setShared.has(s),
   );
   const exclusiveStrongB = surfacesB.filter(
-    (s) => isStrongSurface(s) && !setShared.has(s),
+    (s) => isStrongSurfaceOn(b, s) && !setShared.has(s),
   );
+  const exclusiveProperA = surfacesA.filter(
+    (s) => isProperSurfaceOn(a, s) && !setShared.has(s),
+  );
+  const exclusiveProperB = surfacesB.filter(
+    (s) => isProperSurfaceOn(b, s) && !setShared.has(s),
+  );
+  const sharedProperSurfaces = sharedSurfaces.filter(
+    (s) => isProperSurfaceOn(a, s) && isProperSurfaceOn(b, s),
+  );
+
+  const sharedDeicticSurfaces: string[] = [];
+  const sharedGenericSurfaces: string[] = [];
+  const sharedKinshipSurfaces: string[] = [];
+  const sharedTitleSurfaces: string[] = [];
+  const sharedDescSurfaces: string[] = [];
+  for (const s of sharedSurfaces) {
+    if (sharedStrongSurfaces.includes(s)) continue;
+    const k = sharedSurfaceKind(a, b, s);
+    if (k === "deictic") sharedDeicticSurfaces.push(s);
+    else if (k === "generic") sharedGenericSurfaces.push(s);
+    else if (k === "kinship") sharedKinshipSurfaces.push(s);
+    else if (k === "title") sharedTitleSurfaces.push(s);
+    else if (k === "desc") sharedDescSurfaces.push(s);
+    else if (k === "proper" || k === "personal_nick") {
+      // one side strong one side weak — treat as weak generic-ish
+      sharedGenericSurfaces.push(s);
+    }
+  }
 
   const gA = normalizeGender(a.gender);
   const gB = normalizeGender(b.gender);
@@ -137,6 +196,7 @@ export function buildPairFeatures(
     ? pairCooccurMetrics(a.id, b.id, graph, {
         jaccardSparseMinCount: config.jaccardSparseMinCount,
         jaccardSparseDiscount: config.jaccardSparseDiscount,
+        exclusivitySparseDiscount: config.exclusivitySparseDiscount,
       })
     : null;
 
@@ -147,8 +207,16 @@ export function buildPairFeatures(
     surfacesB,
     sharedSurfaces,
     sharedStrongSurfaces,
+    sharedProperSurfaces,
     exclusiveStrongA,
     exclusiveStrongB,
+    exclusiveProperA,
+    exclusiveProperB,
+    sharedDeicticSurfaces,
+    sharedGenericSurfaces,
+    sharedKinshipSurfaces,
+    sharedTitleSurfaces,
+    sharedDescSurfaces,
     genderA: a.gender,
     genderB: b.gender,
     ageA: a.age,

@@ -19,8 +19,22 @@ export const EXTRACT_WINDOW_CHARACTERS_SCHEMA = {
               properties: {
                 surface: { type: "string" },
                 textAnchor: { type: "string" },
+                kind: {
+                  type: "string",
+                  description:
+                    "proper | personal_nick | generic | kinship | title | deictic | desc",
+                  enum: [
+                    "proper",
+                    "personal_nick",
+                    "generic",
+                    "kinship",
+                    "title",
+                    "deictic",
+                    "desc",
+                  ],
+                },
               },
-              required: ["surface", "textAnchor"],
+              required: ["surface", "textAnchor", "kind"],
             },
           },
           gender: { type: "string" },

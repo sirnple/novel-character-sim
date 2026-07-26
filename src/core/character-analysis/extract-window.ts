@@ -17,7 +17,8 @@ export interface ExtractWindowOptions {
 
 /**
  * Stage ① single-window LLM extract + in-window coref.
- * Pronouns (我/你/他…) only requested in overlap strips with prev/next.
+ * 你/他/她：默认仅后重叠区（suffix）且可绑定时才收；前重叠区（prefix）默认不收。
+ * 叙述者「我」按 prompt 在整窗可建；集体代词一律忽略。
  */
 export async function extractCharactersInWindow(
   llm: LLMProvider,
@@ -35,6 +36,9 @@ export async function extractCharactersInWindow(
     {
       temperature: options.temperature ?? 0.2,
       maxTokens: options.maxTokens ?? 30_000,
+      // CoT files: …-extract_window_characters-w12-enabled.txt (+ full prompt)
+      cotTag: `w${window.index}`,
+      saveCotPrompt: true,
     },
   );
   return charactersFromLlmWire(raw);

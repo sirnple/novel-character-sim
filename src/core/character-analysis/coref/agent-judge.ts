@@ -232,12 +232,17 @@ export async function agentJudgeSamePerson(
     "1. **age（年龄/少年/青年/中年/老年/小孩等）绝不能作为「不是同一人」的理由。**",
     "   小说里人物会成长；不同窗口的 age 只是当时片段的粗标注，可从少年长到老年。",
     "   reason 里禁止写「年龄不同/年龄冲突/女孩vs少年」之类作为否定依据。",
-    "2. neverSameWindow=true 很常见（跨窗消解正是为此），单独不能否定同一人。",
-    "3. 共享 surface（尤其多字名/专名）是支持同一人的强信号；别名可随情节变化。",
-    "4. genderConflict=true（明确男 vs 女）才是强否定信号。",
-    "5. 阅读摘录中的【】标记处即该 mention 在原文中的位置；结合前后文判断是否同一指称对象。",
-    "6. 有专名/称谓时，列表中已去掉「我/你/他」等泛指；勿因引语里的代词把两人判成同一人。",
-    "7. 仅当双方 surfaces 只剩代词时，才靠「我/他」+ 原文判断是否同一叙述者。",
+    "2. **shared_weak_surfaces / surface 相似度：双方有相同或高度相似的 surface（含弱称谓、描述、头衔等）时，倾向于同一人。**",
+    "   对照特征里的 sharedWeak / sharedSurfaces 与双方 surface 列表；也看摘录中的叫法是否像同一指称。",
+    "   （共享 proper/nick 见 sharedStrong，是更强的同一人信号。）",
+    "3. **是否「同时出现过」不能单靠 sameWindowCount（及字距等程序统计）。**",
+    "   还须看【原文摘录】：摘录中 A、B 的称呼/专名同时出现，也算同时出现过。",
+    "   同时出现本身不单独决定是否同一人，须结合原则2的 surface 相似度与上下文综合判断。",
+    "4. neverSameWindow=true 只表示程序统计上两边 mention 未落在同一分析窗；跨窗别名合并仍常见，单独不能否定同一人。",
+    "5. genderConflict=true（明确男 vs 女）是强否定信号。",
+    "6. 阅读摘录中的【】标记处即该 mention 在原文中的位置；结合前后文判断是否同一指称对象。",
+    "7. 有专名/称谓时，列表中已去掉「我/你/他」等泛指；勿因引语里的代词把两人判成同一人。",
+    "8. 仅当双方 surfaces 只剩代词时，才靠「我/他」+ 原文判断是否同一叙述者。",
     "",
     "【人物 A】",
     fmtChar(a, strip),
@@ -251,16 +256,44 @@ export async function agentJudgeSamePerson(
     "",
     "【规则特征】",
     `sharedSurfaces=${features.sharedSurfaces.join("、") || "（无）"}`,
-    `sharedStrong=${features.sharedStrongSurfaces.join("、") || "（无）"}`,
-    `exclusiveA=${features.exclusiveStrongA.join("、") || "（无）"}`,
-    `exclusiveB=${features.exclusiveStrongB.join("、") || "（无）"}`,
+    `sharedStrong(proper|nick)=${features.sharedStrongSurfaces.join("、") || "（无）"}`,
+    `sharedProper=${features.sharedProperSurfaces.join("、") || "（无）"}`,
+    `sharedWeakSurfaces=` +
+      [
+        features.sharedDeicticSurfaces.length
+          ? `deictic「${features.sharedDeicticSurfaces.join("、")}」`
+          : "",
+        features.sharedGenericSurfaces.length
+          ? `generic「${features.sharedGenericSurfaces.join("、")}」`
+          : "",
+        features.sharedKinshipSurfaces.length
+          ? `kinship「${features.sharedKinshipSurfaces.join("、")}」`
+          : "",
+        features.sharedTitleSurfaces.length
+          ? `title「${features.sharedTitleSurfaces.join("、")}」`
+          : "",
+        features.sharedDescSurfaces.length
+          ? `desc「${features.sharedDescSurfaces.join("、")}」`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ") || "（无）",
+    `exclusiveStrongA=${features.exclusiveStrongA.join("、") || "（无）"}`,
+    `exclusiveStrongB=${features.exclusiveStrongB.join("、") || "（无）"}`,
+    `exclusiveProperA=${features.exclusiveProperA.join("、") || "（无）"}`,
+    `exclusiveProperB=${features.exclusiveProperB.join("、") || "（无）"}`,
     `genderConflict=${features.genderConflict}`,
-    `windowGap=${features.windowGap}`,
+    `windowGap=${features.windowGap}` +
+      (() => {
+        const n = ctxOpts.windows?.length ?? 0;
+        if (n < 2) return "";
+        return ` r=${(features.windowGap / Math.max(1, n - 1)).toFixed(3)} nWin=${n}`;
+      })(),
     `minMentionDistance=${features.minMentionDistance ?? "n/a"}`,
     `closeMentionPairCount=${features.closeMentionPairCount}`,
     `cooccurExclusivity=${features.cooccurExclusivity.toFixed(3)}` +
       (features.cooccurSparse
-        ? ` (raw=${features.cooccurExclusivityRaw.toFixed(3)}, sparse)`
+        ? ` (raw=${features.cooccurExclusivityRaw.toFixed(3)}, sparse×discount)`
         : ""),
     `cooccurJaccard=${features.cooccurJaccard.toFixed(3)}` +
       (features.cooccurSparse

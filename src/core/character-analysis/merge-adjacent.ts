@@ -2,9 +2,20 @@
  * Stage ②: pairwise hierarchical merge of window character lists.
  *
  * Example (4 windows): (1⊕2)→a, (3⊕4)→b, then a⊕b.
- * Two characters merge only if they share ≥1 **identical mention** in the
- * junction overlap: same surface **and** same offsetAnchor (globalStart/End).
- * (Not "same surface somewhere in overlap" — two different 我@不同offset 不能并.)
+ *
+ * Merge if **either**:
+ * 1. Shared **proper | personal_nick** surface string on both sides
+ *    (any offsets; need **not** lie in junction overlap), or
+ * 2. Junction overlap has enough **identical** mentions
+ *    (same surface + same offsetAnchor), with kind-tier thresholds:
+ *
+ * | tier   | kinds                         | min shared identical |
+ * |--------|-------------------------------|----------------------|
+ * | strong | proper, personal_nick         | 1                    |
+ * | mid    | title, kinship, desc          | 2                    |
+ * | weak   | deictic, generic              | 3                    |
+ *
+ * Tiers are counted separately (not summed across tiers).
  */
 
 import type {
@@ -15,12 +26,39 @@ import type {
   WindowExtractResult,
 } from "./types";
 import {
+  isIdentityStrongKind,
+  preferMentionKind,
+  resolveMentionKind,
+  type MentionKind,
+} from "./mention-kind";
+import {
   locateCharactersInWindow,
   offsetInRange,
   type LocatedCharacter,
   type LocatedMention,
 } from "./locate-mentions";
 import { overlapRange } from "./windows";
+
+/** Stage② merge evidence tiers (identical surface+offset in overlap). */
+export type MergeEvidenceTier = {
+  strong: number;
+  mid: number;
+  weak: number;
+};
+
+export const MERGE_EVIDENCE_MIN: Readonly<MergeEvidenceTier> = {
+  strong: 1,
+  mid: 2,
+  weak: 3,
+};
+
+export type MergeEvidenceTierKind = keyof MergeEvidenceTier;
+
+export function mergeEvidenceTierOfKind(k: MentionKind): MergeEvidenceTierKind {
+  if (k === "proper" || k === "personal_nick") return "strong";
+  if (k === "title" || k === "kinship" || k === "desc") return "mid";
+  return "weak"; // deictic | generic
+}
 
 export function normalizeMentionSurface(surface: string): string {
   return (surface || "").trim().replace(/\s+/g, " ");
@@ -76,20 +114,28 @@ function mergeMentionLists(
   a: LocatedMention[],
   b: LocatedMention[],
 ): LocatedMention[] {
-  const seen = new Set<string>();
-  const out: LocatedMention[] = [];
+  const byKey = new Map<string, LocatedMention>();
   for (const m of [...a, ...b]) {
     const surface = normalizeMentionSurface(m.surface);
     if (!surface || !m.offsetAnchor) continue;
     const key = `${surface}\0${m.offsetAnchor.globalStart}\0${m.offsetAnchor.globalEnd}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
+    const kind = m.kind ?? resolveMentionKind(surface);
+    const prev = byKey.get(key);
+    if (prev) {
+      byKey.set(key, {
+        ...prev,
+        kind: preferMentionKind(prev.kind ?? kind, kind),
+      });
+      continue;
+    }
+    byKey.set(key, {
       surface,
       textAnchor: (m.textAnchor || surface).trim(),
+      kind,
       offsetAnchor: { ...m.offsetAnchor },
     });
   }
+  const out = Array.from(byKey.values());
   out.sort((x, y) => x.offsetAnchor.globalStart - y.offsetAnchor.globalStart);
   return out;
 }
@@ -123,44 +169,87 @@ export function mentionIdentityKey(m: LocatedMention): string | null {
   return `${s}\0${globalStart}\0${globalEnd}`;
 }
 
+function kindOfLocatedMention(m: LocatedMention): MentionKind {
+  return m.kind ?? resolveMentionKind(m.surface, m.kind);
+}
+
 /**
- * Mentions that are **identical** (surface + offsetAnchor) on both characters
- * and whose globalStart falls inside the junction `overlap`.
- *
- * Returns the shared surface strings (for traces); one entry per distinct identity key.
+ * Any located mention with offset may contribute to Stage② tier counts
+ * (thresholds decide whether they are enough to merge).
+ */
+export function isMergeEvidenceMention(m: LocatedMention): boolean {
+  return Boolean(m.offsetAnchor && normalizeMentionSurface(m.surface));
+}
+
+/**
+ * Shared **identical** mentions (surface + offset) in `overlap`, all kinds.
+ * Returns trace strings `surface@globalStart` (and optional kind for debug).
  */
 export function sharedIdenticalMentionsInOverlap(
   a: MergedCharacter | LocatedCharacter,
   b: MergedCharacter | LocatedCharacter,
   overlap: { start: number; end: number },
 ): string[] {
+  return classifySharedIdenticalInOverlap(a, b, overlap).shared;
+}
+
+/**
+ * Count shared identical mentions by evidence tier.
+ * Each distinct identity key counts once; tier from A's kind (prefer stronger if both tagged).
+ */
+export function classifySharedIdenticalInOverlap(
+  a: MergedCharacter | LocatedCharacter,
+  b: MergedCharacter | LocatedCharacter,
+  overlap: { start: number; end: number },
+): { shared: string[]; tiers: MergeEvidenceTier; byKey: Array<{ label: string; tier: MergeEvidenceTierKind; kind: MentionKind }> } {
   const keysInOverlap = (c: { mentions: LocatedMention[] }) => {
-    const map = new Map<string, string>(); // identityKey → surface
+    // identityKey → { surface, kind }
+    const map = new Map<string, { surface: string; kind: MentionKind }>();
     for (const m of c.mentions || []) {
       if (!m.offsetAnchor) continue;
       if (!offsetInRange(m.offsetAnchor.globalStart, overlap)) continue;
+      if (!isMergeEvidenceMention(m)) continue;
       const key = mentionIdentityKey(m);
       if (!key) continue;
-      map.set(key, normalizeMentionSurface(m.surface));
+      const kind = kindOfLocatedMention(m);
+      const prev = map.get(key);
+      if (!prev) {
+        map.set(key, {
+          surface: normalizeMentionSurface(m.surface),
+          kind,
+        });
+      } else {
+        map.set(key, {
+          surface: prev.surface,
+          kind: preferMentionKind(prev.kind, kind),
+        });
+      }
     }
     return map;
   };
   const ma = keysInOverlap(a);
   const mb = keysInOverlap(b);
+  const tiers: MergeEvidenceTier = { strong: 0, mid: 0, weak: 0 };
   const shared: string[] = [];
-  const seenSurface = new Set<string>();
-  for (const [key, surface] of ma) {
-    if (!mb.has(key)) continue;
-    // trace: report surface (and offset via key if needed)
-    if (!seenSurface.has(key)) {
-      seenSurface.add(key);
-      shared.push(`${surface}@${key.split("\0")[1]}`);
-    }
+  const byKey: Array<{
+    label: string;
+    tier: MergeEvidenceTierKind;
+    kind: MentionKind;
+  }> = [];
+  for (const [key, va] of ma) {
+    const vb = mb.get(key);
+    if (!vb) continue;
+    const kind = preferMentionKind(va.kind, vb.kind);
+    const tier = mergeEvidenceTierOfKind(kind);
+    tiers[tier]++;
+    const label = `${va.surface}@${key.split("\0")[1]}`;
+    shared.push(label);
+    byKey.push({ label, tier, kind });
   }
-  return shared;
+  return { shared, tiers, byKey };
 }
 
-/** @deprecated name kept for callers; now requires surface+offset identity */
+/** @deprecated name kept for callers; lists all identical shared mentions in overlap */
 export function sharedSurfacesInOverlap(
   a: MergedCharacter | LocatedCharacter,
   b: MergedCharacter | LocatedCharacter,
@@ -169,16 +258,97 @@ export function sharedSurfacesInOverlap(
   return sharedIdenticalMentionsInOverlap(a, b, overlap);
 }
 
+export function meetsMergeEvidenceThresholds(
+  tiers: MergeEvidenceTier,
+  min: MergeEvidenceTier = MERGE_EVIDENCE_MIN,
+): boolean {
+  return (
+    tiers.strong >= min.strong ||
+    tiers.mid >= min.mid ||
+    tiers.weak >= min.weak
+  );
+}
+
+/**
+ * Strong surfaces (proper|personal_nick) present on a character, keyed by surface.
+ * Kind is the best (highest identity) label seen for that surface.
+ */
+export function strongSurfacesOf(
+  c: MergedCharacter | LocatedCharacter,
+): Map<string, MentionKind> {
+  const map = new Map<string, MentionKind>();
+  for (const m of c.mentions || []) {
+    const s = normalizeMentionSurface(m.surface);
+    if (!s) continue;
+    const k = kindOfLocatedMention(m);
+    if (!isIdentityStrongKind(k)) continue;
+    const prev = map.get(s);
+    map.set(s, prev ? preferMentionKind(prev, k) : k);
+  }
+  return map;
+}
+
+/**
+ * Shared proper|personal_nick surface **strings** (any offset; not limited to overlap).
+ * Returns surfaces sorted for stable traces.
+ */
+export function sharedStrongSurfacesAnywhere(
+  a: MergedCharacter | LocatedCharacter,
+  b: MergedCharacter | LocatedCharacter,
+): string[] {
+  const ma = strongSurfacesOf(a);
+  const mb = strongSurfacesOf(b);
+  const out: string[] = [];
+  for (const s of ma.keys()) {
+    if (mb.has(s)) out.push(s);
+  }
+  return out.sort((x, y) => x.localeCompare(y, "zh"));
+}
+
+/**
+ * Merge if:
+ * - ≥1 shared proper|personal_nick surface string (anywhere), or
+ * - shared identical mentions in overlap meet kind-tier thresholds
+ *   (strong≥1 | mid≥2 | weak≥3 by default).
+ *
+ * Overlap may be null: strong-surface share alone can still merge.
+ */
 export function canMergeInOverlap(
   a: MergedCharacter,
   b: MergedCharacter,
   overlap: { start: number; end: number } | null,
-): { ok: boolean; shared: string[] } {
-  if (!overlap || overlap.end <= overlap.start) {
-    return { ok: false, shared: [] };
+): {
+  ok: boolean;
+  shared: string[];
+  tiers: MergeEvidenceTier;
+  /** Shared proper|nick surfaces (any offset) that triggered merge */
+  sharedStrongAnywhere: string[];
+} {
+  const sharedStrongAnywhere = sharedStrongSurfacesAnywhere(a, b);
+  if (sharedStrongAnywhere.length >= 1) {
+    return {
+      ok: true,
+      shared: sharedStrongAnywhere.map((s) => `${s}@any`),
+      tiers: { strong: sharedStrongAnywhere.length, mid: 0, weak: 0 },
+      sharedStrongAnywhere,
+    };
   }
-  const shared = sharedIdenticalMentionsInOverlap(a, b, overlap);
-  return { ok: shared.length >= 1, shared };
+
+  if (!overlap || overlap.end <= overlap.start) {
+    return {
+      ok: false,
+      shared: [],
+      tiers: { strong: 0, mid: 0, weak: 0 },
+      sharedStrongAnywhere: [],
+    };
+  }
+  const { shared, tiers } = classifySharedIdenticalInOverlap(a, b, overlap);
+  return {
+    ok: meetsMergeEvidenceThresholds(tiers),
+    shared,
+    tiers,
+    sharedStrongAnywhere: [],
+  };
 }
 
 /**
@@ -440,6 +610,7 @@ export function mergeTwoCharacters(a: Character, b: Character): Character {
     mentions.push({
       surface,
       textAnchor: (m.textAnchor || surface).trim(),
+      kind: m.kind ?? resolveMentionKind(surface),
       ...(m.offsetAnchor
         ? { offsetAnchor: { ...m.offsetAnchor } as OffsetAnchor }
         : {}),

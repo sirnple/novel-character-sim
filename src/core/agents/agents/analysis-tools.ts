@@ -1068,9 +1068,9 @@ export const analysisDomainTools: ToolDefinition[] = [
     description:
       "【角色列表】新流水线：①滑窗抽取 → ②overlap 相同 mention 合并 → ③规则+agent 跨窗消解 → ④从 surfaces 选 **canonicalName**；" +
       "写入 catalog、localEntities 与 **entities 初稿**（name=canonicalName）。成功含「角色指称已扫描」。" +
-      "之后核对 list_local_entities / list_cross_name_candidates，按需 merge 后 **submit_character_entities**。" +
-      "**默认跳过**：本会话已有 catalog/localEntities 时直接返回缓存摘要。" +
-      "forceRefresh=true 全书重跑流水线。submit 被拒时禁止无故重扫，应 merge/清 alias 后重交。",
+      "名单子 Agent 流程：scan → 直接 **submit_character_entities**（勿 list/lookup/异名循环）。" +
+      "**默认跳过**：本会话已有 catalog/localEntities 时返回缓存。" +
+      "forceRefresh=true 全书重跑流水线。",
     parameters: {
       type: "object",
       properties: {

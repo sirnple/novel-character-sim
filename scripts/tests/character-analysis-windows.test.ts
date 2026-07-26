@@ -22,6 +22,11 @@ export function runCharacterAnalysisWindowsTests(): void {
       assert.equal(wins[0]!.text.length, 2000);
       assert.equal(wins[1]!.start, 1600);
       assert.equal(wins[0]!.end - wins[1]!.start, 400);
+      // label 与 index 一致、从 0 起
+      assert.equal(wins[0]!.index, 0);
+      assert.equal(wins[0]!.label, "窗0");
+      assert.equal(wins[1]!.label, "窗1");
+      for (const w of wins) assert.equal(w.label, `窗${w.index}`);
     });
 
     test("splitWindowByOverlap marks head/tail for middle window", () => {
@@ -48,24 +53,37 @@ export function runCharacterAnalysisWindowsTests(): void {
         windowChars: 2000,
         overlapChars: 400,
       });
-      const body = formatWindowBodyForPrompt(wins[0]!, null, wins[1]);
-      assert.ok(body.includes("重叠区"));
-      assert.ok(body.includes("主体"));
+      // first window: no prefix, has suffix + middle
+      const body0 = formatWindowBodyForPrompt(wins[0]!, null, wins[1]);
+      assert.ok(body0.includes("后重叠区"));
+      assert.ok(body0.includes("主体"));
+      assert.ok(!body0.includes("前重叠区"));
+      // middle window: prefix (no deictic) + middle + suffix
+      const body1 = formatWindowBodyForPrompt(wins[1]!, wins[0], wins[2]);
+      assert.ok(body1.includes("前重叠区"));
+      assert.ok(body1.includes("后重叠区"));
+      assert.ok(body1.includes("默认不收单数你/他"));
+      assert.ok(body1.includes("仅在能明确绑定"));
     });
 
     test("normalize array wire", () => {
       const chars = charactersFromLlmWire([
         {
           mentions: [
-            { surface: "王明", textAnchor: "只见王明走来" },
-            { surface: "他", textAnchor: "他冷笑道" },
+            { surface: "王明", textAnchor: "只见王明走来", kind: "proper" },
+            { surface: "他", textAnchor: "他冷笑道", kind: "deictic" },
+            { surface: "这小子", textAnchor: "这小子真行", kind: "proper" },
           ],
           gender: "男",
         },
       ]);
       assert.equal(chars.length, 1);
-      assert.equal(chars[0]!.mentions.length, 2);
+      assert.equal(chars[0]!.mentions.length, 3);
       assert.equal(chars[0]!.mentions[0]!.surface, "王明");
+      assert.equal(chars[0]!.mentions[0]!.kind, "proper");
+      assert.equal(chars[0]!.mentions[1]!.kind, "deictic");
+      // rule override: LLM said proper on 这小子 → still generic
+      assert.equal(chars[0]!.mentions[2]!.kind, "generic");
     });
 
     test("normalize wrapped + name fallback", () => {
@@ -74,6 +92,7 @@ export function runCharacterAnalysisWindowsTests(): void {
       });
       assert.equal(chars.length, 1);
       assert.equal(chars[0]!.mentions[0]!.surface, "李华");
+      assert.equal(chars[0]!.mentions[0]!.kind, "proper");
     });
   });
 }

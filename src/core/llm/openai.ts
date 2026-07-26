@@ -11,7 +11,13 @@ import { recordChatWithToolAttempt } from "@/core/llm/chat-with-tool-metrics";
 
 /**
  * Persist DeepSeek-style reasoning_content when LLM_SAVE_COT=1 (or "true").
- * Files: scripts/eval/results/cot/<stamp>-<tool>-<thinking>.txt
+ *
+ * Directory:
+ * - If `LLM_COT_DIR` is set → `{LLM_COT_DIR}/<tool>/…`
+ *   (eval runs set this to `scripts/eval/results/<runId>/cot`)
+ * - Else → `scripts/eval/results/cot/<tool>/…` (legacy shared bucket)
+ *
+ * Files: `<stamp>[-tag]-<thinking>.txt` with optional PROMPT + REASONING + CONTENT.
  */
 function maybeSaveCot(opts: {
   toolName: string;
@@ -20,6 +26,9 @@ function maybeSaveCot(opts: {
   finish: string | undefined;
   content: string;
   reasoning: string;
+  prompt?: string;
+  cotTag?: string;
+  savePrompt?: boolean;
 }): void {
   const flag = (process.env.LLM_SAVE_COT || "").toLowerCase();
   if (flag !== "1" && flag !== "true" && flag !== "yes") return;
@@ -28,39 +37,59 @@ function maybeSaveCot(opts: {
   const content = opts.content || "";
   if (!reasoning.trim() && !content.trim()) return;
 
-  const dir = path.join(
-    process.cwd(),
-    "scripts",
-    "eval",
-    "results",
-    "cot",
-  );
+  const safeTool = (opts.toolName || "tool").replace(/[^\w.-]+/g, "_") || "tool";
+  const cotRoot = (process.env.LLM_COT_DIR || "").trim();
+  const dir = cotRoot
+    ? path.join(path.isAbsolute(cotRoot) ? cotRoot : path.resolve(process.cwd(), cotRoot), safeTool)
+    : path.join(
+        process.cwd(),
+        "scripts",
+        "eval",
+        "results",
+        "cot",
+        safeTool,
+      );
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch {
     /* ignore */
   }
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const safeTool = (opts.toolName || "tool").replace(/[^\w.-]+/g, "_");
+  const safeTag = (opts.cotTag || "")
+    .replace(/[^\w.-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  // Folder already encodes tool name — keep stamp + optional tag + thinking
   const file = path.join(
     dir,
-    `${stamp}-${safeTool}-${opts.thinking}.txt`,
+    `${stamp}${safeTag ? `-${safeTag}` : ""}-${opts.thinking}.txt`,
   );
-  const body = [
+  const savePrompt = opts.savePrompt !== false;
+  const parts = [
     `model=${opts.model}`,
     `tool=${opts.toolName}`,
+    opts.cotTag ? `cotTag=${opts.cotTag}` : "",
     `thinking=${opts.thinking}`,
     `finish=${opts.finish ?? ""}`,
     `reasoningLen=${reasoning.length}`,
     `contentLen=${content.length}`,
     ``,
+  ].filter(Boolean);
+  if (savePrompt && opts.prompt) {
+    parts.push(
+      `===== PROMPT (user) =====`,
+      opts.prompt,
+      ``,
+    );
+  }
+  parts.push(
     `===== REASONING (CoT) =====`,
     reasoning || "(empty)",
     ``,
     `===== CONTENT (final JSON) =====`,
     content || "(empty)",
     ``,
-  ].join("\n");
+  );
+  const body = parts.join("\n");
   try {
     fs.writeFileSync(file, body, "utf8");
     console.log(`[LLM:chatWithTool] saved CoT → ${file}`);
@@ -242,7 +271,13 @@ export class OpenAIProvider implements LLMProvider {
   async chatWithTool<T>(
     messages: LLMMessage[],
     toolSchema: ToolSchema,
-    options?: { model?: string; maxTokens?: number; temperature?: number }
+    options?: {
+      model?: string;
+      maxTokens?: number;
+      temperature?: number;
+      cotTag?: string;
+      saveCotPrompt?: boolean;
+    }
   ): Promise<T> {
     const model = options?.model || this.defaultModel;
     const inputLen = messages.reduce((sum, m) => sum + len(m), 0);
@@ -330,6 +365,9 @@ export class OpenAIProvider implements LLMProvider {
         finish,
         content: contentStr || rawText,
         reasoning: reasoningStr,
+        prompt: toolPrompt,
+        cotTag: options?.cotTag,
+        savePrompt: options?.saveCotPrompt !== false,
       });
       recordTokenUsage({
         model,

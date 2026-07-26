@@ -9,7 +9,11 @@ import { mergeTwoMergedCharacters } from "../merge-adjacent";
 import type { AnalysisWindow } from "../types";
 import { agentJudgeSamePerson } from "./agent-judge";
 import { buildCooccurGraph } from "./cooccur-graph";
-import { buildPairFeatures, surfacesForCoref } from "./features";
+import {
+  buildPairFeatures,
+  identityStrongSurfacesForCoref,
+  isStrongSurfaceOn,
+} from "./features";
 import { ALL_COREF_RULES } from "./rules";
 import { decideByThresholds, scorePair } from "./score";
 import type {
@@ -18,6 +22,7 @@ import type {
   Stage3CorefConfig,
   Stage3ResolveResult,
 } from "./types";
+import { selectGreyLlmMode } from "./grey-llm-mode";
 import { STAGE3_DEFAULT_CONFIG } from "./types";
 import { UnionFind } from "./union-find";
 
@@ -46,14 +51,17 @@ function pairKey(idA: string, idB: string): string {
   return idA < idB ? `${idA}\0${idB}` : `${idB}\0${idA}`;
 }
 
-function sharedSurfacesBetween(
+/** Residual pass: only identity-strong shared surfaces (kind proper|nick). */
+function sharedIdentitySurfacesBetween(
   a: MergedCharacter,
   b: MergedCharacter,
   stripDeicticWhenHasName: boolean,
 ): string[] {
-  const setB = new Set(surfacesForCoref(b, stripDeicticWhenHasName));
-  return surfacesForCoref(a, stripDeicticWhenHasName).filter((s) =>
-    setB.has(s),
+  const setB = new Set(
+    identityStrongSurfacesForCoref(b, stripDeicticWhenHasName),
+  );
+  return identityStrongSurfacesForCoref(a, stripDeicticWhenHasName).filter(
+    (s) => setB.has(s) && isStrongSurfaceOn(a, s) && isStrongSurfaceOn(b, s),
   );
 }
 
@@ -103,6 +111,7 @@ export interface Stage3Options {
     idB: string;
     score: number;
     phase?: "grey" | "same_surface";
+    llmMode?: "oneshot" | "deep";
   }) => void;
 }
 
@@ -160,8 +169,13 @@ export async function resolveCorefWithRulesAndAgent(
       config,
     };
     const base = scorePair(ctx, ALL_COREF_RULES);
-    const decision = decideByThresholds(base, config);
+    const decision = decideByThresholds(base, config, features);
     const row: PairScoreResult = { ...base, decision };
+    if (decision === "agent") {
+      const route = selectGreyLlmMode(base.score, config, features);
+      row.llmMode = route.mode;
+      row.llmModeReason = route.reason;
+    }
     scored.push(row);
     scoredByKey.set(pairKey(a.id, b.id), row);
 
@@ -176,6 +190,8 @@ export async function resolveCorefWithRulesAndAgent(
   let agentMerge = 0;
   let agentReject = 0;
   let agentSkipped = 0;
+  let agentOneshot = 0;
+  let agentDeep = 0;
   const warnAt = config.agentMaxPairs;
   if (
     config.agentEnabled &&
@@ -193,6 +209,17 @@ export async function resolveCorefWithRulesAndAgent(
     for (const row of agentQueue) {
       row.decision = "agent_skipped";
       agentSkipped++;
+    }
+  } else {
+    for (const row of toJudge) {
+      if (row.llmMode === "deep") agentDeep++;
+      else agentOneshot++;
+    }
+    if (toJudge.length) {
+      console.log(
+        `[stage3] grey LLM route oneshot=${agentOneshot} deep=${agentDeep} ` +
+          `(σ_r=${config.greySigmaReject} σ_m=${config.greySigmaMerge} τ=${config.greyEdgeTau})`,
+      );
     }
   }
 
@@ -219,6 +246,7 @@ export async function resolveCorefWithRulesAndAgent(
   ): Promise<AgentOutcome> {
     const a = byId.get(row.idA);
     const b = byId.get(row.idB);
+    const mode = row.llmMode ?? "oneshot";
     options.onAgentPair?.({
       index,
       total,
@@ -226,6 +254,7 @@ export async function resolveCorefWithRulesAndAgent(
       idB: row.idB,
       score: row.score,
       phase,
+      llmMode: mode,
     });
     if (!llm || !a || !b) {
       row.decision = "agent_skipped";
@@ -234,15 +263,23 @@ export async function resolveCorefWithRulesAndAgent(
     }
     try {
       const features = buildPairFeatures(a, b, config, graph);
+      // deep: richer context for now; multi-turn tools land next
+      const deep = mode === "deep" || phase === "same_surface";
       const ans = await agentJudgeSamePerson(llm, a, b, features, {
         fullText: options.fullText,
         windows,
-        contextRadius: options.agentContextRadius ?? 200,
-        maxMentionsPerChar: 4,
+        contextRadius: deep
+          ? Math.max(options.agentContextRadius ?? 200, 320)
+          : options.agentContextRadius ?? 200,
+        maxMentionsPerChar: deep ? 6 : 4,
         stripDeicticWhenHasName: config.stripDeicticWhenHasName !== false,
       });
       row.agentAnswer = ans.same;
-      const tag = phase === "same_surface" ? "[same_surface] " : "";
+      const tags: string[] = [];
+      if (phase === "same_surface") tags.push("same_surface");
+      tags.push(deep ? "deep" : "oneshot");
+      if (row.llmModeReason) tags.push(row.llmModeReason);
+      const tag = tags.length ? `[${tags.join("|")}] ` : "";
       row.agentReason = tag + (ans.reason || "");
       if (ans.same) {
         row.decision = "agent_merge";
@@ -276,8 +313,8 @@ export async function resolveCorefWithRulesAndAgent(
   }
 
   // ── Same-surface residual pass (兜底) ─────────────────────────────
-  // After grey agent, any UF-disjoint pair that still shares ≥1 surface
-  // must be judged by agent (even if earlier auto_reject / agent_reject).
+  // After grey agent, UF-disjoint pairs that still share ≥1 **identity-strong**
+  // surface (proper|personal_nick) are forced to agent — not deictic/generic.
   let sameSurfacePass = 0;
   let sameSurfaceMerge = 0;
   let sameSurfaceReject = 0;
@@ -286,7 +323,7 @@ export async function resolveCorefWithRulesAndAgent(
     const residual: PairScoreResult[] = [];
     for (const [a, b] of unorderedPairs(characters)) {
       if (uf.find(a.id) === uf.find(b.id)) continue;
-      const shared = sharedSurfacesBetween(
+      const shared = sharedIdentitySurfacesBetween(
         a,
         b,
         config.stripDeicticWhenHasName !== false,
@@ -327,6 +364,11 @@ export async function resolveCorefWithRulesAndAgent(
     }
     sameSurfacePass = residual.length;
 
+    for (const row of residual) {
+      row.llmMode = "deep";
+      row.llmModeReason = row.llmModeReason || "same_surface residual → deep";
+    }
+
     const resOutcomes = await mapPool(
       residual,
       agentConcurrency,
@@ -356,6 +398,8 @@ export async function resolveCorefWithRulesAndAgent(
     agentMerge,
     agentReject,
     agentSkipped,
+    agentOneshot,
+    agentDeep,
     sameSurfacePass,
     sameSurfaceMerge,
     sameSurfaceReject,

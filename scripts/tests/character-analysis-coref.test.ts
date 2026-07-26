@@ -14,12 +14,14 @@ import {
   resolveCorefWithRulesAndAgent,
   sanitizePositiveWeight,
   scorePair,
+  selectGreyLlmMode,
   sliceContextFromFullText,
   surfacesForCoref,
   STAGE3_DEFAULT_CONFIG,
 } from "../../src/core/character-analysis/coref";
 import type { PairContext } from "../../src/core/character-analysis/coref";
 import type { AnalysisWindow } from "../../src/core/character-analysis/types";
+import { resolveMentionKind } from "../../src/core/character-analysis/mention-kind";
 
 function mc(
   id: string,
@@ -35,6 +37,7 @@ function mc(
     mentions: surfaces.map((surface, i) => ({
       surface,
       textAnchor: surface,
+      kind: resolveMentionKind(surface),
       offsetAnchor: {
         localStart: i,
         localEnd: i + surface.length,
@@ -90,6 +93,23 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
       assert.equal(pick.canonicalName, "黎星");
       assert.ok(pick.aliases.includes("小星老师"));
       assert.ok(pick.aliases.includes("我"));
+      // single proper → rule confident, skip LLM
+      assert.equal(pick.ruleConfident, true);
+    });
+
+    test("stage4 single proper is confident; multi-proper is not", () => {
+      const one = mc("a", ["周屿", "他", "你", "屿哥"]);
+      const p1 = selectCanonicalName(one);
+      assert.equal(p1.canonicalName, "周屿");
+      assert.equal(p1.ruleConfident, true);
+
+      const two = mc("b", ["周屿", "周航"]);
+      const p2 = selectCanonicalName(two);
+      assert.equal(p2.ruleConfident, false);
+      assert.ok(
+        p2.canonicalName === "周屿" || p2.canonicalName === "周航",
+        p2.canonicalName,
+      );
     });
 
     test("strip deictic pronouns when entity also has a name", () => {
@@ -106,7 +126,108 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
       );
       // no shared surface after strip — 将军 vs 我
       assert.deepEqual(feat.sharedSurfaces, []);
-      assert.ok(feat.exclusiveStrongA.includes("将军"));
+      // 将军 is title — not identity-strong exclusive
+      assert.ok(!feat.exclusiveStrongA.includes("将军"));
+    });
+
+    test("generic 这小子 is not strong; exclusive propers 王铎 vs 周航 penalize", () => {
+      const wang = mc("w", ["王铎", "他", "这小子", "小王八"], {
+        gender: "男",
+        windowLo: 3,
+        windowHi: 3,
+      });
+      const zhou = mc("z", ["周航", "他", "这小子", "那小子"], {
+        gender: "男",
+        windowLo: 3,
+        windowHi: 3,
+      });
+      const feat = buildPairFeatures(wang, zhou, mergeStage3Config());
+      assert.ok(feat.sharedSurfaces.includes("这小子"));
+      assert.ok(
+        !feat.sharedStrongSurfaces.includes("这小子"),
+        `strong should not include 这小子: ${feat.sharedStrongSurfaces.join(",")}`,
+      );
+      assert.deepEqual(feat.sharedStrongSurfaces, []);
+      assert.ok(feat.sharedGenericSurfaces.includes("这小子"));
+      assert.ok(feat.exclusiveProperA.includes("王铎"));
+      assert.ok(feat.exclusiveProperB.includes("周航"));
+      const s = scorePair(ctx(wang, zhou));
+      assert.ok(
+        s.hard !== "merge",
+        "must not hard-merge on generic epithet alone",
+      );
+      const decision = decideByThresholds(s, STAGE3_DEFAULT_CONFIG, feat);
+      assert.ok(
+        decision !== "auto_merge",
+        `score=${s.score} decision=${decision} should not auto_merge`,
+      );
+      const excl = s.breakdown.find((b) => b.ruleId === "exclusive_proper_names");
+      assert.ok(excl && excl.delta < 0, "exclusive proper soft penalty");
+    });
+
+    test("kind gate: co-occur alone cannot auto_merge (g4)", () => {
+      // Two different people in same window: only proximity + co-occur, no shared strong
+      const a = mc("a", ["周屿", "他"], {
+        gender: "男",
+        windowLo: 5,
+        windowHi: 5,
+      });
+      const b = mc("b", ["黑仔", "小鬼"], {
+        gender: "男",
+        windowLo: 5,
+        windowHi: 5,
+      });
+      // Force close co-occur offsets
+      for (const m of a.mentions) {
+        if (m.offsetAnchor) {
+          m.offsetAnchor.globalStart = 5000;
+          m.offsetAnchor.globalEnd = 5002;
+        }
+      }
+      for (const m of b.mentions) {
+        if (m.offsetAnchor) {
+          m.offsetAnchor.globalStart = 5100;
+          m.offsetAnchor.globalEnd = 5102;
+        }
+      }
+      const config = mergeStage3Config();
+      const feat = buildPairFeatures(a, b, config);
+      assert.equal(feat.sharedStrongSurfaces.length, 0);
+      assert.ok(feat.exclusiveProperA.includes("周屿") || feat.exclusiveStrongA.includes("周屿"));
+      const s = scorePair({
+        a,
+        b,
+        features: feat,
+        windows: [],
+        fullTextLength: 20000,
+        config,
+      });
+      // Even if score is high, gate forces agent
+      const decision = decideByThresholds(
+        { ...s, score: 0.92 },
+        config,
+        feat,
+      );
+      assert.equal(
+        decision,
+        "agent",
+        "requireSharedStrongForAutoMerge blocks soft auto_merge",
+      );
+      // With shared proper, high score can auto_merge
+      const a2 = mc("a2", ["周屿"], { gender: "男", windowLo: 0, windowHi: 0 });
+      const b2 = mc("b2", ["周屿", "屿哥"], {
+        gender: "男",
+        windowLo: 2,
+        windowHi: 2,
+      });
+      const feat2 = buildPairFeatures(a2, b2, config);
+      assert.ok(feat2.sharedStrongSurfaces.includes("周屿"));
+      const d2 = decideByThresholds(
+        { ...s, score: 0.9, hard: null },
+        config,
+        feat2,
+      );
+      assert.equal(d2, "auto_merge");
     });
 
     test("agent context marks mention in fullText snippet", () => {
@@ -203,9 +324,9 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
     });
 
     test("shared strong surface: n≤3 soft positive, higher n → higher delta", () => {
-      // n=1: one long name still soft only
-      const a1 = mc("a1", ["小星老师"], { gender: "女" });
-      const b1 = mc("b1", ["小星老师", "黎星"], { gender: "女" });
+      // n=1: shared proper still soft only
+      const a1 = mc("a1", ["黎星"], { gender: "女" });
+      const b1 = mc("b1", ["黎星", "小星"], { gender: "女" });
       const s1 = scorePair(ctx(a1, b1));
       assert.notEqual(s1.hard, "merge");
       const l1 = s1.breakdown.find((r) => r.ruleId === "shared_strong_surface")!;
@@ -231,9 +352,9 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
     });
 
     test("exclusive proper names is soft only (aliases may evolve)", () => {
-      // 一个老者 vs 老者 — different exclusive strings, no shared strong
-      const a = mc("a", ["一个老者"], { gender: "男", windowLo: 0, windowHi: 0 });
-      const b = mc("b", ["老者"], { gender: "男", windowLo: 1, windowHi: 1 });
+      // Distinct propers + only generic share — soft penalty, never hard reject
+      const a = mc("a", ["王铎", "这小子"], { gender: "男", windowLo: 0, windowHi: 0 });
+      const b = mc("b", ["周航", "这小子"], { gender: "男", windowLo: 1, windowHi: 1 });
       const s = scorePair(ctx(a, b));
       assert.notEqual(s.hard, "reject");
       const excl = s.breakdown.find((x) => x.ruleId === "exclusive_proper_names");
@@ -254,11 +375,19 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
           "soft auto_reject only by score threshold",
         );
       }
+      // title exclusives alone must NOT fire exclusive_proper
+      const t1 = mc("t1", ["将军"], { gender: "男" });
+      const t2 = mc("t2", ["空军少将"], { gender: "男" });
+      const st = scorePair(ctx(t1, t2));
+      assert.ok(
+        !st.breakdown.find((x) => x.ruleId === "exclusive_proper_names"),
+        "title exclusives must not fire exclusive_proper",
+      );
     });
 
     test("disable rule via config", () => {
-      const a = mc("a", ["小星老师"]);
-      const b = mc("b", ["小星老师"]);
+      const a = mc("a", ["黎星"]);
+      const b = mc("b", ["黎星"]);
       const config = mergeStage3Config({
         rules: { shared_strong_surface: { enabled: false } },
       });
@@ -294,6 +423,144 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
       assert.equal(sanitizePositiveWeight(0, 1), 1);
       assert.equal(sanitizePositiveWeight(-3, 1), 1);
       assert.equal(sanitizePositiveWeight(Number.NaN, 1.5), 1.5);
+    });
+
+    test("grey LLM mode: middle oneshot, edges deep, merge side wider", () => {
+      const config = mergeStage3Config();
+      // T_r=0.4 T_m=0.85
+      const mid = selectGreyLlmMode(0.62, config);
+      assert.equal(mid.mode, "oneshot", mid.reason);
+
+      const nearReject = selectGreyLlmMode(0.42, config);
+      assert.equal(nearReject.mode, "deep", nearReject.reason);
+      assert.ok(nearReject.edgeReject > nearReject.edgeMerge);
+
+      const nearMerge = selectGreyLlmMode(0.82, config);
+      assert.equal(nearMerge.mode, "deep", nearMerge.reason);
+      assert.ok(nearMerge.edgeMerge > nearMerge.edgeReject);
+
+      // Asymmetry: same distance from center in u-space —
+      // merge-side σ larger → at equal |u-0.5| merge edge stronger / more deep
+      // u=0.3 is 0.2 from center left; u=0.7 is 0.2 from center right
+      const left = selectGreyLlmMode(0.4 + 0.3 * 0.45, config); // u=0.3 → score=0.535
+      const right = selectGreyLlmMode(0.4 + 0.7 * 0.45, config); // u=0.7 → score=0.715
+      // right (merge side) should have higher edge strength at equal distance
+      assert.ok(
+        right.edgeMerge + right.edgeReject >= left.edgeMerge + left.edgeReject - 1e-9,
+        `asymmetry left.edgeMax=${left.edgeMax} right.edgeMax=${right.edgeMax}`,
+      );
+
+      // Force deep near merge without shared strong
+      const feat = buildPairFeatures(
+        mc("a", ["阿龙"]),
+        mc("b", ["老阿伯"]),
+        config,
+      );
+      assert.equal(feat.sharedStrongSurfaces.length, 0);
+      const forced = selectGreyLlmMode(0.72, config, feat);
+      assert.equal(forced.mode, "deep", forced.reason);
+    });
+
+    test("same-window / close mentions without strong share soft-reject", () => {
+      const config = mergeStage3Config();
+      // Two entities in same window, no shared proper
+      const a = mc("a", ["阿龙"], { windowLo: 15, windowHi: 15 });
+      const b = mc("b", ["老阿伯"], { windowLo: 15, windowHi: 15 });
+      // place offsets close in same window range
+      a.mentions[0]!.offsetAnchor = {
+        localStart: 0,
+        localEnd: 2,
+        globalStart: 82000,
+        globalEnd: 82002,
+      };
+      b.mentions[0]!.offsetAnchor = {
+        localStart: 0,
+        localEnd: 3,
+        globalStart: 82100,
+        globalEnd: 82103,
+      };
+      const windows: AnalysisWindow[] = Array.from({ length: 20 }, (_, i) => ({
+        index: i,
+        label: `窗${i}`,
+        start: i * 5200,
+        end: i * 5200 + 6000,
+        text: "x".repeat(100),
+      }));
+      const graph = buildCooccurGraph([a, b], windows);
+      const feat = buildPairFeatures(a, b, config, graph);
+      assert.ok(feat.sameWindowCount >= 1 || (feat.minMentionDistance ?? 9999) < 500);
+      const s = scorePair({
+        a,
+        b,
+        features: feat,
+        windows,
+        fullTextLength: 100000,
+        config,
+      });
+      const sameWin = s.breakdown.find((x) => x.ruleId === "same_window_cooccur");
+      const closeDiff = s.breakdown.find((x) => x.ruleId === "close_mention_diff");
+      assert.ok(
+        sameWin || closeDiff,
+        `expected co-presence negative rule, breakdown=${s.breakdown.map((b) => b.ruleId).join(",")}`,
+      );
+      if (sameWin) assert.ok(sameWin.delta < 0, String(sameWin.delta));
+      if (closeDiff) assert.ok(closeDiff.delta < 0, String(closeDiff.delta));
+    });
+
+    test("window_proximity uses gap relative to novel window count", () => {
+      const config = mergeStage3Config();
+      const a = mc("a", ["经理"], { windowLo: 2, windowHi: 2 });
+      const b = mc("b", ["经理"], { windowLo: 9, windowHi: 9 });
+      // gap = max(2,9)-min(2,9)-1 = 6
+      const feat = buildPairFeatures(a, b, config);
+      assert.equal(feat.windowGap, 6);
+
+      const mkWins = (n: number): AnalysisWindow[] =>
+        Array.from({ length: n }, (_, i) => ({
+          index: i,
+          label: `窗${i}`,
+          start: i * 1000,
+          end: i * 1000 + 900,
+          text: "x".repeat(100),
+        }));
+
+      const scoreProx = (nWin: number) => {
+        const s = scorePair({
+          a,
+          b,
+          features: feat,
+          windows: mkWins(nWin),
+          fullTextLength: nWin * 1000,
+          config,
+        });
+        return s.breakdown.find((x) => x.ruleId === "window_proximity");
+      };
+
+      // long book: r = 6/26 ≈ 0.23 → mid/far light (−0.05 or −0.10), not max
+      const long = scoreProx(27);
+      assert.ok(long, "proximity rule");
+      assert.ok(
+        long!.delta > -0.15,
+        `long-book gap=6 should not be max penalty, got Δ=${long!.delta}`,
+      );
+      assert.ok(long!.reason.includes("r="), long!.reason);
+
+      // short book: r = 6/4 = 1.5 capped by g/denom → r=1.5? wait denom=4, r=1.5 → very far −0.15
+      // actually r = 6/4 = 1.5 >= 0.4 → −0.15
+      const short = scoreProx(5);
+      assert.equal(short!.delta, -0.15, `short-book Δ=${short!.delta}`);
+
+      // empty windows → legacy absolute (gap≥3 → −0.15)
+      const legacy = scorePair({
+        a,
+        b,
+        features: feat,
+        windows: [],
+        fullTextLength: 10000,
+        config,
+      }).breakdown.find((x) => x.ruleId === "window_proximity");
+      assert.equal(legacy!.delta, -0.15);
+      assert.ok(legacy!.reason.includes("no span"), legacy!.reason);
     });
 
     test("cooccur exclusivity and jaccard from shared companion", () => {
@@ -339,13 +606,16 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
       // N(A) includes X (and maybe B); neighbors exclude B → X
       // count(A,X): windows 0 and 2 → 2; count(A)=2 → raw 1.0
       // count(B,X): windows 1 and 2 → 2; count(B)=2 → raw 1.0
-      // min(count)=2 < sparseMin 3 → exclusivity zeroed; jaccard ×0.5
+      // min(count)=2 < sparseMin 3 → exclusivity ×0.1; jaccard ×0.5
       assert.ok(m.exclusivityRaw >= 0.99, `exclRaw=${m.exclusivityRaw}`);
-      assert.equal(m.exclusivity, 0, `excl (sparse zero)=${m.exclusivity}`);
+      assert.ok(
+        Math.abs(m.exclusivity - 0.1) < 0.01,
+        `excl (sparse×0.1)=${m.exclusivity}`,
+      );
       assert.equal(m.sparse, true);
       assert.ok(m.jaccardRaw > 0, `j=${m.jaccardRaw}`);
 
-      // A only w0, B only w1, X both → never same window A-B; raw excl=1 but sparse→0
+      // A only w0, B only w1, X both → never same window A-B; raw excl=1 → sparse×0.1
       const A2 = mk("A2", "甲", [10], 0, 0);
       const B2 = mk("B2", "乙", [110], 1, 1);
       const X2 = mk("X2", "丙", [20, 120], 0, 1);
@@ -353,7 +623,10 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
       const m2 = pairCooccurMetrics("A2", "B2", g2);
       assert.equal(m2.neverSameWindow, true);
       assert.ok(m2.exclusivityRaw >= 0.99, `exclRaw=${m2.exclusivityRaw}`);
-      assert.equal(m2.exclusivity, 0, `excl (sparse zero)=${m2.exclusivity}`);
+      assert.ok(
+        Math.abs(m2.exclusivity - 0.1) < 0.01,
+        `excl (sparse×0.1)=${m2.exclusivity}`,
+      );
       assert.ok(m2.jaccardRaw >= 0.99);
       assert.ok(
         Math.abs(m2.jaccard - 0.5) < 0.01,
@@ -374,7 +647,10 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
       const feat = buildPairFeatures(A2, B2, config, g2);
       assert.equal(feat.neverSameWindow, true);
       assert.equal(feat.cooccurSparse, true);
-      assert.equal(feat.cooccurExclusivity, 0);
+      assert.ok(
+        Math.abs(feat.cooccurExclusivity - 0.1) < 0.01,
+        `feat excl=${feat.cooccurExclusivity}`,
+      );
       const s = scorePair({
         a: A2,
         b: B2,
@@ -383,15 +659,15 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
         fullTextLength: 300,
         config,
       });
-      // excl contributes 0 when sparse (not 0.25×1)
+      // sparse excl=0.1, weight 0.25, noIdentity×0.25 → weighted ≈ 0.25*0.1*0.25 = 0.00625
       const exclLine = s.breakdown.find((b) => b.ruleId === "cooccur_exclusivity");
-      assert.ok(exclLine, "exclusivity rule should fire (zero)");
-      assert.equal(exclLine!.weighted, 0);
+      assert.ok(exclLine, "exclusivity rule should fire");
+      assert.ok(exclLine!.weighted > 0, `weighted=${exclLine!.weighted}`);
       assert.ok(
-        exclLine!.reason.includes("sparse→zero"),
+        exclLine!.reason.includes("sparse"),
         exclLine!.reason,
       );
-      // without excl freebie, should not auto_merge on cooccur alone
+      // still cannot auto_merge on cooccur alone (kind gate + scale)
       assert.ok(
         s.score < config.autoMergeThreshold,
         `score=${s.score} should be below auto_merge`,

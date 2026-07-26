@@ -44,7 +44,7 @@ export function buildAnalysisWindows(
 
     windows.push({
       index,
-      label: `窗${index + 1}`,
+      label: `窗${index}`,
       start,
       end,
       text: text.slice(start, end),

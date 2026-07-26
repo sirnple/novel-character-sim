@@ -72,7 +72,13 @@ export class OpencodeGoProvider implements LLMProvider {
   chatWithTool<T>(
     messages: LLMMessage[],
     toolSchema: ToolSchema,
-    options?: { model?: string; maxTokens?: number; temperature?: number }
+    options?: {
+      model?: string;
+      maxTokens?: number;
+      temperature?: number;
+      cotTag?: string;
+      saveCotPrompt?: boolean;
+    }
   ): Promise<T> {
     return this.backend(options?.model).chatWithTool(
       messages,

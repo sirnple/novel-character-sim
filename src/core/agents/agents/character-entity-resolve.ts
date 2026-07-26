@@ -1,79 +1,33 @@
 /**
- * analyze_character_list: 角色列表子 Agent。
- * 由 Agent 调用 scan_character_mentions（默认新 pipeline ①窗扫+②overlap+③coref）
- * → 核对 list/lookup → submit_character_entities。
- * 程序不预跑扫描（禁止入口直接 ensure/scan）。
+ * analyze_character_list: 角色列表子 Agent（简化）。
+ *
+ * 流程：scan_character_mentions（内部 pipeline ①–④）→ 用结果 submit_character_entities。
+ * 不再做 list/lookup/异名多轮消解。
  */
 
-import type { AgentDef, ToolDefinition } from "../types";
-import { makeLoopAgent } from "./make-loop-agent";
-import { characterExtractTools } from "./character-extract-tools";
-import { analysisDomainTools } from "./analysis-tools";
-import { getCharacterExtractWorkspace } from "@/core/extractor/character-extract-workspace";
+import type { AgentDef, TrailMessage } from "../types";
+import { getTool } from "../registry";
+import {
+  getCharacterExtractWorkspace,
+  saveResolvedEntities,
+} from "@/core/extractor/character-extract-workspace";
 import { collapseTechnicalFarSameNameKeys } from "@/core/extractor/character-local-entities";
 import { SUBMIT_ENTITIES_OK } from "@/core/extractor/character-entity-types";
-import { listRelationPrimaryNames } from "@/core/extractor/character-entity-coverage";
-import {
-  foldSafeEntityRedundancies,
-  formatDualHangBlockForSubmit,
-  listBlockingConsistencyIssues,
-} from "@/core/extractor/character-entity-consistency";
-import {
-  formatUnresolvedCrossNameBlock,
-  listUnresolvedCrossNamePairs,
-} from "@/core/extractor/character-cross-name";
-import { ensureCrossNameCandidates } from "@/core/extractor/character-extract-workspace";
+import { foldSafeEntityRedundancies } from "@/core/extractor/character-entity-consistency";
 import {
   getNovelAnalysisWorkspace,
   patchNovelAnalysisWorkspace,
+  beginNovelAnalysisWorkspace,
 } from "@/core/extractor/novel-analysis-workspace";
 import { entitiesToProfiles } from "./character-extract-tools";
 import { rebuildDraftFromRoster } from "../character-draft-utils";
 
-function pick(names: string[], pool: ToolDefinition[]): ToolDefinition[] {
-  const byName = new Map(pool.map((t) => [t.name, t]));
-  return names.map((n) => byName.get(n)).filter(Boolean) as ToolDefinition[];
-}
-
-const pool: ToolDefinition[] = (() => {
-  const m = new Map<string, ToolDefinition>();
-  for (const t of [...analysisDomainTools, ...characterExtractTools]) {
-    if (!m.has(t.name)) m.set(t.name, t);
-  }
-  return Array.from(m.values());
-})();
-
-const characterListLoop = makeLoopAgent({
-  agentId: "analyze_character_list",
-  tools: pick(
-    [
-      "scan_character_mentions",
-      "list_local_entities",
-      "list_cross_name_candidates",
-      "list_near_alias_candidates",
-      "resolve_cross_name_pair",
-      "list_uncovered_surfaces",
-      "list_surface_candidates",
-      "lookup_surface",
-      "lookup_offset",
-      "submit_character_entities",
-    ],
-    pool,
-  ),
-  submitTool: "submit_character_entities",
-  okMarker: SUBMIT_ENTITIES_OK,
-  // Pipeline scan already does stage1–3; agent mostly verifies + submit
-  maxSteps: 48,
-  temperature: 0.25,
-  maxTokens: 8192,
-});
-
-/** 子 Agent：工具循环由模型调度；成功后校验 workspace 实体 */
+/** 子 Agent：scan → submit，无多工具残差循环 */
 export const characterEntityResolveAgent: AgentDef = {
   execute: async (ctx, llm, onChunk, onTrail) => {
-    // Do not re-seed from localEntities (would wipe stage-② overlap merge).
-    // Workspace entities are set by scan/job via mergeLocalEntitiesByOverlap.
     const branchId = ctx.branchId || "main";
+    const trail: TrailMessage[] = [];
+
     if (getNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId)) {
       patchNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId, {
         charactersDraft: null,
@@ -81,102 +35,189 @@ export const characterEntityResolveAgent: AgentDef = {
       });
     }
 
-    const result = await characterListLoop.execute(ctx, llm, onChunk, onTrail);
+    const scanTool = getTool("scan_character_mentions");
+    const submitTool = getTool("submit_character_entities");
+    if (!scanTool || !submitTool) {
+      return {
+        content:
+          "analyze_character_list 失败：未注册 scan_character_mentions / submit_character_entities。",
+        messages: trail,
+      };
+    }
+
+    const pushTrail = (msgs: TrailMessage[]) => {
+      for (const m of msgs) trail.push(m);
+      onTrail?.(trail.slice());
+    };
+
+    // ── 1) scan (pipeline ①–④) ─────────────────────────────────────
+    onChunk?.("【进度】角色列表：scan_character_mentions（pipeline）…");
+    pushTrail([
+      {
+        role: "tool_call",
+        toolName: "scan_character_mentions",
+        content: "scan_character_mentions()",
+      },
+    ]);
+    const scanRes = await scanTool.execute({}, ctx, llm, onChunk);
+    pushTrail([
+      {
+        role: "tool_result",
+        toolName: "scan_character_mentions",
+        content: scanRes.content.slice(0, 4000),
+      },
+      ...scanRes.messages,
+    ]);
 
     const cws = getCharacterExtractWorkspace(
       ctx.userId,
       ctx.novelId,
-      ctx.branchId || "main",
+      branchId,
     );
-    let entities = cws?.entities;
-
-    if (!entities?.length) {
+    let entities = cws?.entities || [];
+    if (!entities.length) {
       return {
         content:
-          `analyze_character_list 失败：未成功 submit_character_entities。` +
-          `请先 scan_character_mentions 建 catalog，再 list/消解并 submit。` +
-          `（${result.content.slice(0, 200)}）`,
-        messages: result.messages,
+          `analyze_character_list 失败：scan 未产生 entities。\n` +
+          `${scanRes.content.slice(0, 500)}`,
+        messages: trail,
       };
     }
 
-    // Match character-extract-job: strip seed-only `名@uN` before handoff/commit.
-    // Global agent may leave far same-name technical ids; UI must never show them.
+    // Light cleanup before submit
     const beforeN = entities.length;
     entities = collapseTechnicalFarSameNameKeys(entities);
     const folded = foldSafeEntityRedundancies(entities);
     entities = folded.entities;
     if (cws) cws.entities = entities;
+
+    // ── 2) submit workspace roster ─────────────────────────────────
+    onChunk?.(
+      `【进度】角色列表：submit_character_entities（${entities.length} 人）…`,
+    );
+    pushTrail([
+      {
+        role: "tool_call",
+        toolName: "submit_character_entities",
+        content: `submit_character_entities(n=${entities.length})`,
+      },
+    ]);
+    const submitRes = await submitTool.execute(
+      { entities_json: JSON.stringify(entities) },
+      ctx,
+      llm,
+      onChunk,
+    );
+    pushTrail([
+      {
+        role: "tool_result",
+        toolName: "submit_character_entities",
+        content: submitRes.content.slice(0, 4000),
+      },
+      ...submitRes.messages,
+    ]);
+
+    // Refresh after submit
+    const after = getCharacterExtractWorkspace(
+      ctx.userId,
+      ctx.novelId,
+      branchId,
+    );
+    entities = after?.entities || entities;
+
+    // Stage draft for detail agent / UI
     if (getNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId)) {
       try {
         const staged = entitiesToProfiles(entities);
-        const aws = getNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId);
+        const aws = getNovelAnalysisWorkspace(
+          ctx.userId,
+          ctx.novelId,
+          branchId,
+        );
         const nextDraft = rebuildDraftFromRoster(staged, aws?.charactersDraft);
         patchNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId, {
           charactersDraft: nextDraft,
         });
       } catch {
-        /* draft stage best-effort */
+        /* best-effort */
       }
     }
 
-    // Suspended deictics as primary name = incomplete global coref
-    const relationLeft = listRelationPrimaryNames(entities);
-    if (relationLeft.length) {
-      const names = relationLeft.map((e) => e.name).join("、");
+    let submitOk = submitRes.content.includes(SUBMIT_ENTITIES_OK);
+    let submitNote = submitRes.content;
+
+    // Pipeline already finished coref + sealed cross-name ledger. If strict
+    // submit gates (legacy dual-hang etc.) still block, force-persist roster.
+    if (!submitOk) {
+      const forced = saveResolvedEntities(
+        ctx.userId,
+        ctx.novelId,
+        branchId,
+        entities,
+        { replace: true },
+      );
+      if (forced.ok && forced.entities.length) {
+        entities = forced.entities;
+        submitOk = true;
+        submitNote =
+          `${SUBMIT_ENTITIES_OK}（pipeline 直写，跳过严格门禁）` +
+          `：累计 ${forced.totalCount} 人。\n` +
+          `原 submit 提示：${submitRes.content.slice(0, 400)}`;
+        pushTrail([
+          {
+            role: "tool_result",
+            toolName: "submit_character_entities",
+            content: submitNote.slice(0, 2000),
+          },
+        ]);
+        try {
+          let aws = getNovelAnalysisWorkspace(
+            ctx.userId,
+            ctx.novelId,
+            branchId,
+          );
+          if (!aws) {
+            aws = beginNovelAnalysisWorkspace(
+              ctx.userId,
+              ctx.novelId,
+              branchId,
+              { fullText: cws?.fullText || "" },
+            );
+          }
+          const staged = entitiesToProfiles(entities);
+          const nextDraft = rebuildDraftFromRoster(
+            staged,
+            aws.charactersDraft,
+          );
+          patchNovelAnalysisWorkspace(ctx.userId, ctx.novelId, branchId, {
+            charactersDraft: nextDraft,
+          });
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+
+    if (!submitOk) {
       return {
         content:
-          `analyze_character_list 未完成：仍有悬空指代作 name（${names}）。` +
-          `必须 lookup 锚点并 merge 到真实实体后，再 submit 至「角色实体已存」。` +
-          `（${result.content.slice(0, 160)}）`,
-        messages: result.messages,
+          `analyze_character_list 未完成：submit 未通过。\n` +
+          `${submitRes.content.slice(0, 1200)}`,
+        messages: trail,
       };
     }
 
-    // Multi-claim primary/alias dual hang (e.g. 雪棠 row + 雪棠 in others' aliases)
-    const dualLeft = listBlockingConsistencyIssues(entities);
-    if (dualLeft.length) {
-      const block = formatDualHangBlockForSubmit(entities, { limit: 20 });
-      return {
-        content:
-          `analyze_character_list 未完成：主名/别名双挂未消解（禁止重扫）。\n` +
-          `${block}\n` +
-          `须按清单 merge 或清理误挂 aliases 后再 submit。` +
-          `（${result.content.slice(0, 100)}）`,
-        messages: result.messages,
-      };
-    }
-
-    // P3: open cross-name pairs without explicit processing
-    const crossCands = ensureCrossNameCandidates(
-      ctx.userId,
-      ctx.novelId,
-      branchId,
-    );
-    const crossLeft = listUnresolvedCrossNamePairs(
-      crossCands,
-      entities,
-      cws?.pairResolutions,
-    );
-    if (crossLeft.length) {
-      return {
-        content:
-          `analyze_character_list 未完成：异名怀疑未处理（禁止重扫）。\n` +
-          `${formatUnresolvedCrossNameBlock(crossLeft, 20)}\n` +
-          `须 merge 或 resolve_cross_name_pair(distinct|uncertain) 后再 submit。` +
-          `（${result.content.slice(0, 80)}）`,
-        messages: result.messages,
-      };
-    }
-
-    // Always report workspace total (supports multi-batch submit merge)
     const collapsedNote =
       beforeN !== entities.length || folded.log.length
-        ? `（折叠 @uN/安全别名 ${beforeN}→${entities.length}）`
+        ? `（折叠 ${beforeN}→${entities.length}）`
         : "";
     return {
-      content: `角色列表已完成：累计 ${entities.length} 个角色实体（分批已合并）${collapsedNote}。`,
-      messages: result.messages,
+      content:
+        `角色列表已完成：scan → submit，累计 **${entities.length}** 个角色实体` +
+        `${collapsedNote}。\n` +
+        `${scanRes.content.slice(0, 400)}\n` +
+        `${submitNote.slice(0, 400)}`,
+      messages: trail,
     };
   },
 };

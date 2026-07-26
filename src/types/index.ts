@@ -658,7 +658,15 @@ export interface LLMProvider {
   chatWithTool<T>(
     messages: LLMMessage[],
     toolSchema: ToolSchema,
-    options?: { model?: string; maxTokens?: number; temperature?: number }
+    options?: {
+      model?: string;
+      maxTokens?: number;
+      temperature?: number;
+      /** Suffix for CoT filename when LLM_SAVE_COT (e.g. w15). */
+      cotTag?: string;
+      /** Include user prompt in saved CoT file (default true when saving). */
+      saveCotPrompt?: boolean;
+    }
   ): Promise<T>;
 
   chatStream(

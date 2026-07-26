@@ -75,14 +75,14 @@ import type { TextUnit } from "../../src/core/extractor/character-name-units";
   const units: TextUnit[] = [
     {
       index: 0,
-      label: "窗1",
+      label: "窗0",
       start: 0,
       end: mid + 20,
       text: full.slice(0, mid + 20),
     },
     {
       index: 1,
-      label: "窗2",
+      label: "窗1",
       start: mid,
       end: full.length,
       text: full.slice(mid),

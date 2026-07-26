@@ -2,11 +2,25 @@ export type {
   AnalysisWindow,
   Character,
   Mention,
+  MentionKind,
   OffsetAnchor,
   Stage1ScanConfig,
   WindowExtractResult,
 } from "./types";
-export { STAGE1_DEFAULT_CONFIG } from "./types";
+export {
+  STAGE1_DEFAULT_CONFIG,
+  MENTION_KINDS,
+  isIdentityStrongKind,
+  isProperKind,
+  isDeicticKind,
+  resolveMentionKind,
+  inferMentionKind,
+  parseMentionKind,
+} from "./types";
+export {
+  preferMentionKind,
+  kindOfSurfaceOnCharacter,
+} from "./mention-kind";
 export {
   buildAnalysisWindows,
   overlapRange,
@@ -27,8 +41,18 @@ export {
   locateMentionInWindow,
   locateCharactersInWindow,
   offsetInRange,
+  indexOfFrom,
+  indexOfAllowingNewlines,
+  indexOfFuzzy,
+  findSpan,
+  findAllSurfaceHits,
+  pickSurfaceByAnchorOverlap,
+  lcsLength,
+  stripNewlines,
   type LocatedMention,
   type LocatedCharacter,
+  type LocateMatchMode,
+  type LocateSpan,
 } from "./locate-mentions";
 export {
   normalizeMentionSurface,
@@ -39,15 +63,24 @@ export {
   mergeTwoMergedCharacters,
   sharedSurfacesInOverlap,
   sharedIdenticalMentionsInOverlap,
+  classifySharedIdenticalInOverlap,
+  meetsMergeEvidenceThresholds,
+  mergeEvidenceTierOfKind,
+  isMergeEvidenceMention,
+  strongSurfacesOf,
+  sharedStrongSurfacesAnywhere,
   mentionIdentityKey,
   canMergeInOverlap,
   junctionOverlap,
   mergeSegmentPair,
   hierarchicalPairMerge,
   mergeAdjacentWindowCharacters,
+  MERGE_EVIDENCE_MIN,
   type MergedCharacter,
   type Segment,
   type PairMergeTrace,
+  type MergeEvidenceTier,
+  type MergeEvidenceTierKind,
 } from "./merge-adjacent";
 export * from "./coref";
 export {
@@ -58,6 +91,8 @@ export {
 export {
   selectCanonicalName,
   selectCanonicalNameWithOptionalLlm,
+  uniqueProperSurfaces,
+  isRuleConfidentCanonical,
   applyStage4CanonicalNames,
   applyStage4CanonicalNamesWithLlm,
   scoreSurfaceAsCanonical,

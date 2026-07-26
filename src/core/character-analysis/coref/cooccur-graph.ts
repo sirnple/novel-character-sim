@@ -92,8 +92,7 @@ export interface PairCooccurMetrics {
   /**
    * S_专属 after sparse gate ∈ [0,1].
    * Raw exclusivity is `exclusivityRaw`; when min(countA,countB) < sparseMin,
-   * exclusivity is **zeroed** (single-window pairs otherwise get S=1 for free).
-   * Jaccard still uses sparseDiscount under the same gate.
+   * exclusivity = raw × exclusivitySparseDiscount when sparse (not full S=1).
    */
   exclusivity: number;
   /** Raw exclusivity before sparse gate */
@@ -146,14 +145,19 @@ export function pairCooccurMetrics(
   idA: string,
   idB: string,
   graph: CooccurGraph,
-  opts?: { jaccardSparseMinCount?: number; jaccardSparseDiscount?: number },
+  opts?: {
+    jaccardSparseMinCount?: number;
+    jaccardSparseDiscount?: number;
+    exclusivitySparseDiscount?: number;
+  },
 ): PairCooccurMetrics {
   const sa = graph.byId.get(idA);
   const sb = graph.byId.get(idB);
   if (!sa || !sb) return { ...EMPTY_METRICS };
 
   const sparseMin = opts?.jaccardSparseMinCount ?? 3;
-  const sparseDisc = opts?.jaccardSparseDiscount ?? 0.5;
+  const jaccardDisc = opts?.jaccardSparseDiscount ?? 0.5;
+  const exclDisc = opts?.exclusivitySparseDiscount ?? 0.1;
 
   const sameWindowCount = (() => {
     let n = 0;
@@ -196,10 +200,10 @@ export function pairCooccurMetrics(
   const union = neighA.size + neighB.size - inter;
   const jaccardRaw = union > 0 ? inter / union : 0;
   // Single-window entities trivially get S_excl=1 with any shared companion.
-  // Sparse gate: zero exclusivity (do not count); still discount Jaccard.
+  // Sparse gate: discount exclusivity (default ×0.1) and Jaccard (default ×0.5).
   const sparse = Math.min(sa.count, sb.count) < sparseMin;
-  const jaccard = sparse ? jaccardRaw * sparseDisc : jaccardRaw;
-  const exclusivity = sparse ? 0 : exclusivityRaw;
+  const jaccard = sparse ? jaccardRaw * jaccardDisc : jaccardRaw;
+  const exclusivity = sparse ? exclusivityRaw * exclDisc : exclusivityRaw;
 
   return {
     exclusivity,

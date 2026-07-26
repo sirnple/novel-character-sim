@@ -12,7 +12,7 @@ export interface MentionAnchor {
   offset: number;
   /** Scan unit index (0-based in name-scan units array) */
   unitIndex?: number;
-  /** e.g. 第3回 / 第12章 / 窗5 */
+  /** e.g. 第3回 / 第12章 / 窗0（与 unit/window index 一致，0-based） */
   unitLabel?: string;
   /** Optional surface associated with this unit hit */
   surface?: string;
