@@ -809,12 +809,15 @@ export default function AgentPanel({
   const runChat = useCallback(async (
     history: AgentMessage[],
     userMsg: AgentMessage,
-    opts?: { autoPassCheckpoints?: boolean },
+    opts?: { autoPassCheckpoints?: boolean; forceRefresh?: boolean },
   ) => {
     setStatus("generating");
     const abort = new AbortController();
     abortRef.current = abort;
     const autoPassCheckpoints = !!opts?.autoPassCheckpoints;
+    // Only wipe staging when explicitly requested (one-click full re-analyze).
+    // Default false: multi-turn + "确认保存" must keep charactersDraft/entities.
+    const forceRefresh = isAnalysis && !!opts?.forceRefresh;
 
     try {
       const res = await fetch("/api/agent/chat", {
@@ -829,8 +832,7 @@ export default function AgentPanel({
           autoPickIdeas: autoPickIdeas !== false,
           autoPassCheckpoints: isAnalysis ? false : autoPassCheckpoints,
           mode: isAnalysis ? "analysis" : "write",
-          // Analysis always re-runs (no catalog / domain cache reuse)
-          forceRefresh: isAnalysis,
+          forceRefresh,
         }),
         signal: abort.signal,
       });
@@ -1034,6 +1036,17 @@ export default function AgentPanel({
                   }
                   return [...prev, { id: Math.random().toString(36).slice(2), role: "tool", ...data, timestamp: new Date().toISOString() }];
                 });
+                // Persist finished: refresh overview roster immediately (don't wait for chat end)
+                if (
+                  isAnalysis &&
+                  (event.tool === "finish_novel_analysis" ||
+                    String(event.result || "").includes("全书分析已完成"))
+                ) {
+                  try {
+                    notifyLibrariesRefresh();
+                  } catch { /* ignore */ }
+                  onAnalysisDone?.();
+                }
               }
             } else if (event.type === "error") {
               if (currentTextMsgId) {
@@ -1134,7 +1147,71 @@ export default function AgentPanel({
     onAnalysisDone,
   ]);
 
-  const handleSend = async (overrideText?: string, opts?: { autoPassCheckpoints?: boolean }) => {
+  /** Commit analysis workspace when user confirms save (program path, not LLM). */
+  const commitIfUserSave = async (ans: string) => {
+    if (!isAnalysis || !novelId || !isUserConfirmSave(ans)) return false;
+    try {
+      const res = await fetch("/api/analysis/commit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          novelId,
+          branchId: branchId || "main",
+          userConfirmed: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const nChars = typeof data.characters === "number" ? data.characters : 0;
+      const committed = Array.isArray(data.committed) ? data.committed : [];
+      const skipped = Array.isArray(data.skipped) ? data.skipped : [];
+      const ok = res.ok && (data.ok === true || committed.length > 0);
+      const charLine = committed.find((c: string) =>
+        String(c).startsWith("characters"),
+      );
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(36).slice(2),
+          role: "agent",
+          content: ok
+            ? `**已保存到本书**\n- 角色：${nChars} 人${charLine ? `（${charLine}）` : nChars === 0 ? " ⚠️ 工作区无角色草稿（可能已被清空）" : ""}\n- committed: ${committed.join(", ") || "无"}\n- skipped: ${skipped.join(", ") || "无"}`
+            : `**保存未完成**（角色 ${nChars}）\n${data.content || data.error || res.statusText}\nskipped: ${skipped.join(", ")}`,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+      if (ok && nChars > 0 && novelId) {
+        try {
+          const meta = await fetch(
+            `/api/novels?id=${encodeURIComponent(novelId)}&meta=1&branchId=${encodeURIComponent(branchId || "main")}`,
+          ).then((r) => r.json());
+          if (Array.isArray(meta.characters)) {
+            setNovel({ characters: meta.characters });
+          }
+        } catch { /* onAnalysisDone retries */ }
+      }
+      try {
+        notifyLibrariesRefresh();
+      } catch { /* ignore */ }
+      onAnalysisDone?.();
+      return true;
+    } catch (e) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(36).slice(2),
+          role: "agent",
+          content: `**保存失败**：${(e as Error).message}`,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+      return false;
+    }
+  };
+
+  const handleSend = async (
+    overrideText?: string,
+    opts?: { autoPassCheckpoints?: boolean; forceRefresh?: boolean },
+  ) => {
     const text = (overrideText ?? input).trim();
     if (!text || status === "generating") return;
     const userMsg: AgentMessage = {
@@ -1156,6 +1233,8 @@ export default function AgentPanel({
     stickToBottomRef.current = true;
     setMessages([...history, userMsg]);
     if (!overrideText) setInput("");
+    // Free-text path must also commit (was only on option click before)
+    await commitIfUserSave(text);
     await runChat(history, userMsg, opts);
   };
 
@@ -1176,8 +1255,8 @@ export default function AgentPanel({
       `先 get_current_novel + get_current_branch + get_analysis_status。` +
       `范围不清时 ask_question：选项必须无歧义（禁止「全部重新分析」这种说不清范围的）；` +
       `角色拆名单/详情/关系；中文写清将运行什么；各域已齐勿问确认保存。禁止自己写长文。`;
-    // onAnalysisDone runs at end of runChat when isAnalysis
-    await handleSend(text);
+    // forceRefresh: wipe staging so one-click can re-run domains cleanly
+    await handleSend(text, { forceRefresh: true });
   };
 
   /** Answer an ask_question card: mark answered + send as user message */
@@ -1205,52 +1284,8 @@ export default function AgentPanel({
     };
     setMessages([...history, userMsg]);
 
-    // Analysis: user confirmed save → commit workspace in code (don't rely on LLM finish)
-    if (isAnalysis && novelId && isUserConfirmSave(ans)) {
-      try {
-        const res = await fetch("/api/analysis/commit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            novelId,
-            branchId: branchId || "main",
-            userConfirmed: true,
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        const nChars = typeof data.characters === "number" ? data.characters : 0;
-        const committed = Array.isArray(data.committed) ? data.committed : [];
-        const skipped = Array.isArray(data.skipped) ? data.skipped : [];
-        const ok = res.ok && (data.ok === true || committed.length > 0);
-        const charLine = committed.find((c: string) => String(c).startsWith("characters"));
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Math.random().toString(36).slice(2),
-            role: "agent",
-            content: ok
-              ? `**已保存到本书**\n- 角色：${nChars} 人${charLine ? `（${charLine}）` : nChars === 0 ? " ⚠️ 工作区无角色草稿，请重跑角色列表/详情后再保存" : ""}\n- committed: ${committed.join(", ") || "无"}\n- skipped: ${skipped.join(", ") || "无"}`
-              : `**保存未完成**（角色 ${nChars}）\n${data.content || data.error || res.statusText}\nskipped: ${skipped.join(", ")}`,
-            timestamp: new Date().toISOString(),
-          },
-        ]);
-        try {
-          notifyLibrariesRefresh();
-        } catch { /* ignore */ }
-        onAnalysisDone?.();
-      } catch (e) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Math.random().toString(36).slice(2),
-            role: "agent",
-            content: `**保存失败**：${(e as Error).message}`,
-            timestamp: new Date().toISOString(),
-          },
-        ]);
-      }
-      // Still continue chat so master can acknowledge; commit already done
-    }
+    // Program commit first (before runChat — chat must not wipe staging)
+    await commitIfUserSave(ans);
 
     await runChat(history, userMsg);
   };

@@ -80,15 +80,31 @@ export default function NovelPage() {
       });
   }, [novelId, formRefreshKey]);
 
-  // FAB lives in layout; refresh form/timeline when analysis finishes
+  // Analysis save / libraries:refresh — form, timeline, and character roster
   useEffect(() => {
+    if (!novelId) return;
+    const reloadCharacters = () => {
+      fetch(
+        `/api/novels?id=${encodeURIComponent(novelId)}&meta=1&branchId=main`,
+      )
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.error) return;
+          if (Array.isArray(d.characters)) setCharacters(d.characters);
+          if (d.storyInfo !== undefined) {
+            // story panel reads from context; layout also reloads — keep roster in sync here
+          }
+        })
+        .catch(() => {});
+    };
     const onRefresh = () => {
       setFormRefreshKey((k) => k + 1);
       setTimelineRefreshKey((k) => k + 1);
+      reloadCharacters();
     };
     window.addEventListener(LIBRARIES_REFRESH_EVENT, onRefresh);
     return () => window.removeEventListener(LIBRARIES_REFRESH_EVENT, onRefresh);
-  }, []);
+  }, [novelId, setCharacters]);
 
   const handleDownloadBranch = async (branchId: string, name: string) => {
     if (!novelId || downloadingId) return;

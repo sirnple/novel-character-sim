@@ -50,12 +50,17 @@ export async function POST(request: NextRequest) {
     autoPassCheckpoints = false,
     /** write = 续写主编；analysis = 全书分析主编 */
     mode = "write",
+    /**
+     * Analysis only: wipe staging workspaces. Default false so multi-turn
+     * (confirm-save after roster) keeps charactersDraft / extract entities.
+     * Pass true for explicit full re-run (e.g. one-click analyze).
+     */
+    forceRefresh: forceRefreshBody = false,
   } = await request.json();
   if (!branchId || !novelId) return new Response(JSON.stringify({ error: "branchId and novelId required" }), { status: 400, headers: { "Content-Type": "application/json" } });
 
   const isAnalysis = mode === "analysis";
-  // Analysis always re-runs domains / character scan (no product cache reuse).
-  const forceRefresh = isAnalysis;
+  const forceRefresh = isAnalysis && !!forceRefreshBody;
   const autoPass = !!autoPassCheckpoints && !isAnalysis;
   const llm = createLLMProvider(isAnalysis ? "analysis" : "write");
   const encoder = new TextEncoder();
@@ -82,24 +87,41 @@ export async function POST(request: NextRequest) {
     ? `${baseSys}\n\n${ONE_CLICK_CONTINUE_SYSTEM_APPEND}`
     : baseSys;
 
-  // Analysis: always reset staging + clear character catalog so scan runs LLM.
+  // Analysis: ensure workspace has fullText. Only wipe when forceRefresh=true.
+  // Previously every analysis chat reset staging — so "确认保存" on the next turn
+  // wiped charactersDraft/entities before commit/finish could read them.
   if (isAnalysis) {
     try {
       const { getBranchProse, getNovel } = await import("@/lib/db");
-      const { beginNovelAnalysisWorkspace } = await import(
-        "@/core/extractor/novel-analysis-workspace"
-      );
+      const {
+        beginNovelAnalysisWorkspace,
+        getNovelAnalysisWorkspace,
+      } = await import("@/core/extractor/novel-analysis-workspace");
       const { clearCharacterExtractWorkspace } = await import(
         "@/core/extractor/character-extract-workspace"
       );
       const { text } = getBranchProse(userId, novelId, branchId);
       const fullText = (text || getNovel(userId, novelId)?.text || "").trim();
       if (fullText) {
-        beginNovelAnalysisWorkspace(userId, novelId, branchId, {
-          fullText,
-          forceRefresh: true,
-        });
-        clearCharacterExtractWorkspace(userId, novelId, branchId);
+        const existing = getNovelAnalysisWorkspace(userId, novelId, branchId);
+        if (forceRefresh || !existing) {
+          beginNovelAnalysisWorkspace(userId, novelId, branchId, {
+            fullText,
+            forceRefresh,
+          });
+          if (forceRefresh) {
+            clearCharacterExtractWorkspace(userId, novelId, branchId);
+            console.log(
+              `[agent/chat] analysis workspace reset forceRefresh user=${userId} novel=${novelId}`,
+            );
+          }
+        } else {
+          // Keep staged domains; refresh text only
+          beginNovelAnalysisWorkspace(userId, novelId, branchId, {
+            fullText,
+            forceRefresh: false,
+          });
+        }
       }
     } catch (e) {
       console.warn("[agent/chat] analysis workspace init:", (e as Error).message);

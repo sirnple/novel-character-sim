@@ -147,6 +147,15 @@ export const characterEntityResolveAgent: AgentDef = {
     };
 
     // ── 1) scan (pipeline ①–④) ─────────────────────────────────────
+    // Program-driven workflow (not free-form chat): emit short status lines so
+    // the UI is not only tool_call cards. Model CoT is never streamed here.
+    pushTrail([
+      {
+        role: "assistant",
+        content:
+          "开始角色名单流水线：①窗扫 → ②overlap → ③oneshot 消解 → ④canonicalName（程序编排，非自由对话）。",
+      },
+    ]);
     onChunk?.(
       "【进度】角色列表 0/100（0%）· ①–④流水线 · scan_character_mentions",
     );
@@ -185,6 +194,13 @@ export const characterEntityResolveAgent: AgentDef = {
     // ── 2) outer agent tools for oneshot uncertain pairs ───────────
     const uncertainN = cws?.corefUncertainPairs?.length ?? 0;
     if (uncertainN > 0) {
+      pushTrail([
+        {
+          role: "assistant",
+          content:
+            `流水线留下 ${uncertainN} 对 oneshot uncertain，开始用共现/原文工具消歧（此段会有模型回合；无 uncertain 时整段跳过）。`,
+        },
+      ]);
       await resolveUncertainPairsWithAgent(
         ctx,
         llm,
@@ -195,6 +211,13 @@ export const characterEntityResolveAgent: AgentDef = {
       );
       cws = getCharacterExtractWorkspace(ctx.userId, ctx.novelId, branchId);
       entities = cws?.entities || entities;
+    } else {
+      pushTrail([
+        {
+          role: "assistant",
+          content: `oneshot 无 uncertain 对；entities=${entities.length}，准备 submit。`,
+        },
+      ]);
     }
 
     // Light cleanup before submit
@@ -209,6 +232,10 @@ export const characterEntityResolveAgent: AgentDef = {
       `【进度】角色列表 100/100（100%）· 提交名单 · submit ${entities.length} 人`,
     );
     pushTrail([
+      {
+        role: "assistant",
+        content: `提交名单 ${entities.length} 人到工作区（尚未落库；需 finish / 确认保存）。`,
+      },
       {
         role: "tool_call",
         toolName: "submit_character_entities",
