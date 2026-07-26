@@ -394,7 +394,7 @@ function RuntimeSettingsPanel({ adminToken }: { adminToken: string }) {
     {
       key: "privilegedMentionScanConcurrency",
       label: "Admin/Debug · 并行 LLM",
-      hint: "默认 20。更高但仍限流友好，不会一次拉满",
+      hint: "默认 30。更高但仍限流友好，不会一次拉满",
       min: 1,
     },
     {

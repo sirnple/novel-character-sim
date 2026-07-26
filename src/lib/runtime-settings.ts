@@ -6,7 +6,7 @@
  * - CHARACTER_MENTION_CONCURRENCY
  * - CHARACTER_MENTION_BATCH_UNITS
  * - CHARACTER_MENTION_BATCH_CHARS
- * - CHARACTER_MENTION_PRIVILEGED_CONCURRENCY  (admin/debug parallel; default 20)
+ * - CHARACTER_MENTION_PRIVILEGED_CONCURRENCY  (admin/debug parallel; default 30)
  * - CHARACTER_MENTION_ADMIN_BATCH_UNITS
  *
  * Coref keys (window / residual co-occur) — see character-coref-config.ts + design §10:
@@ -45,7 +45,7 @@ export const MENTION_SCAN_BATCH_CHARS_DEFAULT = 16_000;
  * Admin/debug parallel LLM calls — higher than users, but not "fire everything"
  * (vendor rate limits). Override via env / admin UI.
  */
-export const MENTION_SCAN_PRIVILEGED_CONCURRENCY_DEFAULT = 20;
+export const MENTION_SCAN_PRIVILEGED_CONCURRENCY_DEFAULT = 30;
 
 // ── Schema ──────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ export interface RuntimeSettings {
   /** Units per LLM call for normal users. */
   mentionScanBatchUnits: number;
   mentionScanBatchChars: number;
-  /** Parallel LLM calls for admin / debug (default 20, not unlimited). */
+  /** Parallel LLM calls for admin / debug (default 30, not unlimited). */
   privilegedMentionScanConcurrency: number;
   /** Admin batch units override (default 1). */
   adminMentionScanBatchUnits: number;
@@ -428,7 +428,7 @@ export function isAdminUserId(userId: string | undefined | null): boolean {
 
 /**
  * Resolve mention-scan knobs for a call.
- * - admin / debug: privileged concurrency (default 20), not uncapped
+ * - admin / debug: privileged concurrency (default 30), not uncapped
  * - admin: batchUnits = adminMentionScanBatchUnits (default 1)
  * - normal: batchUnits/concurrency from settings (defaults 4 / 4)
  */

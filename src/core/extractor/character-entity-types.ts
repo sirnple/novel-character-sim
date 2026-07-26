@@ -18,6 +18,11 @@ export interface ResolvedEntity {
    * Prefer this when present for UI / submit.
    */
   canonicalName?: string;
+  /**
+   * Pipeline coref roster id (e.g. c559). Used by outer agent tools
+   * (list_cooccur_neighbors / resolve_coref_uncertain_pair).
+   */
+  corefId?: string;
   /** Third-person titles / nicknames only (no 我爸/你妈) */
   aliases: string[];
   role?: string;

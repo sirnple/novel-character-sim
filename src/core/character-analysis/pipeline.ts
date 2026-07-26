@@ -1,7 +1,9 @@
 /**
  * Full character analysis pipeline:
- * Stage① window extract → ② overlap merge → ③ coref → ④ canonicalName.
- * Used by analysis agent `scan_character_mentions` and eval scripts.
+ * Stage① window extract → ② overlap merge → ③ oneshot coref → ④ canonicalName.
+ *
+ * After pipeline ends, the outer character-list agent may resolve
+ * `stage3.uncertainPairs` with co-occur query tools (not a pipeline stage).
  */
 
 import type { LLMProvider } from "@/types";
@@ -16,6 +18,10 @@ import {
   applyStage4CanonicalNames,
   applyStage4CanonicalNamesWithLlm,
 } from "./stage4-canonical";
+import {
+  formatCharacterPipelineProgress,
+  type CharacterPipelineProgressEvent,
+} from "./progress";
 import { runStage1WindowScan, type Stage1ScanOptions } from "./stage1-scan";
 import type {
   AnalysisWindow,
@@ -25,13 +31,9 @@ import type {
 
 export interface CharacterAnalysisPipelineOptions {
   stage1?: Stage1ScanOptions;
-  /** Stage3 agent on (default true). */
   stage3Agent?: boolean;
   stage3Concurrency?: number;
   agentContextRadius?: number;
-  /**
-   * Stage4: use LLM tie-break when top surfaces are close (default true when llm present).
-   */
   stage4Llm?: boolean;
   stage4Concurrency?: number;
   maxWindows?: number | null;
@@ -39,6 +41,7 @@ export interface CharacterAnalysisPipelineOptions {
   onStage1Window?: Stage1ScanOptions["onWindowDone"];
   onStage3AgentPair?: Stage3Options["onAgentPair"];
   onProgress?: (msg: string) => void;
+  onStageProgress?: (ev: CharacterPipelineProgressEvent) => void;
 }
 
 export interface CharacterAnalysisPipelineResult {
@@ -50,7 +53,7 @@ export interface CharacterAnalysisPipelineResult {
     traces: PairMergeTrace[];
   };
   stage3: Stage3ResolveResult;
-  /** Stage3 characters after stage4 canonicalName assignment */
+  /** Stage④ canonicalName */
   stage4: {
     characters: MergedCharacter[];
   };
@@ -70,75 +73,129 @@ export async function runCharacterAnalysisPipeline(
   const maxWindows =
     options.maxWindows ?? options.stage1?.maxWindows ?? null;
 
+  const emitStage = (ev: CharacterPipelineProgressEvent) => {
+    options.onStageProgress?.(ev);
+    options.onProgress?.(formatCharacterPipelineProgress(ev));
+  };
+
   options.onProgress?.(
     `[pipeline] stage1 window scan concurrency=${concurrency}` +
       (maxWindows != null ? ` maxWindows=${maxWindows}` : ""),
   );
+  emitStage({
+    stage: 1,
+    stageDone: 0,
+    stageTotal: 1,
+    detail: `准备 concurrency=${concurrency}`,
+  });
 
+  // Concurrent windows finish out of order — progress by completed count, not window index.
+  let stage1Completed = 0;
   const stage1 = await runStage1WindowScan(fullText, llm, {
     ...options.stage1,
     concurrency,
     maxWindows,
-    onWindowDone: options.onStage1Window ?? options.stage1?.onWindowDone,
+    onWindowDone: (result, index, total) => {
+      const done = ++stage1Completed;
+      options.onStage1Window?.(result, index, total);
+      emitStage({
+        stage: 1,
+        stageDone: done,
+        stageTotal: total,
+        detail: `窗${result.window?.index ?? index} · ${result.characters?.length ?? 0}人`,
+      });
+    },
   });
 
-  options.onProgress?.(
-    `[pipeline] stage2 pairwise merge windows=${stage1.windows.length}`,
-  );
+  emitStage({
+    stage: 2,
+    stageDone: 0,
+    stageTotal: 1,
+    detail: "overlap 合并",
+  });
   const stage2 = mergeAdjacentWindowCharacters(
     stage1.byWindow,
     stage1.windows,
   );
+  emitStage({
+    stage: 2,
+    stageDone: 1,
+    stageTotal: 1,
+    detail: `${stage2.characters.length}人`,
+  });
 
+  const agentOn = options.stage3Agent !== false;
   options.onProgress?.(
-    `[pipeline] stage3 coref input=${stage2.characters.length} agent=${
-      options.stage3Agent !== false
-    }`,
+    `[pipeline] stage3 oneshot coref n=${stage2.characters.length} agent=${agentOn}`,
   );
-  const stage3Concurrency = Math.max(
-    1,
-    Math.min(32, options.stage3Concurrency ?? concurrency),
-  );
+  emitStage({
+    stage: 3,
+    stageDone: 0,
+    stageTotal: 1,
+    detail: agentOn ? "oneshot 消解" : "仅规则",
+  });
+
   const stage3 = await resolveCorefWithRulesAndAgent(
     stage2.characters,
     stage1.windows,
     {
-      llm: options.stage3Agent === false ? null : llm,
+      llm: agentOn ? llm : null,
+      agentConcurrency: options.stage3Concurrency ?? 6,
       fullText,
-      agentConcurrency: stage3Concurrency,
-      agentContextRadius: options.agentContextRadius ?? 220,
+      agentContextRadius: options.agentContextRadius ?? 200,
       config: {
-        agentEnabled: options.stage3Agent !== false,
-        agentConcurrency: stage3Concurrency,
+        agentEnabled: agentOn,
+        agentConcurrency: options.stage3Concurrency ?? 6,
       },
-      onAgentPair: options.onStage3AgentPair,
+      onAgentPair: (info) => {
+        options.onStage3AgentPair?.(info);
+        // Prefer completed count (concurrent pool); fall back to index+1.
+        const done = info.completed ?? info.index + 1;
+        emitStage({
+          stage: 3,
+          stageDone: done,
+          stageTotal: info.total,
+          detail: `oneshot ${info.idA}~${info.idB}`,
+        });
+      },
     },
   );
 
-  options.onProgress?.(
-    `[pipeline] stage4 canonicalName n=${stage3.characters.length}`,
-  );
+  if (stage3.uncertainPairs?.length) {
+    options.onProgress?.(
+      `[pipeline] stage3 uncertain pairs=${stage3.uncertainPairs.length} (outer agent may resolve)`,
+    );
+  }
+
+  emitStage({
+    stage: 4,
+    stageDone: 0,
+    stageTotal: Math.max(1, stage3.characters.length),
+    detail: "选 canonicalName",
+  });
   const useLlm = options.stage4Llm !== false;
   const stage4Chars = useLlm
     ? await applyStage4CanonicalNamesWithLlm(stage3.characters, llm, {
         concurrency: options.stage4Concurrency ?? 8,
         onDone: (i, total, name) => {
-          if (i === total || i % 5 === 0) {
-            options.onProgress?.(
-              `[pipeline] stage4 ${i}/${total} e.g. ${name}`,
-            );
-          }
+          emitStage({
+            stage: 4,
+            stageDone: i,
+            stageTotal: total,
+            detail: name,
+          });
         },
       })
     : applyStage4CanonicalNames(stage3.characters);
 
-  // Keep stage3.characters in sync with canonical names for consumers
   stage3.characters = stage4Chars;
 
-  options.onProgress?.(
-    `[pipeline] done stage2=${stage2.characters.length} → stage3/4=${stage4Chars.length} ` +
-      `(${Math.round((Date.now() - t0) / 1000)}s)`,
-  );
+  emitStage({
+    stage: 4,
+    stageDone: stage4Chars.length,
+    stageTotal: Math.max(1, stage4Chars.length),
+    detail: `完成 ${stage4Chars.length}人 · ${Math.round((Date.now() - t0) / 1000)}s`,
+  });
 
   return {
     config: stage1.config,

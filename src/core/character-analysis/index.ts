@@ -89,12 +89,21 @@ export {
   type CharacterAnalysisPipelineResult,
 } from "./pipeline";
 export {
+  formatCharacterPipelineProgress,
+  overallPctForStage,
+  CHARACTER_PIPELINE_STAGE_BANDS,
+  type CharacterPipelineStageId,
+  type CharacterPipelineProgressEvent,
+} from "./progress";
+export {
   selectCanonicalName,
   selectCanonicalNameWithOptionalLlm,
   uniqueProperSurfaces,
   isRuleConfidentCanonical,
   applyStage4CanonicalNames,
   applyStage4CanonicalNamesWithLlm,
+  applyStage5CanonicalNames,
+  applyStage5CanonicalNamesWithLlm,
   scoreSurfaceAsCanonical,
   type CanonicalPick,
   type SurfaceScoreRow,

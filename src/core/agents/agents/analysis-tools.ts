@@ -83,10 +83,12 @@ import {
   runCharacterAnalysisPipeline,
   pipelineResultToExtractSeed,
   sealCrossNameLedgerFromEntities,
+  formatCharacterPipelineProgress,
 } from "@/core/character-analysis";
 import { buildLocalEntitiesFromUnitHits } from "@/core/extractor/character-local-entities";
 import { relationshipTypePromptList } from "@/core/extractor/relationship-types";
 import { createLLMProvider } from "@/core/llm/factory";
+import { resolveMentionScanOptions } from "@/lib/runtime-settings";
 import { isChinese } from "@/lib/utils";
 import type {
   StoryInfo,
@@ -136,7 +138,7 @@ function ensureWs(userId: string, novelId: string, branchId: string) {
 }
 
 /**
- * New character analysis pipeline (stage① window extract → ② overlap merge → ③ coref)
+ * New character analysis pipeline (stage①–④)
  * → seed character-extract workspace for analyze_character_list.
  */
 async function seedCharacterCatalogViaPipeline(
@@ -145,35 +147,35 @@ async function seedCharacterCatalogViaPipeline(
   branchId: string,
   text: string,
   llm: LLMProvider,
+  /**
+   * UI progress: prefer emitting full 【进度】 lines via onProgressLine.
+   * Legacy (done,total,label) kept for unit-scan path compatibility.
+   */
   onProgress?: (done: number, total: number, label: string) => void,
+  onProgressLine?: (line: string) => void,
 ): Promise<{
   surfaceCount: number;
   unitCount: number;
   localEntityCount: number;
   entityCount: number;
+  uncertainPairCount: number;
 }> {
+  // User: mentionScanConcurrency (default 4); admin/debug: privileged (default 30)
+  const scanOpts = resolveMentionScanOptions({ userId });
+  const conc = Math.max(1, Math.min(32, scanOpts.concurrency));
   const result = await runCharacterAnalysisPipeline(text, llm, {
-    concurrency: 8,
+    concurrency: conc,
     stage3Agent: true,
-    stage3Concurrency: 12,
+    stage3Concurrency: conc,
+    stage4Concurrency: conc,
     agentContextRadius: 220,
-    onProgress: (msg) => onProgress?.(0, 1, msg),
-    onStage1Window: (r, i, total) => {
-      onProgress?.(
-        i + 1,
-        total,
-        r.error
-          ? `${r.window.label} 失败`
-          : `${r.window.label} characters=${r.characters.length}`,
-      );
-    },
-    onStage3AgentPair: (info) => {
-      const phase = info.phase === "same_surface" ? "surface" : "grey";
-      onProgress?.(
-        info.index + 1,
-        info.total,
-        `stage3 ${phase} ${info.idA}~${info.idB}`,
-      );
+    onStageProgress: (ev) => {
+      const line = formatCharacterPipelineProgress(ev);
+      onProgressLine?.(line);
+      // Map to weighted overall so legacy listeners still get a stable total=100
+      const m = line.match(/角色列表\s+(\d+)\s*\/\s*100/);
+      const overall = m ? parseInt(m[1]!, 10) : 0;
+      onProgress?.(overall, 100, line.replace(/^【进度】\s*/, ""));
     },
   });
 
@@ -197,12 +199,19 @@ async function seedCharacterCatalogViaPipeline(
   const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
   if (ws) {
     sealCrossNameLedgerFromEntities(ws, saved.entities);
+    // Uncertain oneshot pairs for outer agent tools (not a pipeline stage)
+    ws.corefUncertainPairs = seed.uncertainPairs || [];
+    // Prefer post-④ roster (pipeline mutates stage3.characters after canonicalName)
+    ws.corefRoster =
+      result.stage4?.characters || result.stage3.characters || [];
+    ws.updatedAt = new Date().toISOString();
   }
   return {
     surfaceCount: seed.catalog.stats.length,
     unitCount: seed.units.length,
     localEntityCount: seed.localEntities.length,
     entityCount: saved.entities.length,
+    uncertainPairCount: seed.uncertainPairs?.length ?? 0,
   };
 }
 
@@ -1066,11 +1075,11 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "scan_character_mentions",
     description:
-      "【角色列表】新流水线：①滑窗抽取 → ②overlap 相同 mention 合并 → ③规则+agent 跨窗消解 → ④从 surfaces 选 **canonicalName**；" +
-      "写入 catalog、localEntities 与 **entities 初稿**（name=canonicalName）。成功含「角色指称已扫描」。" +
-      "名单子 Agent 流程：scan → 直接 **submit_character_entities**（勿 list/lookup/异名循环）。" +
-      "**默认跳过**：本会话已有 catalog/localEntities 时返回缓存。" +
-      "forceRefresh=true 全书重跑流水线。",
+      "【角色列表】流水线 ①窗扫 → ②overlap → ③oneshot 消解(可 uncertain) → ④canonicalName；" +
+      "写入 catalog / localEntities / entities。成功含「角色指称已扫描」。" +
+      "若有 uncertain 对，用 list_coref_uncertain_pairs + list_cooccur_neighbors 等工具再判，" +
+      "然后 merge/split 或 resolve_coref_uncertain_pair。名单：scan →（消歧）→ submit。" +
+      "已有缓存默认跳过；forceRefresh=true 重跑。",
     parameters: {
       type: "object",
       properties: {
@@ -1102,12 +1111,13 @@ export const analysisDomainTools: ToolDefinition[] = [
         entityCount?: number,
         skipped?: boolean,
         pipeline?: boolean,
+        uncertainN?: number,
       ) => {
         const head = skipped
           ? `${ANALYSIS_OK.scan}（已缓存，跳过重扫）`
           : pipeline
-            ? `${ANALYSIS_OK.scan}（pipeline ①窗扫+②overlap+③coref）`
-            : `${ANALYSIS_OK.scan}（LLM 分段：扫名+局部消解）`;
+            ? `${ANALYSIS_OK.scan}（①窗扫→②overlap→③oneshot→④canonicalName）`
+            : `${ANALYSIS_OK.scan}（旧路径：LLM 分段扫名+局部消解）`;
         const top =
           topLines.length > 0
             ? topLines.map((s, i) => `${i + 1}. ${s}`).join("\n")
@@ -1122,17 +1132,24 @@ export const analysisDomainTools: ToolDefinition[] = [
             ? entityCount
             : getCharacterExtractWorkspace(userId, novelId, branchId)?.entities
                 ?.length ?? 0;
+        const unc =
+          uncertainN ??
+          getCharacterExtractWorkspace(userId, novelId, branchId)
+            ?.corefUncertainPairs?.length ??
+          0;
         const nextHint = skipped
-          ? `请继续：list_local_entities / list_cross_name_candidates → 必要时 merge → submit_character_entities；` +
-            `勿因双挂/submit 失败再扫。须重扫时 forceRefresh=true。`
+          ? `请继续：list 核对 → submit_character_entities；须重扫时 forceRefresh=true。`
           : pipeline
-            ? `entities 已由 stage3 预填（${entN} 人）。请 list 核对后 submit_character_entities（可少量 merge/split）；` +
-              `异名对已按 stage3 预销账。补漏 list_uncovered_surfaces。`
-            : `全书消解：list_near_alias_candidates → list_local_entities → lookup(u@) → submit merge/split；补漏 list_uncovered_surfaces。`;
+            ? unc > 0
+              ? `entities 已预填（${entN} 人），另有 ${unc} 对 oneshot 不确定。` +
+                `请 list_coref_uncertain_pairs → list_cooccur_neighbors 查多级共现 → resolve_coref_uncertain_pair，再 submit。`
+              : `entities 已由 ①–④ 预填（${entN} 人）。请 list 核对后 submit_character_entities。`
+            : `全书消解：list_near_alias_candidates → list_local_entities → lookup(u@) → submit merge/split。`;
         return (
           `${head}\n` +
-          `units=${unitCount} surfaces=${surfaceCount} localEntities=${localN}` +
+          `windows/units=${unitCount} surfaces=${surfaceCount} localEntities=${localN}` +
           (entN ? ` entities=${entN}` : "") +
+          (unc ? ` uncertainPairs=${unc}` : "") +
           `\n` +
           `前 ${Math.min(30, topLines.length)} 个 surface：\n${top}\n` +
           nextHint
@@ -1191,14 +1208,29 @@ export const analysisDomainTools: ToolDefinition[] = [
       }
       try {
         let lastEmit = 0;
-        const emit = (done: number, total: number, label: string) => {
+        /** Legacy unit-scan progress (done/total within scan units). */
+        const emitLegacy = (done: number, total: number, label: string) => {
           const now = Date.now();
           if (done < total && now - lastEmit < 250) return;
           lastEmit = now;
           const pct = total > 0 ? Math.round((done / total) * 100) : 0;
           onChunk?.(
-            `【进度】角色分析 ${done}/${total}（${pct}%）· ${label}`,
+            `【进度】角色列表 ${done}/${total}（${pct}%）· 旧路径扫名 · ${label}`,
           );
+        };
+        /** Pipeline stages ①–④: line already formatted. */
+        const emitLine = (line: string) => {
+          const now = Date.now();
+          // Always emit stage boundaries (①0%、②、③、④、完成)
+          const force =
+            /①窗扫 0\//.test(line) ||
+            /②overlap/.test(line) ||
+            /③消解/.test(line) ||
+            /④命名/.test(line) ||
+            /完成/.test(line);
+          if (!force && now - lastEmit < 280) return;
+          lastEmit = now;
+          onChunk?.(line);
         };
 
         if (legacyUnitScan) {
@@ -1210,7 +1242,7 @@ export const analysisDomainTools: ToolDefinition[] = [
               text,
               units,
               llm,
-              emit,
+              emitLegacy,
             );
           const after = getCharacterExtractWorkspace(userId, novelId, branchId);
           return {
@@ -1233,7 +1265,8 @@ export const analysisDomainTools: ToolDefinition[] = [
           branchId,
           text,
           llm,
-          emit,
+          undefined,
+          emitLine,
         );
         const after = getCharacterExtractWorkspace(userId, novelId, branchId);
         // Stage draft for UI / later detail agent
@@ -1258,6 +1291,7 @@ export const analysisDomainTools: ToolDefinition[] = [
             seeded.entityCount,
             false,
             true,
+            seeded.uncertainPairCount,
           ),
           messages: [],
         };
@@ -1267,6 +1301,277 @@ export const analysisDomainTools: ToolDefinition[] = [
           messages: [],
         };
       }
+    },
+  },
+  {
+    name: "list_coref_uncertain_pairs",
+    description:
+      "列出 Stage③ oneshot 标为 uncertain、pipeline 未合并的角色对。" +
+      "每对含 idA/idB、surfaces、score、reason。配合 list_cooccur_neighbors / lookup 判断后，" +
+      "用 resolve_coref_uncertain_pair 或 submit merge 处理。",
+    parameters: { type: "object", properties: {}, required: [] },
+    execute: async (_args, ctx) => {
+      const { userId, novelId, branchId } = ids(ctx);
+      const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
+      const pairs = ws?.corefUncertainPairs || [];
+      if (!pairs.length) {
+        return {
+          content: "无 uncertain 对（oneshot 均已 same/diff，或尚未 scan）。",
+          messages: [],
+        };
+      }
+      const lines = pairs.map((p, i) => {
+        return (
+          `${i + 1}. ${p.idA} ↔ ${p.idB} score=${p.score.toFixed(2)}\n` +
+          `   A={${(p.surfacesA || []).slice(0, 8).join("、")}}\n` +
+          `   B={${(p.surfacesB || []).slice(0, 8).join("、")}}\n` +
+          `   reason: ${(p.reason || "").slice(0, 160)}`
+        );
+      });
+      return {
+        content:
+          `uncertain 对共 ${pairs.length}：\n` +
+          lines.join("\n") +
+          `\n建议：list_cooccur_neighbors(idA/idB) 查多级共现 → resolve_coref_uncertain_pair。`,
+        messages: [],
+      };
+    },
+  },
+  {
+    name: "list_cooccur_neighbors",
+    description:
+      "查看角色共现网络（窗级，可多级）。id 为 coref roster id（见 uncertain 对或 entities）。" +
+      "hops=1 一跳邻居；hops=2 含邻居的邻居摘要。只助关系结构，勿因邻居相似直接合并。",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "角色 id（c559 或 uncertain 对中的 id）" },
+        hops: { type: "number", description: "1 或 2，默认 1" },
+        limit: { type: "number", description: "每层最多条数，默认 8" },
+      },
+      required: ["id"],
+    },
+    execute: async (args, ctx) => {
+      const { userId, novelId, branchId } = ids(ctx);
+      const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
+      const roster = (ws?.corefRoster || []) as Array<{
+        id: string;
+        windowLo?: number;
+        windowHi?: number;
+        gender?: string;
+        age?: string;
+        mentions?: Array<{ surface?: string }>;
+      }>;
+      if (!roster.length) {
+        return {
+          content: "无 corefRoster（请先 scan_character_mentions 新 pipeline）",
+          messages: [],
+        };
+      }
+      const id = String(args.id || "").trim();
+      const hops = Math.max(1, Math.min(2, Number(args.hops) || 1));
+      const limit = Math.max(1, Math.min(16, Number(args.limit) || 8));
+      const byId = new Map(roster.map((c) => [c.id, c]));
+      if (!byId.has(id)) {
+        return {
+          content: `未知 id=${id}。可用 id 示例：${roster
+            .slice(0, 12)
+            .map((c) => c.id)
+            .join(", ")}`,
+          messages: [],
+        };
+      }
+      // Build cooccur from roster window ranges (same window index co-occur)
+      const byWin = new Map<number, string[]>();
+      for (const c of roster) {
+        const lo = c.windowLo ?? 0;
+        const hi = c.windowHi ?? lo;
+        for (let w = lo; w <= hi; w++) {
+          const list = byWin.get(w) || [];
+          list.push(c.id);
+          byWin.set(w, list);
+        }
+      }
+      const coWith = new Map<string, Map<string, number>>();
+      const bump = (a: string, b: string) => {
+        if (a === b) return;
+        if (!coWith.has(a)) coWith.set(a, new Map());
+        const m = coWith.get(a)!;
+        m.set(b, (m.get(b) || 0) + 1);
+      };
+      byWin.forEach((idsInWin) => {
+        const uniq = Array.from(new Set(idsInWin));
+        for (let i = 0; i < uniq.length; i++) {
+          for (let j = i + 1; j < uniq.length; j++) {
+            bump(uniq[i]!, uniq[j]!);
+            bump(uniq[j]!, uniq[i]!);
+          }
+        }
+      });
+      const card = (cid: string, co: number) => {
+        const c = byId.get(cid);
+        const ss = Array.from(
+          new Set((c?.mentions || []).map((m) => (m.surface || "").trim()).filter(Boolean)),
+        ).slice(0, 8);
+        return (
+          `${cid} co=${co} {${ss.join("、") || "?"}} ` +
+          `win=[${c?.windowLo ?? "?"}..${c?.windowHi ?? "?"}]`
+        );
+      };
+      const neigh = Array.from(coWith.get(id)?.entries() || [])
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit);
+      if (!neigh.length) {
+        return { content: `${id} 一跳共现邻居：（无）`, messages: [] };
+      }
+      let out =
+        `【${id} 一跳共现】\n` +
+        neigh.map(([nid, co]) => `- ${card(nid, co)}`).join("\n");
+      if (hops >= 2) {
+        const lines2: string[] = [];
+        const seen = new Set<string>([id, ...neigh.map(([n]) => n)]);
+        for (const [nid] of neigh.slice(0, 5)) {
+          const n2 = Array.from(coWith.get(nid)?.entries() || [])
+            .filter(([x]) => !seen.has(x))
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3);
+          for (const [x, co] of n2) {
+            seen.add(x);
+            lines2.push(`- via ${nid} → ${card(x, co)}`);
+          }
+        }
+        if (lines2.length) {
+          out += `\n【二跳摘要】\n` + lines2.slice(0, 16).join("\n");
+        }
+      }
+      return { content: out, messages: [] };
+    },
+  },
+  {
+    name: "resolve_coref_uncertain_pair",
+    description:
+      "处理 list_coref_uncertain_pairs 中的一对：verdict=merge 则合并两实体（keep/absorb 用 id），" +
+      "distinct 则记为不同人并从 uncertain 列表移除。不写 DB，改 entities。",
+    parameters: {
+      type: "object",
+      properties: {
+        idA: { type: "string" },
+        idB: { type: "string" },
+        verdict: {
+          type: "string",
+          enum: ["merge", "distinct"],
+          description: "merge=同一人；distinct=不是同一人",
+        },
+        keep: {
+          type: "string",
+          description: "merge 时保留的 entity 名或 id（默认 idA 对应实体）",
+        },
+        reason: { type: "string" },
+      },
+      required: ["idA", "idB", "verdict"],
+    },
+    execute: async (args, ctx) => {
+      const { userId, novelId, branchId } = ids(ctx);
+      const ws = getCharacterExtractWorkspace(userId, novelId, branchId);
+      if (!ws) {
+        return { content: "无角色提取工作区，请先 scan", messages: [] };
+      }
+      const idA = String(args.idA || "").trim();
+      const idB = String(args.idB || "").trim();
+      const verdict = String(args.verdict || "").trim();
+      const reason = String(args.reason || "").trim();
+      const pairs = ws.corefUncertainPairs || [];
+      const idx = pairs.findIndex(
+        (p) =>
+          (p.idA === idA && p.idB === idB) ||
+          (p.idA === idB && p.idB === idA),
+      );
+      if (idx < 0) {
+        return {
+          content: `未找到 uncertain 对 ${idA}~${idB}。请 list_coref_uncertain_pairs。`,
+          messages: [],
+        };
+      }
+      const pair = pairs[idx]!;
+
+      if (verdict === "distinct") {
+        pairs.splice(idx, 1);
+        ws.corefUncertainPairs = pairs;
+        ws.updatedAt = new Date().toISOString();
+        return {
+          content:
+            `已记录 distinct：${idA} ≠ ${idB}` +
+            (reason ? `（${reason}）` : "") +
+            `。剩余 uncertain=${pairs.length}`,
+          messages: [],
+        };
+      }
+      if (verdict !== "merge") {
+        return { content: "verdict 须为 merge 或 distinct", messages: [] };
+      }
+
+      // Match entities by corefId first, then by surface bag
+      const entities = ws.entities || [];
+      const matchEnt = (cid: string, surfaces: string[]) => {
+        const byId = entities.find((e) => e.corefId === cid);
+        if (byId) return byId;
+        const bag = new Set(surfaces.map((s) => s.trim()).filter(Boolean));
+        return entities.find((e) => {
+          const names = [e.name, ...(e.aliases || []), ...(e.surfaces || [])];
+          return names.some((n) => bag.has((n || "").trim()));
+        });
+      };
+      const eA = matchEnt(idA, pair.surfacesA);
+      const eB = matchEnt(idB, pair.surfacesB);
+      if (!eA || !eB) {
+        return {
+          content:
+            `未能在 entities 中定位双方，uncertain 对仍保留（请手工 merge keep/absorb 后重试）。` +
+            ` A surfaces={${pair.surfacesA.slice(0, 5).join("、")}}` +
+            ` B={${pair.surfacesB.slice(0, 5).join("、")}}`,
+          messages: [],
+        };
+      }
+      if (eA.name === eB.name) {
+        pairs.splice(idx, 1);
+        ws.corefUncertainPairs = pairs;
+        ws.updatedAt = new Date().toISOString();
+        return {
+          content: `两 id 已对应同一 entity「${eA.name}」。剩余 uncertain=${pairs.length}`,
+          messages: [],
+        };
+      }
+      const keepName = String(args.keep || eA.name).trim() || eA.name;
+      const absorbName = keepName === eA.name ? eB.name : eA.name;
+      const keep = entities.find((e) => e.name === keepName) || eA;
+      const absorb = entities.find((e) => e.name === absorbName) || eB;
+      const aliasSet = new Set([
+        ...(keep.aliases || []),
+        ...(keep.surfaces || []),
+        absorb.name,
+        ...(absorb.aliases || []),
+        ...(absorb.surfaces || []),
+      ]);
+      aliasSet.delete(keep.name);
+      keep.aliases = Array.from(aliasSet);
+      keep.surfaces = Array.from(
+        new Set([...(keep.surfaces || []), ...(absorb.surfaces || [])]),
+      );
+      if (!keep.corefId) keep.corefId = eA.corefId || eB.corefId;
+      if (absorb.anchors?.length) {
+        keep.anchors = [...(keep.anchors || []), ...absorb.anchors].slice(0, 48);
+      }
+      ws.entities = entities.filter((e) => e.name !== absorb.name);
+      pairs.splice(idx, 1);
+      ws.corefUncertainPairs = pairs;
+      ws.updatedAt = new Date().toISOString();
+      return {
+        content:
+          `已 merge：保留「${keep.name}」，吸收「${absorb.name}」` +
+          (reason ? `（${reason}）` : "") +
+          `。entities=${ws.entities.length} 剩余 uncertain=${pairs.length}`,
+        messages: [],
+      };
     },
   },
   {

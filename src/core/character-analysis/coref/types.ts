@@ -194,18 +194,20 @@ export interface Stage3CorefConfig {
   /**
    * Grey LLM routing (score ∈ (autoReject, autoMerge)):
    * edgeReject = exp(-u²/(2 σ_reject²)), edgeMerge = exp(-(1-u)²/(2 σ_merge²)).
-   * deep if max(edges) ≥ greyEdgeTau; else oneshot.
-   * **σ_merge > σ_reject** → wider deep band near auto_merge (asymmetric care).
+   * **oneshot** if max(edges) ≥ greyEdgeTau (near autoReject/autoMerge);
+   * **deep** in mid-grey (true ambiguity).
+   * Larger σ → wider oneshot on that edge. Default σ_reject ≥ σ_merge so deep
+   * extends closer to auto_merge.
    */
-  /** σ in u-space for reject-edge Gaussian. Default 0.16. */
+  /** σ in u-space for reject-edge Gaussian (oneshot width). Default 0.26. */
   greySigmaReject: number;
-  /** σ in u-space for merge-edge Gaussian. Default 0.26 (wider than reject). */
+  /** σ in u-space for merge-edge Gaussian (oneshot width). Default 0.16. */
   greySigmaMerge: number;
-  /** Edge strength threshold for deep mode. Default 0.45. */
+  /** Edge strength threshold for oneshot (below → deep). Default 0.45. */
   greyEdgeTau: number;
   /**
-   * If true, grey pairs near merge side without sharedStrong force deep.
-   * Default true.
+   * If true, mid/near-merge grey pairs without sharedStrong force deep even when
+   * score sits on the merge oneshot skirt. Default false (pure score routing).
    */
   greyForceDeepNearMergeNoStrong: boolean;
 }
@@ -232,13 +234,21 @@ export const STAGE3_DEFAULT_CONFIG: Stage3CorefConfig = {
   proximityNearFrac: 0.08,
   proximityMidFrac: 0.2,
   proximityFarFrac: 0.4,
-  greySigmaReject: 0.16,
-  greySigmaMerge: 0.26,
+  greySigmaReject: 0.26,
+  greySigmaMerge: 0.16,
   greyEdgeTau: 0.45,
-  greyForceDeepNearMergeNoStrong: true,
+  greyForceDeepNearMergeNoStrong: false,
 };
 
-export type PairDecisionKind = "auto_merge" | "auto_reject" | "agent" | "agent_merge" | "agent_reject" | "agent_skipped";
+export type PairDecisionKind =
+  | "auto_merge"
+  | "auto_reject"
+  | "agent"
+  | "agent_merge"
+  | "agent_reject"
+  /** Stage③ oneshot could not decide; entities stay separate for outer agent */
+  | "agent_uncertain"
+  | "agent_skipped";
 
 export interface RuleScoreBreakdown {
   ruleId: string;
@@ -259,9 +269,19 @@ export interface PairScoreResult {
   decision: PairDecisionKind;
   agentAnswer?: boolean;
   agentReason?: string;
-  /** Grey LLM path: oneshot pairwise vs deep multi-turn agent. */
+  /** Stage③ oneshot only (deep unused; outer analysis agent handles uncertain). */
   llmMode?: "oneshot" | "deep";
   llmModeReason?: string;
+}
+
+/** Pair left undecided after Stage③ oneshot — for outer character-list agent. */
+export interface UncertainCorefPair {
+  idA: string;
+  idB: string;
+  score: number;
+  reason: string;
+  surfacesA: string[];
+  surfacesB: string[];
 }
 
 export interface Stage3ResolveResult {
@@ -270,6 +290,8 @@ export interface Stage3ResolveResult {
   characters: MergedCharacter[];
   pairCount: number;
   scored: PairScoreResult[];
+  /** Uncertain pairs (not merged); outer agent may resolve with tools */
+  uncertainPairs: UncertainCorefPair[];
   stats: {
     autoMerge: number;
     autoReject: number;
@@ -277,11 +299,12 @@ export interface Stage3ResolveResult {
     agentMerge: number;
     agentReject: number;
     agentSkipped: number;
-    /** Grey pairs routed to single-shot LLM */
+    /** Stage③ oneshot LLM calls */
     agentOneshot: number;
-    /** Grey pairs routed to deep multi-turn agent */
+    /** @deprecated no in-pipeline deep; always 0. Kept for eval log compat. */
     agentDeep: number;
-    /** Same-surface residual pass: pairs sent to agent */
+    /** Oneshot returned uncertain */
+    agentUncertain: number;
     sameSurfacePass: number;
     sameSurfaceMerge: number;
     sameSurfaceReject: number;

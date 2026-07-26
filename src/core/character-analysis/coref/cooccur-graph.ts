@@ -221,3 +221,87 @@ export function pairCooccurMetrics(
     sharedNeighborCount: inter,
   };
 }
+
+/**
+ * Related character = co-occurred with **both** A and B (N(A) ∩ N(B)),
+ * excluding A/B themselves. Window-level co-occur graph.
+ */
+export interface RelatedNeighborPick {
+  id: string;
+  /** Always shared (N(A) ∩ N(B)). Kept for card labels / backward compat. */
+  role: "shared";
+  /** Windows co-occurring with A */
+  coA: number;
+  /** Windows co-occurring with B */
+  coB: number;
+}
+
+/**
+ * Pick related co-occur entities for agent cards: **only shared neighbors**
+ * X ∈ N(A) ∩ N(B). Sorted by min(coA,coB) desc; topExclusiveCompanion first.
+ */
+export function pickRelatedNeighbors(
+  idA: string,
+  idB: string,
+  graph: CooccurGraph,
+  opts?: { maxTotal?: number },
+): RelatedNeighborPick[] {
+  const sa = graph.byId.get(idA);
+  const sb = graph.byId.get(idB);
+  if (!sa || !sb) return [];
+
+  const maxTotal = opts?.maxTotal ?? 8;
+
+  const neighA = new Map<string, number>();
+  for (const [x, n] of sa.coWith) {
+    if (x !== idB) neighA.set(x, n);
+  }
+  const neighB = new Map<string, number>();
+  for (const [x, n] of sb.coWith) {
+    if (x !== idA) neighB.set(x, n);
+  }
+
+  const shared: RelatedNeighborPick[] = [];
+  for (const [x, coA] of neighA) {
+    if (!neighB.has(x)) continue;
+    shared.push({
+      id: x,
+      role: "shared",
+      coA,
+      coB: neighB.get(x) || 0,
+    });
+  }
+  shared.sort(
+    (p, q) =>
+      Math.min(q.coA, q.coB) - Math.min(p.coA, p.coB) ||
+      q.coA + q.coB - (p.coA + p.coB),
+  );
+
+  const out: RelatedNeighborPick[] = [];
+  const seen = new Set<string>();
+  const push = (p: RelatedNeighborPick) => {
+    if (seen.has(p.id) || out.length >= maxTotal) return;
+    seen.add(p.id);
+    out.push(p);
+  };
+
+  // Prefer top exclusive companion first when present in shared
+  let topEx: string | null = null;
+  let bestEx = 0;
+  const countA = Math.max(1, sa.count);
+  const countB = Math.max(1, sb.count);
+  for (const p of shared) {
+    const ex = Math.min(p.coA / countA, p.coB / countB);
+    if (ex > bestEx) {
+      bestEx = ex;
+      topEx = p.id;
+    }
+  }
+  if (topEx) {
+    const hit = shared.find((p) => p.id === topEx);
+    if (hit) push(hit);
+  }
+
+  for (const p of shared) push(p);
+  return out;
+}

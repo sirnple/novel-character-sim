@@ -19,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import iconv from "iconv-lite";
 import { loadEnvLocal } from "../lib/load-env-local";
+import { formatMentionsWithOffset } from "./lib/format-mentions";
 
 /**
  * Load env like Next.js: `.env` then `.env.local` (later overrides earlier).
@@ -301,8 +302,9 @@ async function main() {
       },
       onAgentPair: (info) => {
         const phase = info.phase === "same_surface" ? "surface" : "grey";
+        const done = info.completed ?? info.index + 1;
         process.stdout.write(
-          `\r[stage3] ${phase}${info.llmMode ? "/" + info.llmMode : ""} ${info.index + 1}/${info.total} ${info.idA}~${info.idB} score=${info.score.toFixed(2)}   `,
+          `\r[stage3] ${phase}${info.llmMode ? "/" + info.llmMode : ""} ${done}/${info.total} ${info.idA}~${info.idB} score=${info.score.toFixed(2)}   `,
         );
       },
     });
@@ -419,10 +421,10 @@ async function main() {
     md.push(`## Stage2 全局人物列表`);
     md.push(``);
     for (const c of merged) {
-      const surfaces = Array.from(new Set(c.mentions.map((m) => m.surface)));
+      const surfaces = formatMentionsWithOffset(c.mentions);
       md.push(
         `- \`${c.id}\` windows=[${c.windowLo}..${c.windowHi}] ` +
-          `{${surfaces.join("、")}} n=${c.mentions.length}` +
+          `{${surfaces}} n=${c.mentions.length}` +
           (c.gender ? ` gender=${c.gender}` : "") +
           (c.age ? ` age=${c.age}` : ""),
       );

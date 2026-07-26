@@ -197,7 +197,7 @@ export default function CharacterJobStatus({
           </span>
         ) : (
           debugMode && (
-            <span className="text-fog">分段扫名 (Flash) · 可单独重抽</span>
+            <span className="text-fog">角色列表 ①–④ · 可单独重抽</span>
           )
         )}
       </div>

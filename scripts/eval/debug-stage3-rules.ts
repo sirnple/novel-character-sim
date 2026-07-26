@@ -157,7 +157,7 @@ async function main() {
     agentConcurrency: 4,
     onAgentPair: (info) => {
       process.stdout.write(
-        `\r[agent] ${info.index + 1}/${info.total} ${info.idA}~${info.idB}   `,
+        `\r[agent] ${info.completed ?? info.index + 1}/${info.total} ${info.idA}~${info.idB}   `,
       );
     },
   });

@@ -96,16 +96,19 @@ export const ruleSharedStrongSurface: CorefRule = {
 };
 
 /**
- * Shared non-identity surfaces, scored by **kind** (weaker side):
- * - deictic: tiny / negative when far
- * - generic / desc: small (这小子 cannot glue people)
- * - kinship / title: mild near windows
- * Skipped when there is already shared strong identity.
+ * Shared non-strong surfaces, scored by tier + window gap:
+ *
+ * **midSurface** (title | kinship | desc):
+ *   gap=0/1 → mild +; **gap≥2 → Δ=0** (neither credit nor penalty).
+ * **weakSurface** (generic | deictic only):
+ *   gap=0 → tiny +; gap=1 → ~0; **gap≥2 → −** (far shared 这小子/你 are noise).
+ *
+ * Skipped when there is already shared strong identity (proper|nick).
  */
 export const ruleSharedWeakSurface: CorefRule = {
   id: "shared_weak_surface",
   description:
-    "Shared weak surfaces by kind (deictic/generic/kinship/title/desc); no strong share",
+    "midSurface title|kinship|desc (far→neutral); weakSurface generic|deictic (far→−)",
   defaultEnabled: true,
   defaultWeight: 1,
   evaluate(ctx) {
@@ -115,37 +118,74 @@ export const ruleSharedWeakSurface: CorefRule = {
     const parts: string[] = [];
     let delta = 0;
 
+    // ── weakSurface: generic | deictic — far gaps penalize ───────────
     if (f.sharedDeicticSurfaces.length) {
-      // Pure pronouns: almost no merge evidence
       const d = gap === 0 ? 0.04 : gap === 1 ? 0 : -0.08;
-      delta += d;
-      parts.push(`deictic「${f.sharedDeicticSurfaces.join("、")}」Δ=${d}`);
+      if (d !== 0) {
+        delta += d;
+        parts.push(`weak/deictic「${f.sharedDeicticSurfaces.join("、")}」Δ=${d}`);
+      } else {
+        parts.push(`weak/deictic「${f.sharedDeicticSurfaces.join("、")}」Δ=0`);
+      }
     }
     if (f.sharedGenericSurfaces.length) {
       const d = gap === 0 ? 0.05 : gap === 1 ? 0.02 : -0.05;
-      delta += d;
-      parts.push(`generic「${f.sharedGenericSurfaces.join("、")}」Δ=${d}`);
+      if (d !== 0) {
+        delta += d;
+        parts.push(`weak/generic「${f.sharedGenericSurfaces.join("、")}」Δ=${d}`);
+      } else {
+        parts.push(`weak/generic「${f.sharedGenericSurfaces.join("、")}」Δ=0`);
+      }
     }
+
+    // ── midSurface: title | kinship | desc — far gaps neutral (0) ───
+    const midDelta = (near0: number, near1: number): number => {
+      if (gap === 0) return near0;
+      if (gap === 1) return near1;
+      return 0; // gap≥2: no add, no subtract
+    };
     if (f.sharedDescSurfaces.length) {
-      const d = gap === 0 ? 0.06 : gap === 1 ? 0.02 : -0.04;
-      delta += d;
-      parts.push(`desc「${f.sharedDescSurfaces.join("、")}」Δ=${d}`);
+      const d = midDelta(0.06, 0.02);
+      if (d !== 0) {
+        delta += d;
+        parts.push(`mid/desc「${f.sharedDescSurfaces.join("、")}」Δ=${d}`);
+      } else {
+        parts.push(
+          `mid/desc「${f.sharedDescSurfaces.join("、")}」Δ=0 (gap≥2 neutral)`,
+        );
+      }
     }
     if (f.sharedKinshipSurfaces.length) {
-      const d = gap === 0 ? 0.08 : gap === 1 ? 0.04 : -0.03;
-      delta += d;
-      parts.push(`kinship「${f.sharedKinshipSurfaces.join("、")}」Δ=${d}`);
+      const d = midDelta(0.08, 0.04);
+      if (d !== 0) {
+        delta += d;
+        parts.push(`mid/kinship「${f.sharedKinshipSurfaces.join("、")}」Δ=${d}`);
+      } else {
+        parts.push(
+          `mid/kinship「${f.sharedKinshipSurfaces.join("、")}」Δ=0 (gap≥2 neutral)`,
+        );
+      }
     }
     if (f.sharedTitleSurfaces.length) {
-      const d = gap === 0 ? 0.08 : gap === 1 ? 0.04 : -0.03;
-      delta += d;
-      parts.push(`title「${f.sharedTitleSurfaces.join("、")}」Δ=${d}`);
+      const d = midDelta(0.08, 0.04);
+      if (d !== 0) {
+        delta += d;
+        parts.push(`mid/title「${f.sharedTitleSurfaces.join("、")}」Δ=${d}`);
+      } else {
+        parts.push(
+          `mid/title「${f.sharedTitleSurfaces.join("、")}」Δ=0 (gap≥2 neutral)`,
+        );
+      }
     }
 
     if (!parts.length) return null;
-    // Cap: weak kinds alone must stay well below auto_merge with prior 0.5
+    // Only mid-far neutrals with Δ=0 → no score change (still log for debug)
+    if (delta === 0) {
+      return v(0, `shared mid/weak gap=${gap} neutral ${parts.join("; ")}`);
+    }
+    // Cap: alone must stay well below auto_merge with prior 0.5
     delta = Math.max(-0.2, Math.min(0.12, delta));
-    return v(delta, `shared weak by kind gap=${gap} ${parts.join("; ")}`);
+    return v(delta, `shared mid/weak by kind gap=${gap} ${parts.join("; ")}`);
   },
 };
 
@@ -203,7 +243,7 @@ export const ruleWindowProximity: CorefRule = {
     if (nWin < 2) {
       // Tests / missing span — absolute gap (legacy)
       if (g === 1) return v(0.05, "window ranges gap=1 (no span)");
-      if (g >= 3) return v(-0.15, `window ranges gap=${g} (no span)`);
+      if (g >= 3) return v(-0.1, `window ranges gap=${g} (no span)`);
       return v(-0.05, `window ranges gap=${g} (no span)`);
     }
 
@@ -216,8 +256,8 @@ export const ruleWindowProximity: CorefRule = {
 
     if (r < near) return v(0.05, `window gap near ${tag}`);
     if (r < mid) return v(-0.05, `window gap mid ${tag}`);
-    if (r < far) return v(-0.1, `window gap far ${tag}`);
-    return v(-0.15, `window gap very far ${tag}`);
+    if (r < far) return v(-0.08, `window gap far ${tag}`);
+    return v(-0.1, `window gap very far ${tag}`);
   },
 };
 

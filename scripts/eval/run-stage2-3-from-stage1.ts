@@ -52,6 +52,7 @@ import {
   type Character,
   type WindowExtractResult,
 } from "../../src/core/character-analysis";
+import { formatMentionsWithOffset } from "./lib/format-mentions";
 
 function readNovelFile(filePath: string): string {
   const buf = fs.readFileSync(filePath);
@@ -207,8 +208,9 @@ async function main() {
       onAgentPair: (info) => {
         const phase = info.phase === "same_surface" ? "surface" : "grey";
         const mode = info.llmMode ? `/${info.llmMode}` : "";
+        const done = info.completed ?? info.index + 1;
         process.stdout.write(
-          `\r[stage3] ${phase}${mode} ${info.index + 1}/${info.total} ${info.idA}~${info.idB} score=${info.score.toFixed(2)}   `,
+          `\r[stage3] ${phase}${mode} ${done}/${info.total} ${info.idA}~${info.idB} score=${info.score.toFixed(2)}   `,
         );
       },
     },
@@ -290,10 +292,10 @@ async function main() {
   }
   md.push(``, `## Stage2 全局人物列表`, ``);
   for (const c of s2.characters) {
-    const surfaces = Array.from(new Set(c.mentions.map((m) => m.surface)));
+    const surfaces = formatMentionsWithOffset(c.mentions);
     md.push(
       `- \`${c.id}\` windows=[${c.windowLo}..${c.windowHi}] ` +
-        `{${surfaces.join("、")}} n=${c.mentions.length}`,
+        `{${surfaces}} n=${c.mentions.length}`,
     );
   }
   fs.writeFileSync(mdPath, md.join("\n"), "utf8");

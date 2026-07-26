@@ -206,7 +206,7 @@ const TOOL_LABELS: Record<string, string> = {
   set_form_narrative: "写入形态字段",
   enrich_form_draft: "LLM补全章法(旧)",
   submit_form: "提交章法",
-  scan_character_mentions: "扫描角色指称",
+  scan_character_mentions: "角色列表流水线",
   list_cross_name_candidates: "异名怀疑列表",
   resolve_cross_name_pair: "异名对表态",
   list_surface_candidates: "列出称呼候选",
@@ -415,7 +415,11 @@ function groupTranscript(messages: SubAgentMessage[]): TranscriptItem[] {
   return items;
 }
 
-/** Parse live tool progress lines: 【进度】扫描角色指称 12/48（25%）· 第12章 */
+/**
+ * Parse live tool progress lines.
+ * Pipeline: 【进度】角色列表 22/100（22%）· ①窗扫 12/27（44%）· 窗11 · 5人
+ * Legacy:   【进度】扫描角色指称 12/48（25%）· 第12章
+ */
 function parseToolProgress(text?: string): {
   label: string;
   done: number;
@@ -424,12 +428,14 @@ function parseToolProgress(text?: string): {
   detail: string;
 } | null {
   if (!text) return null;
-  const m = text.match(
-    /【进度】([^\s]+)?\s*(\d+)\s*\/\s*(\d+)(?:（(\d+)%）)?(?:\s*·\s*(.+))?/,
+  // Prefer last progress line in a multi-line chunk
+  const lines = text.split(/\n/).filter((l) => l.includes("【进度】") || /角色列表|扫描角色|①|②|③|④/.test(l));
+  const line = [...lines].reverse().find((l) => l.includes("【进度】")) || text;
+  const m = line.match(
+    /【进度】([^\s·]+)?\s*(\d+)\s*\/\s*(\d+)(?:（(\d+)%）)?(?:\s*·\s*(.+))?/,
   );
   if (!m) {
-    // also accept plain: 扫描角色指称 12/48
-    const m2 = text.match(/(扫描角色指称)\s+(\d+)\s*\/\s*(\d+)/);
+    const m2 = line.match(/(扫描角色指称|角色列表)\s+(\d+)\s*\/\s*(\d+)/);
     if (!m2) return null;
     const done = parseInt(m2[2], 10);
     const total = parseInt(m2[3], 10) || 1;
@@ -458,6 +464,8 @@ function ToolProgressBar({
 }: {
   progress: { label: string; done: number; total: number; pct: number; detail: string };
 }) {
+  // Pipeline detail often starts with ①/②/③/④ stage token
+  const stageToken = progress.detail.match(/[①②③④][^\s·]*/)?.[0];
   return (
     <div className="space-y-1.5">
       <div className="text-xs text-primary/90 flex items-center gap-1.5 flex-wrap">
@@ -465,8 +473,13 @@ function ToolProgressBar({
         <span>
           {progress.label} {progress.done}/{progress.total}（{progress.pct}%）
         </span>
+        {stageToken ? (
+          <span className="rounded bg-primary/10 px-1 py-0.5 text-[10px] text-primary/90 shrink-0">
+            {stageToken}
+          </span>
+        ) : null}
         {progress.detail ? (
-          <span className="text-muted-foreground truncate max-w-[14rem]">
+          <span className="text-muted-foreground truncate max-w-[18rem]" title={progress.detail}>
             · {progress.detail}
           </span>
         ) : null}

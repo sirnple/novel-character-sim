@@ -163,18 +163,21 @@ async function main() {
       },
       onAgentPair: (info) => {
         const phase = info.phase === "same_surface" ? "surface" : "grey";
+        const done = info.completed ?? info.index + 1;
         process.stdout.write(
-          `\r[stage3] ${phase} ${info.index + 1}/${info.total} ${info.idA}~${info.idB} score=${info.score.toFixed(2)}   `,
+          `\r[stage3] ${phase} ${done}/${info.total} ${info.idA}~${info.idB} score=${info.score.toFixed(2)}   `,
         );
       },
     },
   );
   const elapsed = Math.round((Date.now() - t0) / 1000);
+  const uncertainPairs = stage3Result.uncertainPairs || [];
   console.log(
     `\n[stage3] done ${stage2Chars.length} → ${stage3Result.characters.length} ` +
       `autoMerge=${stage3Result.stats.autoMerge} autoReject=${stage3Result.stats.autoReject} ` +
       `agent=${stage3Result.stats.agent} oneshot=${stage3Result.stats.agentOneshot} deep=${stage3Result.stats.agentDeep} ` +
-      `agentMerge=${stage3Result.stats.agentMerge} ` +
+      `agentMerge=${stage3Result.stats.agentMerge} agentReject=${stage3Result.stats.agentReject} ` +
+      `agentUncertain=${stage3Result.stats.agentUncertain} uncertainPairs=${uncertainPairs.length} ` +
       `sameSurfacePass=${stage3Result.stats.sameSurfacePass}` +
       `(merge=${stage3Result.stats.sameSurfaceMerge}) ${elapsed}s`,
   );
@@ -205,12 +208,15 @@ async function main() {
       pairCount: stage3Result.pairCount,
       stats: stage3Result.stats,
       characters: stage3Result.characters,
+      uncertainPairs,
       scored: stage3Result.scored.filter(
         (s) =>
           s.decision === "auto_merge" ||
           s.decision === "agent" ||
           s.decision === "agent_merge" ||
-          s.decision === "agent_reject",
+          s.decision === "agent_reject" ||
+          s.decision === "agent_uncertain" ||
+          s.decision === "agent_skipped",
       ),
     },
   };
@@ -218,6 +224,12 @@ async function main() {
   const jsonPath = path.join(runDir, "result.json");
   const mdPath = path.join(runDir, "result.md");
   fs.writeFileSync(jsonPath, JSON.stringify(payload, null, 2), "utf8");
+
+  const surfacesOf = (id: string) => {
+    const c = stage2Chars.find((x) => x.id === id);
+    if (!c) return "?";
+    return Array.from(new Set(c.mentions.map((m) => m.surface))).slice(0, 10).join("、");
+  };
 
   const md: string[] = [
     `# Character analysis Stage3 re-run — ${prev.title || ""}`,
@@ -229,12 +241,28 @@ async function main() {
     `- elapsed: ${elapsed}s`,
     `- autoMerge=${stage3Result.stats.autoMerge} autoReject=${stage3Result.stats.autoReject}`,
     `- agent=${stage3Result.stats.agent} oneshot=${stage3Result.stats.agentOneshot} deep=${stage3Result.stats.agentDeep}`,
-    `- agentMerge=${stage3Result.stats.agentMerge} agentReject=${stage3Result.stats.agentReject}`,
+    `- agentMerge=${stage3Result.stats.agentMerge} agentReject=${stage3Result.stats.agentReject} agentUncertain=${stage3Result.stats.agentUncertain} agentSkipped=${stage3Result.stats.agentSkipped}`,
+    `- **uncertainPairs: ${uncertainPairs.length}** (for outer character-list agent)`,
     `- sameSurfacePass=${stage3Result.stats.sameSurfacePass}/merge=${stage3Result.stats.sameSurfaceMerge}`,
     ``,
-    `## Stage3 消解后人物列表`,
-    ``,
   ];
+
+  if (uncertainPairs.length) {
+    md.push(`## Uncertain pairs (oneshot 未决，留给外层 agent)`, ``);
+    for (const [i, p] of uncertainPairs.entries()) {
+      md.push(
+        `${i + 1}. \`${p.idA}\` ↔ \`${p.idB}\` score=${p.score.toFixed(2)}`,
+        `   - A: {${(p.surfacesA || []).slice(0, 8).join("、") || surfacesOf(p.idA)}}`,
+        `   - B: {${(p.surfacesB || []).slice(0, 8).join("、") || surfacesOf(p.idB)}}`,
+        `   - reason: ${(p.reason || "").slice(0, 200)}`,
+        ``,
+      );
+    }
+  } else {
+    md.push(`## Uncertain pairs`, ``, `（无 — oneshot 均 same/diff 或未进 grey）`, ``);
+  }
+
+  md.push(`## Stage3 消解后人物列表`, ``);
   for (const c of stage3Result.characters) {
     const surfaces = Array.from(new Set(c.mentions.map((m) => m.surface)));
     md.push(

@@ -9,6 +9,7 @@ export type {
   RuleScoreBreakdown,
   PairScoreResult,
   Stage3ResolveResult,
+  UncertainCorefPair,
 } from "./types";
 export { STAGE3_DEFAULT_CONFIG } from "./types";
 export {
@@ -26,10 +27,12 @@ export {
 export {
   buildCooccurGraph,
   pairCooccurMetrics,
+  pickRelatedNeighbors,
   windowIndexForOffset,
   type CooccurGraph,
   type EntityCooccurStats,
   type PairCooccurMetrics,
+  type RelatedNeighborPick,
 } from "./cooccur-graph";
 export {
   ALL_COREF_RULES,
@@ -60,11 +63,22 @@ export {
 export { UnionFind } from "./union-find";
 export {
   agentJudgeSamePerson,
+  agentJudgeSamePersonOneshot,
+  agentJudgeSamePersonAgent,
   formatMentionContexts,
+  formatRelatedCharacterCards,
   sliceContextFromFullText,
   sliceContextFromWindows,
   type AgentJudgeContextOptions,
+  type AgentJudgeResult,
+  type CorefOneshotVerdict,
 } from "./agent-judge";
+export {
+  agentJudgeSamePersonToolLoop,
+  COREF_JUDGE_TOOLS,
+  executeCorefJudgeTool,
+  type CorefJudgeLoopContext,
+} from "./agent-judge-loop";
 export {
   mergeStage3Config,
   resolveCorefWithRulesAndAgent,

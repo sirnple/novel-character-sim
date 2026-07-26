@@ -43,6 +43,24 @@ export interface CharacterExtractWorkspace {
   pairResolutions?: Record<string, CrossNamePairResolution>;
   /** Cached P3 candidates (rebuilt on scan / demand) */
   crossNameCandidates?: CrossNameCandidate[];
+  /**
+   * Stage③ oneshot left these pairs undecided (not merged).
+   * Outer character-list agent resolves with co-occur tools.
+   */
+  corefUncertainPairs?: Array<{
+    idA: string;
+    idB: string;
+    score: number;
+    reason: string;
+    surfacesA: string[];
+    surfacesB: string[];
+  }>;
+  /**
+   * Post-coref roster snapshot (ids match uncertain pair ids) for neighbor tools.
+   * Mentions keep offset anchors when available.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  corefRoster?: any[];
 }
 
 type Store = Map<string, CharacterExtractWorkspace>;

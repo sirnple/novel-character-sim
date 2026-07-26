@@ -1,27 +1,51 @@
 /**
- * LLM agent: judge whether two characters are the same person.
- * Prompt includes structured features + local novel context around mentions.
+ * Coref LLM judges (pipeline Stage③ oneshot only for grey pairs):
+ * - oneshot: single chatWithTool → same | diff | uncertain
+ * - tool-loop helper: multi-hop co-occur (used by tests / optional tooling;
+ *   production residual uncertainty is resolved by the outer character-list
+ *   agent via analysis tools after the pipeline ends — not a pipeline stage)
  */
 
 import type { LLMProvider, ToolSchema } from "@/types";
 import type { MergedCharacter } from "../merge-adjacent";
 import type { AnalysisWindow } from "../types";
+import { agentJudgeSamePersonToolLoop } from "./agent-judge-loop";
+import {
+  pickRelatedNeighbors,
+  type CooccurGraph,
+} from "./cooccur-graph";
 import {
   isDeicticPronounSurface,
   surfacesForCoref,
 } from "./features";
 import type { PairFeatures } from "./types";
 
-const TOOL: ToolSchema = {
+/** Stage③ oneshot ternary verdict. */
+export type CorefOneshotVerdict = "same" | "diff" | "uncertain";
+
+export interface AgentJudgeResult {
+  /** Final boolean only when decided (not for uncertain oneshot). */
+  same?: boolean;
+  verdict: CorefOneshotVerdict;
+  reason: string;
+}
+
+const TOOL_ONESHOT: ToolSchema = {
   name: "coref_pair_judge",
-  description: "Whether two character records refer to the same person",
+  description:
+    "Judge if two records are the same person. Only use verdict; never output a same boolean.",
   parameters: {
     type: "object",
     properties: {
-      same: { type: "boolean", description: "true if same person" },
+      verdict: {
+        type: "string",
+        enum: ["same", "diff", "uncertain"],
+        description:
+          "same=同一人；diff=不是同一人；uncertain=吃不准，交给后续角色列表 agent",
+      },
       reason: { type: "string", description: "brief reason" },
     },
-    required: ["same"],
+    required: ["verdict", "reason"],
   },
 };
 
@@ -40,6 +64,56 @@ export interface AgentJudgeContextOptions {
    * mentions for context snippets and surface list (drop 我/你/他 noise).
    */
   stripDeicticWhenHasName?: boolean;
+  /**
+   * Stage-② roster for related-character cards (co-occur neighbors of A/B).
+   * Required together with `cooccurGraph` when `includeRelatedCards` is true.
+   */
+  rosterById?: Map<string, MergedCharacter>;
+  /** Window co-occur graph; used to pick shared / exclusive neighbors. */
+  cooccurGraph?: CooccurGraph;
+  /**
+   * Inject 【相关人物】 cards = shared co-occur neighbors N(A)∩N(B) (default false).
+   * Oneshot may use this; deep prefers tool-loop list_neighbors instead.
+   */
+  includeRelatedCards?: boolean;
+  /** Max related cards (default 8). */
+  maxRelatedCards?: number;
+  /** Mention snippets per related card (default 1). */
+  maxRelatedMentions?: number;
+  /** Context radius for related-card snippets (default 120). */
+  relatedContextRadius?: number;
+  /**
+   * Multi-turn tool-loop (default false = Stage③ oneshot).
+   * Not a pipeline stage; requires rosterById + cooccurGraph.
+   */
+  toolLoop?: boolean;
+  /** Max tool-loop rounds (default 8). */
+  toolLoopMaxSteps?: number;
+}
+
+/** Parse oneshot tool result. Only `verdict` is used (ignore any leftover `same`). */
+function parseOneshotVerdict(raw: {
+  verdict?: string;
+  reason?: string;
+  /** @deprecated ignored — schema no longer has same */
+  same?: boolean;
+}): AgentJudgeResult {
+  const reason = (raw?.reason || "").trim();
+  const v = (raw?.verdict || "").toLowerCase().trim();
+  if (v === "same" || v === "yes" || v === "true") {
+    return { verdict: "same", same: true, reason: reason || "oneshot:same" };
+  }
+  if (v === "diff" || v === "different" || v === "no" || v === "false") {
+    return { verdict: "diff", same: false, reason: reason || "oneshot:diff" };
+  }
+  if (v === "uncertain" || v === "unknown" || v === "unsure" || v === "maybe") {
+    return { verdict: "uncertain", reason: reason || "oneshot:uncertain" };
+  }
+  // Missing / empty verdict → escalate (do not fall back to boolean `same`)
+  return {
+    verdict: "uncertain",
+    reason: reason || "oneshot:missing_verdict→uncertain",
+  };
 }
 
 export function sliceContextFromFullText(
@@ -142,16 +216,24 @@ export function formatMentionContexts(
   // Prefer diverse offsets: take evenly if many
   let picked = mentions;
   if (mentions.length > maxN) {
-    const step = (mentions.length - 1) / (maxN - 1);
-    const idx = new Set<number>();
-    for (let i = 0; i < maxN; i++) {
-      idx.add(Math.round(i * step));
+    if (maxN <= 1) {
+      picked = mentions.slice(0, 1);
+    } else {
+      const step = (mentions.length - 1) / (maxN - 1);
+      const idx = new Set<number>();
+      for (let i = 0; i < maxN; i++) {
+        idx.add(Math.round(i * step));
+      }
+      picked = [...idx]
+        .sort((a, b) => a - b)
+        .map((i) => mentions[i])
+        .filter(Boolean) as typeof mentions;
     }
-    picked = [...idx].sort((a, b) => a - b).map((i) => mentions[i]!);
   }
 
   for (const m of picked) {
-    const g0 = m.offsetAnchor!.globalStart;
+    if (!m?.offsetAnchor) continue;
+    const g0 = m.offsetAnchor.globalStart;
     const g1 = m.offsetAnchor!.globalEnd ?? g0 + (m.surface?.length || 1);
     let marked = "";
     let where = "";
@@ -211,38 +293,116 @@ function fmtChar(c: MergedCharacter, stripDeicticWhenHasName: boolean): string {
   ].join("\n");
 }
 
-export async function agentJudgeSamePerson(
-  llm: LLMProvider,
+/**
+ * Compact cards for **shared** co-occur neighbors of A/B (N(A)∩N(B)).
+ * Not judgment targets — scene context only.
+ */
+export function formatRelatedCharacterCards(
+  idA: string,
+  idB: string,
+  opts: AgentJudgeContextOptions,
+): string[] {
+  const graph = opts.cooccurGraph;
+  const roster = opts.rosterById;
+  if (!graph || !roster?.size) return [];
+
+  const strip = opts.stripDeicticWhenHasName !== false;
+  const maxTotal = opts.maxRelatedCards ?? 8;
+  const picks = pickRelatedNeighbors(idA, idB, graph, { maxTotal });
+  if (!picks.length) return [];
+
+  const snippetOpts: AgentJudgeContextOptions = {
+    fullText: opts.fullText,
+    windows: opts.windows,
+    contextRadius: opts.relatedContextRadius ?? 120,
+    maxMentionsPerChar: opts.maxRelatedMentions ?? 1,
+    stripDeicticWhenHasName: strip,
+  };
+
+  const lines: string[] = [
+    "【相关人物】（与 A、B **都**共现过的角色，**不是**本次判决对象；用于对照场景，勿把第三人并进 A/B）",
+  ];
+
+  for (const p of picks) {
+    const c = roster.get(p.id);
+    if (!c) {
+      lines.push(
+        `- ${p.id} (共享共现 coA=${p.coA} coB=${p.coB}) （roster 缺失）`,
+      );
+      continue;
+    }
+    const surfaces = surfacesForCoref(c, strip).slice(0, 8);
+    lines.push(
+      `- ${c.id} [共享共现 coA=${p.coA} coB=${p.coB}] ` +
+        `{${surfaces.join("、") || "?"}} ` +
+        `win=[${c.windowLo}..${c.windowHi}] ` +
+        `g=${c.gender ?? "?"} age=${c.age ?? "?"}`,
+    );
+    const snips = formatMentionContexts(c, snippetOpts);
+    for (const s of snips) {
+      lines.push(`  ${s.replace(/\n/g, "\n  ")}`);
+    }
+  }
+  return lines;
+}
+
+function buildJudgePrompt(
   a: MergedCharacter,
   b: MergedCharacter,
   features: PairFeatures,
-  context?: AgentJudgeContextOptions,
-): Promise<{ same: boolean; reason: string }> {
-  const ctxOpts = context || {};
+  ctxOpts: AgentJudgeContextOptions,
+  mode: "oneshot" | "agent",
+): string {
   const strip = ctxOpts.stripDeicticWhenHasName !== false;
-  const ctxA = formatMentionContexts(a, { ...ctxOpts, stripDeicticWhenHasName: strip });
-  const ctxB = formatMentionContexts(b, { ...ctxOpts, stripDeicticWhenHasName: strip });
+  const ctxA = formatMentionContexts(a, {
+    ...ctxOpts,
+    stripDeicticWhenHasName: strip,
+  });
+  const ctxB = formatMentionContexts(b, {
+    ...ctxOpts,
+    stripDeicticWhenHasName: strip,
+  });
   const hasCtx = ctxA.length > 0 || ctxB.length > 0;
+  const related =
+    mode === "oneshot" && ctxOpts.includeRelatedCards === true
+      ? formatRelatedCharacterCards(a.id, b.id, {
+          ...ctxOpts,
+          stripDeicticWhenHasName: strip,
+        })
+      : [];
 
-  const prompt = [
+  const oneshotOut =
+    mode === "oneshot"
+      ? [
+          "【本轮任务 = Stage③ oneshot】",
+          "在**有把握**时选 same 或 diff；吃不准（证据冲突、仅表层相似、关系链不明）必须选 **uncertain**，",
+          "不要硬猜。uncertain 会留给流水线外的角色列表 agent，用共现查询工具再判。",
+          "",
+          '输出 JSON：{ "verdict": "same"|"diff"|"uncertain", "reason": "一句话" }',
+          "只填 verdict 与 reason，**不要**输出 same 布尔字段。",
+          "（勿用 age 作否定理由；仅表层相似且无决定性证据 → 倾向 diff 或 uncertain）",
+        ]
+      : [
+          "【本轮任务 = 工具辅助消歧】",
+          "oneshot 已标 uncertain。请用工具查看**多级共现网络**与原文，再 submit_verdict。",
+          "优先人物关系结构；表层装扮/物品/行为除非有决定性证据，否则倾向不同人。",
+        ];
+
+  return [
     "你是小说角色指代消解裁判。判断下面两个【人物记录】是否为同一人。",
     "优先依据【原文摘录】中的叙事与指称；特征字段仅作辅助。不要编造正文。",
     "",
     "【硬性判定原则】",
-    "1. **age（年龄/少年/青年/中年/老年/小孩等）绝不能作为「不是同一人」的理由。**",
-    "   小说里人物会成长；不同窗口的 age 只是当时片段的粗标注，可从少年长到老年。",
-    "   reason 里禁止写「年龄不同/年龄冲突/女孩vs少年」之类作为否定依据。",
-    "2. **shared_weak_surfaces / surface 相似度：双方有相同或高度相似的 surface（含弱称谓、描述、头衔等）时，倾向于同一人。**",
-    "   对照特征里的 sharedWeak / sharedSurfaces 与双方 surface 列表；也看摘录中的叫法是否像同一指称。",
-    "   （共享 proper/nick 见 sharedStrong，是更强的同一人信号。）",
-    "3. **是否「同时出现过」不能单靠 sameWindowCount（及字距等程序统计）。**",
-    "   还须看【原文摘录】：摘录中 A、B 的称呼/专名同时出现，也算同时出现过。",
-    "   同时出现本身不单独决定是否同一人，须结合原则2的 surface 相似度与上下文综合判断。",
-    "4. neverSameWindow=true 只表示程序统计上两边 mention 未落在同一分析窗；跨窗别名合并仍常见，单独不能否定同一人。",
-    "5. genderConflict=true（明确男 vs 女）是强否定信号。",
-    "6. 阅读摘录中的【】标记处即该 mention 在原文中的位置；结合前后文判断是否同一指称对象。",
-    "7. 有专名/称谓时，列表中已去掉「我/你/他」等泛指；勿因引语里的代词把两人判成同一人。",
-    "8. 仅当双方 surfaces 只剩代词时，才靠「我/他」+ 原文判断是否同一叙述者。",
+    "1. **判定优先级：先人物关系（结构），后装扮/物品/行为/外貌（表层）。**",
+    "   - **优先**用结构关系：专名/稳定称谓、亲属与称谓网络、对固定他人的角色、互斥/同场两人等。",
+    "   - **仅当**结构仍无法判断，才可参考装扮、物品、行为、外貌。",
+    "   - 表层默认**弱证据**：无决定性证据（稀有胎记/唯一所有物/文中明说「就是之前那个」）→ 倾向非同一人。",
+    "   - **禁止**「都贴贴纸/都像小鬼/都和主角共现」单独判同一人。",
+    "2. **age 绝不能作为「不是同一人」的理由。**",
+    "3. **surface**：sharedStrong > sharedMid > sharedWeak；专名/称谓优先于纯描述。",
+    "4. 同场同时出现通常是**不同人**；neverSameWindow 单独不能否定跨窗别名。",
+    "5. genderConflict=true 是强否定。",
+    "6. 有专名时勿因引语代词合并；相关/共现人物不是判决对象。",
     "",
     "【人物 A】",
     fmtChar(a, strip),
@@ -254,18 +414,13 @@ export async function agentJudgeSamePerson(
     hasCtx ? "【原文摘录 B】（【】内为 mention）" : "【原文摘录 B】（无可用offset/正文）",
     ...(ctxB.length ? ctxB : ["（无）"]),
     "",
+    ...(related.length ? [...related, ""] : []),
     "【规则特征】",
     `sharedSurfaces=${features.sharedSurfaces.join("、") || "（无）"}`,
     `sharedStrong(proper|nick)=${features.sharedStrongSurfaces.join("、") || "（无）"}`,
     `sharedProper=${features.sharedProperSurfaces.join("、") || "（无）"}`,
-    `sharedWeakSurfaces=` +
+    `sharedMidSurfaces=` +
       [
-        features.sharedDeicticSurfaces.length
-          ? `deictic「${features.sharedDeicticSurfaces.join("、")}」`
-          : "",
-        features.sharedGenericSurfaces.length
-          ? `generic「${features.sharedGenericSurfaces.join("、")}」`
-          : "",
         features.sharedKinshipSurfaces.length
           ? `kinship「${features.sharedKinshipSurfaces.join("、")}」`
           : "",
@@ -274,6 +429,17 @@ export async function agentJudgeSamePerson(
           : "",
         features.sharedDescSurfaces.length
           ? `desc「${features.sharedDescSurfaces.join("、")}」`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ") || "（无）",
+    `sharedWeakSurfaces=` +
+      [
+        features.sharedDeicticSurfaces.length
+          ? `deictic「${features.sharedDeicticSurfaces.join("、")}」`
+          : "",
+        features.sharedGenericSurfaces.length
+          ? `generic「${features.sharedGenericSurfaces.join("、")}」`
           : "",
       ]
         .filter(Boolean)
@@ -301,18 +467,108 @@ export async function agentJudgeSamePerson(
         : ""),
     `neverSameWindow=${features.neverSameWindow}`,
     `sameWindowCount=${features.sameWindowCount}`,
-    `sharedNeighbors=${features.sharedNeighborCount}`,
+    `sharedNeighbors=${features.sharedNeighborCount}` +
+      (features.topExclusiveCompanion
+        ? ` topExclusiveCompanion=${features.topExclusiveCompanion}`
+        : ""),
     "",
-    "输出 JSON：{ \"same\": true/false, \"reason\": \"一句话（须能对应摘录或特征；不得以 age 为否定理由）\" }",
+    ...oneshotOut,
   ].join("\n");
+}
 
-  const raw = await llm.chatWithTool<{ same?: boolean; reason?: string }>(
-    [{ role: "user", content: prompt }],
-    TOOL,
-    { temperature: 0.1, maxTokens: 30_000 },
-  );
+/**
+ * Stage③ oneshot: ternary verdict (same | diff | uncertain).
+ */
+export async function agentJudgeSamePersonOneshot(
+  llm: LLMProvider,
+  a: MergedCharacter,
+  b: MergedCharacter,
+  features: PairFeatures,
+  context?: AgentJudgeContextOptions,
+): Promise<AgentJudgeResult> {
+  const ctxOpts = context || {};
+  const prompt = buildJudgePrompt(a, b, features, ctxOpts, "oneshot");
+  const raw = await llm.chatWithTool<{
+    verdict?: string;
+    reason?: string;
+  }>([{ role: "user", content: prompt }], TOOL_ONESHOT, {
+    temperature: 0.1,
+    maxTokens: 30_000,
+  });
+  return parseOneshotVerdict(raw || {});
+}
+
+/**
+ * Optional tool-loop judge (multi-level co-occur). Not pipeline Stage④.
+ * Production residual pairs use outer analysis agent tools instead.
+ */
+export async function agentJudgeSamePersonAgent(
+  llm: LLMProvider,
+  a: MergedCharacter,
+  b: MergedCharacter,
+  features: PairFeatures,
+  context?: AgentJudgeContextOptions,
+): Promise<AgentJudgeResult> {
+  const ctxOpts = context || {};
+  const strip = ctxOpts.stripDeicticWhenHasName !== false;
+  if (!ctxOpts.rosterById?.size || !ctxOpts.cooccurGraph) {
+    return {
+      verdict: "diff",
+      same: false,
+      reason: "tool-loop agent: missing roster/graph (default reject)",
+    };
+  }
+  const prompt = buildJudgePrompt(a, b, features, ctxOpts, "agent");
+  const loopResult = await agentJudgeSamePersonToolLoop(llm, prompt, {
+    idA: a.id,
+    idB: b.id,
+    charA: a,
+    charB: b,
+    rosterById: ctxOpts.rosterById,
+    cooccurGraph: ctxOpts.cooccurGraph,
+    fullText: ctxOpts.fullText,
+    windows: ctxOpts.windows,
+    stripDeicticWhenHasName: strip,
+    maxSteps: ctxOpts.toolLoopMaxSteps ?? 8,
+    formatExcerpts: (c, maxMentions) =>
+      formatMentionContexts(c, {
+        fullText: ctxOpts.fullText,
+        windows: ctxOpts.windows,
+        contextRadius: ctxOpts.contextRadius ?? 320,
+        maxMentionsPerChar: maxMentions,
+        stripDeicticWhenHasName: strip,
+      }),
+  });
   return {
-    same: Boolean(raw?.same),
-    reason: (raw?.reason || "").trim() || (raw?.same ? "agent:same" : "agent:diff"),
+    verdict: loopResult.same ? "same" : "diff",
+    same: loopResult.same,
+    reason: loopResult.reason,
+  };
+}
+
+/**
+ * @deprecated Prefer agentJudgeSamePersonOneshot (Stage③).
+ * toolLoop=true → optional multi-hop helper; else oneshot (uncertain has same=undefined).
+ */
+export async function agentJudgeSamePerson(
+  llm: LLMProvider,
+  a: MergedCharacter,
+  b: MergedCharacter,
+  features: PairFeatures,
+  context?: AgentJudgeContextOptions,
+): Promise<{ same: boolean; reason: string; verdict?: CorefOneshotVerdict }> {
+  if (context?.toolLoop) {
+    const r = await agentJudgeSamePersonAgent(llm, a, b, features, context);
+    return {
+      same: Boolean(r.same),
+      reason: r.reason,
+      verdict: r.verdict,
+    };
+  }
+  const r = await agentJudgeSamePersonOneshot(llm, a, b, features, context);
+  return {
+    same: r.verdict === "same",
+    reason: r.reason,
+    verdict: r.verdict,
   };
 }

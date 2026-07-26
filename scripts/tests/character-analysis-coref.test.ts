@@ -3,14 +3,17 @@
  */
 import { assert, suite, suiteAsync, test, testAsync } from "../lib/test-harness";
 import type { MergedCharacter } from "../../src/core/character-analysis/merge-adjacent";
-import { selectCanonicalName } from "../../src/core/character-analysis/stage4-canonical";
+import { selectCanonicalName } from "../../src/core/character-analysis/stage5-canonical";
 import {
   buildCooccurGraph,
   buildPairFeatures,
   decideByThresholds,
   formatMentionContexts,
+  formatRelatedCharacterCards,
+  executeCorefJudgeTool,
   mergeStage3Config,
   pairCooccurMetrics,
+  pickRelatedNeighbors,
   resolveCorefWithRulesAndAgent,
   sanitizePositiveWeight,
   scorePair,
@@ -257,6 +260,158 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
       assert.ok(lines[0]!.includes("【小星老师】"), lines[0]);
     });
 
+    test("coref tool-loop list_neighbors shared vs side", () => {
+      const a = mc("cA", ["阿龙"], { windowLo: 0, windowHi: 0, gender: "男" });
+      const b = mc("cB", ["老头"], { windowLo: 0, windowHi: 0, gender: "男" });
+      const r = mc("cR", ["周屿"], { windowLo: 0, windowHi: 0, gender: "男" });
+      a.mentions[0]!.offsetAnchor = {
+        localStart: 10,
+        localEnd: 12,
+        globalStart: 10,
+        globalEnd: 12,
+      };
+      b.mentions[0]!.offsetAnchor = {
+        localStart: 30,
+        localEnd: 32,
+        globalStart: 30,
+        globalEnd: 32,
+      };
+      r.mentions[0]!.offsetAnchor = {
+        localStart: 50,
+        localEnd: 52,
+        globalStart: 50,
+        globalEnd: 52,
+      };
+      const novel = "0123456789阿龙在按摩。老头在旁边看。周屿站着等。";
+      const windows: AnalysisWindow[] = [
+        {
+          index: 0,
+          label: "窗0",
+          start: 0,
+          end: novel.length,
+          text: novel,
+        },
+      ];
+      const graph = buildCooccurGraph([a, b, r], windows);
+      const roster = new Map([
+        ["cA", a],
+        ["cB", b],
+        ["cR", r],
+      ]);
+      const ctx = {
+        idA: "cA",
+        idB: "cB",
+        charA: a,
+        charB: b,
+        rosterById: roster,
+        cooccurGraph: graph,
+        fullText: novel,
+        windows,
+        formatExcerpts: () => [] as string[],
+      };
+      const shared = executeCorefJudgeTool(
+        "list_neighbors",
+        { side: "shared" },
+        ctx,
+      );
+      assert.ok(shared.content.includes("周屿"), shared.content);
+      const verdict = executeCorefJudgeTool(
+        "submit_verdict",
+        { same: false, reason: "不同专名" },
+        ctx,
+      );
+      assert.equal(verdict.verdict?.same, false);
+      assert.ok(verdict.verdict?.reason.includes("专名"));
+    });
+
+    test("related character cards: only shared neighbors (N(A)∩N(B))", () => {
+      // win0: A+B+R together → R is shared
+      // win1: only A+S → S is onlyA, must NOT appear in related cards
+      const a = mc("cA", ["阿龙"], { windowLo: 0, windowHi: 1, gender: "男" });
+      const b = mc("cB", ["老头"], { windowLo: 0, windowHi: 0, gender: "男" });
+      const r = mc("cR", ["周屿"], { windowLo: 0, windowHi: 0, gender: "男" });
+      const sOnlyA = mc("cS", ["路人"], { windowLo: 1, windowHi: 1, gender: "男" });
+      a.mentions = [
+        {
+          surface: "阿龙",
+          textAnchor: "阿龙",
+          kind: resolveMentionKind("阿龙"),
+          offsetAnchor: {
+            localStart: 10,
+            localEnd: 12,
+            globalStart: 10,
+            globalEnd: 12,
+          },
+        },
+        {
+          surface: "阿龙",
+          textAnchor: "阿龙",
+          kind: resolveMentionKind("阿龙"),
+          offsetAnchor: {
+            localStart: 5,
+            localEnd: 7,
+            globalStart: 1005,
+            globalEnd: 1007,
+          },
+        },
+      ];
+      b.mentions[0]!.offsetAnchor = {
+        localStart: 30,
+        localEnd: 32,
+        globalStart: 30,
+        globalEnd: 32,
+      };
+      r.mentions[0]!.offsetAnchor = {
+        localStart: 50,
+        localEnd: 52,
+        globalStart: 50,
+        globalEnd: 52,
+      };
+      sOnlyA.mentions[0]!.offsetAnchor = {
+        localStart: 20,
+        localEnd: 22,
+        globalStart: 1020,
+        globalEnd: 1022,
+      };
+      const text0 = "0123456789阿龙在按摩。老头在旁边看。周屿站着等。";
+      const text1 = "xxxxx阿龙和路人在别处。";
+      const windows: AnalysisWindow[] = [
+        { index: 0, label: "窗0", start: 0, end: 1000, text: text0 },
+        { index: 1, label: "窗1", start: 1000, end: 2000, text: text1 },
+      ];
+      const graph = buildCooccurGraph([a, b, r, sOnlyA], windows);
+      const picks = pickRelatedNeighbors("cA", "cB", graph);
+      assert.ok(
+        picks.some((p) => p.id === "cR" && p.role === "shared"),
+        JSON.stringify(picks),
+      );
+      assert.ok(
+        !picks.some((p) => p.id === "cS"),
+        `onlyA 路人 must not be related: ${JSON.stringify(picks)}`,
+      );
+      const roster = new Map([
+        ["cA", a],
+        ["cB", b],
+        ["cR", r],
+        ["cS", sOnlyA],
+      ]);
+      const cards = formatRelatedCharacterCards("cA", "cB", {
+        fullText: text0 + " ".repeat(1000 - text0.length) + text1,
+        windows,
+        rosterById: roster,
+        cooccurGraph: graph,
+        includeRelatedCards: true,
+        maxRelatedMentions: 1,
+        relatedContextRadius: 8,
+      });
+      const blob = cards.join("\n");
+      assert.ok(blob.includes("【相关人物】"), blob);
+      assert.ok(blob.includes("周屿"), blob);
+      assert.ok(blob.includes("共享共现"), blob);
+      assert.ok(!blob.includes("路人"), blob);
+      assert.ok(blob.includes("【周屿】") || blob.includes("surface=周屿"), blob);
+    });
+
     test("gender conflict hard reject", () => {
       const a = mc("a", ["张三"], { gender: "男" });
       const b = mc("b", ["李四"], { gender: "女" });
@@ -425,39 +580,44 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
       assert.equal(sanitizePositiveWeight(Number.NaN, 1.5), 1.5);
     });
 
-    test("grey LLM mode: middle oneshot, edges deep, merge side wider", () => {
+    test("grey LLM mode: middle deep, edges oneshot; deep extends toward merge", () => {
       const config = mergeStage3Config();
-      // T_r=0.4 T_m=0.85
+      // T_r=0.4 T_m=0.85; defaults σ_r=0.26 σ_m=0.16 τ=0.45
       const mid = selectGreyLlmMode(0.62, config);
-      assert.equal(mid.mode, "oneshot", mid.reason);
+      assert.equal(mid.mode, "deep", mid.reason);
 
       const nearReject = selectGreyLlmMode(0.42, config);
-      assert.equal(nearReject.mode, "deep", nearReject.reason);
+      assert.equal(nearReject.mode, "oneshot", nearReject.reason);
       assert.ok(nearReject.edgeReject > nearReject.edgeMerge);
 
       const nearMerge = selectGreyLlmMode(0.82, config);
-      assert.equal(nearMerge.mode, "deep", nearMerge.reason);
+      assert.equal(nearMerge.mode, "oneshot", nearMerge.reason);
       assert.ok(nearMerge.edgeMerge > nearMerge.edgeReject);
 
-      // Asymmetry: same distance from center in u-space —
-      // merge-side σ larger → at equal |u-0.5| merge edge stronger / more deep
-      // u=0.3 is 0.2 from center left; u=0.7 is 0.2 from center right
+      // Asymmetry: σ_reject > σ_merge → at equal |u-0.5|, reject-side edgeMax larger
+      // (wider oneshot near reject; deep mid skewed toward merge)
       const left = selectGreyLlmMode(0.4 + 0.3 * 0.45, config); // u=0.3 → score=0.535
       const right = selectGreyLlmMode(0.4 + 0.7 * 0.45, config); // u=0.7 → score=0.715
-      // right (merge side) should have higher edge strength at equal distance
       assert.ok(
-        right.edgeMerge + right.edgeReject >= left.edgeMerge + left.edgeReject - 1e-9,
+        left.edgeMax + 1e-9 >= right.edgeMax,
         `asymmetry left.edgeMax=${left.edgeMax} right.edgeMax=${right.edgeMax}`,
       );
 
-      // Force deep near merge without shared strong
+      // Optional force-deep for no-strong on merge oneshot skirt (off by default)
       const feat = buildPairFeatures(
         mc("a", ["阿龙"]),
         mc("b", ["老阿伯"]),
         config,
       );
       assert.equal(feat.sharedStrongSurfaces.length, 0);
-      const forced = selectGreyLlmMode(0.72, config, feat);
+      // u≈0.84 → oneshot on merge skirt with σ_m=0.16
+      const defaultRoute = selectGreyLlmMode(0.78, config, feat);
+      assert.equal(defaultRoute.mode, "oneshot", defaultRoute.reason);
+
+      const forceCfg = mergeStage3Config({
+        greyForceDeepNearMergeNoStrong: true,
+      });
+      const forced = selectGreyLlmMode(0.78, forceCfg, feat);
       assert.equal(forced.mode, "deep", forced.reason);
     });
 
@@ -545,12 +705,11 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
       );
       assert.ok(long!.reason.includes("r="), long!.reason);
 
-      // short book: r = 6/4 = 1.5 capped by g/denom → r=1.5? wait denom=4, r=1.5 → very far −0.15
-      // actually r = 6/4 = 1.5 >= 0.4 → −0.15
+      // short book: r = 6/4 = 1.5 → very far −0.10
       const short = scoreProx(5);
-      assert.equal(short!.delta, -0.15, `short-book Δ=${short!.delta}`);
+      assert.equal(short!.delta, -0.1, `short-book Δ=${short!.delta}`);
 
-      // empty windows → legacy absolute (gap≥3 → −0.15)
+      // empty windows → legacy absolute (gap≥3 → −0.10)
       const legacy = scorePair({
         a,
         b,
@@ -559,7 +718,7 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
         fullTextLength: 10000,
         config,
       }).breakdown.find((x) => x.ruleId === "window_proximity");
-      assert.equal(legacy!.delta, -0.15);
+      assert.equal(legacy!.delta, -0.1);
       assert.ok(legacy!.reason.includes("no span"), legacy!.reason);
     });
 

@@ -39,7 +39,7 @@ export function runRuntimeSettingsTests(): void {
         MENTION_SCAN_PRIVILEGED_CONCURRENCY_DEFAULT,
       );
       assert.equal(MENTION_SCAN_BATCH_UNITS_DEFAULT, 4);
-      assert.equal(MENTION_SCAN_PRIVILEGED_CONCURRENCY_DEFAULT, 20);
+      assert.equal(MENTION_SCAN_PRIVILEGED_CONCURRENCY_DEFAULT, 30);
     });
 
     test("resolve: normal user uses base batch/concurrency", () => {
@@ -62,11 +62,11 @@ export function runRuntimeSettingsTests(): void {
       });
       assert.equal(r.mode, "admin");
       assert.equal(r.batchUnits, 1);
-      assert.equal(r.concurrency, 20);
+      assert.equal(r.concurrency, 30);
       assert.equal(r.privilegedConcurrency, true);
     });
 
-    test("resolve: debug concurrency 20, keeps user batch units", () => {
+    test("resolve: debug concurrency 30, keeps user batch units", () => {
       resetRuntimeSettings();
       const r = resolveMentionScanOptions({
         isAdmin: false,
@@ -74,7 +74,7 @@ export function runRuntimeSettingsTests(): void {
       });
       assert.equal(r.mode, "debug");
       assert.equal(r.batchUnits, 4);
-      assert.equal(r.concurrency, 20);
+      assert.equal(r.concurrency, 30);
       assert.equal(r.privilegedConcurrency, true);
     });
 

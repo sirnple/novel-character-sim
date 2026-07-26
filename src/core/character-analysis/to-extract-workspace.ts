@@ -111,6 +111,7 @@ export function mergedCharacterToResolvedEntity(
   return {
     name,
     canonicalName: name,
+    corefId: c.id,
     aliases,
     surfaces: allSurfaces,
     anchors: uniqAnchors.slice(0, 24),
@@ -194,6 +195,8 @@ export function pipelineResultToExtractSeed(
   localEntities: LocalEntity[];
   entities: ResolvedEntity[];
   unitHits: UnitNameHit[][];
+  /** Stage③ oneshot uncertain pairs — outer agent may resolve with tools */
+  uncertainPairs: import("./coref/types").UncertainCorefPair[];
 } {
   const units = analysisWindowsToTextUnits(result.windows);
   const localEntities = stage1ToLocalEntities(result.byWindow, result.windows);
@@ -212,6 +215,7 @@ export function pipelineResultToExtractSeed(
     localEntities,
     entities: cleaned,
     unitHits,
+    uncertainPairs: result.stage3.uncertainPairs || [],
   };
 }
 

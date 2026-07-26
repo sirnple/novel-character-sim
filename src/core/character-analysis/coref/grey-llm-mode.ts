@@ -2,16 +2,18 @@
  * Grey-zone LLM routing: oneshot vs deep (multi-turn agent).
  *
  * Grey band is (autoReject, autoMerge). Inside it:
- * - middle → oneshot (cheap pairwise LLM)
- * - near autoReject / autoMerge edges → deep (multi-turn / richer tools)
+ * - near autoReject / autoMerge edges → oneshot (rules almost decided; one LLM pass)
+ * - middle → deep (true ambiguity; richer context / multi-turn)
  *
  * Edge strength uses **asymmetric** Gaussians in normalized u-space:
  *   u = (score - T_reject) / (T_merge - T_reject)  ∈ (0,1)
  *   e_reject = exp( -u² / (2 σ_reject²) )           // high near reject edge
  *   e_merge  = exp( -(1-u)² / (2 σ_merge²) )       // high near merge edge
- * deep if max(e_reject, e_merge) ≥ tau
+ * oneshot if max(e_reject, e_merge) ≥ tau; else deep
  *
- * Larger σ_merge than σ_reject → wider deep band near auto_merge (more careful).
+ * Larger σ → wider oneshot band on that edge (deep mid shrinks from that side).
+ * Default: σ_reject ≥ σ_merge → wider oneshot near reject; deep extends closer
+ * to auto_merge (false-merge side still gets more deep coverage).
  */
 
 import type { PairFeatures, Stage3CorefConfig } from "./types";
@@ -57,24 +59,29 @@ export function selectGreyLlmMode(
   const edgeMerge = Math.exp(-((1 - u) * (1 - u)) / (2 * sigM * sigM));
   const edgeMax = Math.max(edgeReject, edgeMerge);
 
-  let mode: GreyLlmMode = edgeMax >= tau ? "deep" : "oneshot";
+  // Edge → oneshot; mid-grey → deep (compute follows uncertainty, not threshold risk)
+  let mode: GreyLlmMode = edgeMax >= tau ? "oneshot" : "deep";
   let reason =
     edgeMax >= tau
       ? edgeMerge >= edgeReject
-        ? `near-merge edgeMax=${edgeMax.toFixed(3)}≥τ=${tau}`
-        : `near-reject edgeMax=${edgeMax.toFixed(3)}≥τ=${tau}`
-      : `mid-grey edgeMax=${edgeMax.toFixed(3)}<τ=${tau} → oneshot`;
+        ? `near-merge edgeMax=${edgeMax.toFixed(3)}≥τ=${tau} → oneshot`
+        : `near-reject edgeMax=${edgeMax.toFixed(3)}≥τ=${tau} → oneshot`
+      : `mid-grey edgeMax=${edgeMax.toFixed(3)}<τ=${tau} → deep`;
 
-  // Near-merge without identity-strong share: force deep (false merge risk)
+  // Optional: mid-band without identity-strong share stays deep even if slightly
+  // into the merge-edge oneshot skirt (legacy flag name kept for config compat).
+  // When false (default), pure score routing applies.
   if (
-    config.greyForceDeepNearMergeNoStrong !== false &&
+    config.greyForceDeepNearMergeNoStrong === true &&
     features &&
     features.sharedStrongSurfaces.length === 0 &&
-    u >= 0.55 &&
-    edgeMerge >= tau * 0.5
+    u >= 0.35 &&
+    u <= 0.85 &&
+    mode === "oneshot" &&
+    edgeMerge >= edgeReject
   ) {
     mode = "deep";
-    reason = `near-merge no-strong u=${u.toFixed(3)} force deep (${reason})`;
+    reason = `mid/near-merge no-strong u=${u.toFixed(3)} force deep (${reason})`;
   }
 
   return {
