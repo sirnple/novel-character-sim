@@ -8,7 +8,7 @@ import {
   TextFindBar,
   renderHighlightedText,
   useFindShortcut,
-  useScrollToMatch,
+  useScrollToVirtualMatch,
   useTextFindSegments,
 } from "@/components/text-find";
 import { downloadBranchAsTxt } from "@/lib/download-branch-txt";
@@ -73,7 +73,17 @@ export default function WritePage() {
   const proseText = generatedProse || "";
   const find = useTextFindSegments([bodyText, proseText]);
   useFindShortcut(find.searchInputRef, hasSelection);
-  useScrollToMatch(readerRef, find.currentIndex, find.matchCount, [find.debouncedQuery, bodyText, proseText]);
+  const scrollBodyToFindOffset = useCallback((absoluteOffset: number) => {
+    bodyHandleRef.current?.scrollToCharOffset(absoluteOffset);
+  }, []);
+  useScrollToVirtualMatch({
+    containerRef: readerRef,
+    currentIndex: find.currentIndex,
+    matchCount: find.matchCount,
+    segmentMatches: find.segmentMatches,
+    scrollBodyToOffset: scrollBodyToFindOffset,
+    deps: [find.debouncedQuery, bodyText, proseText],
+  });
   /** Char offset for catalog highlight — set on scroll + immediately on jump */
   const [scrollOffset, setScrollOffset] = useState(0);
   /** Pin highlight to clicked unit until user scrolls away */
@@ -588,11 +598,17 @@ export default function WritePage() {
 
   const renderBodyChunk = useCallback(
     (chunk: VirtualChunk) => {
+      const bodyMatches = find.segmentMatches[0] || [];
       const matches = localMatches(
-        find.segmentMatches[0] || [],
+        bodyMatches,
         chunk.baseOffset,
         chunk.text.length,
       );
+      // Global data-match-index: segment0 base (0) + count of body matches before this chunk
+      // (must NOT use only local i, or every chunk's first hit becomes index 0)
+      const matchIndexBase =
+        find.matchIndexBase(0) +
+        bodyMatches.filter((m) => m < chunk.baseOffset).length;
       let cont: number | null = null;
       let node: React.ReactNode = null;
       if (forkPoint && !freeMode) {
@@ -629,7 +645,7 @@ export default function WritePage() {
                 matches,
                 queryLen: find.queryLen,
                 currentIndex: find.currentIndex,
-                matchIndexBase: find.matchIndexBase(0),
+                matchIndexBase,
                 continueOffset: cont,
                 continueNode: node,
               })}
@@ -644,6 +660,7 @@ export default function WritePage() {
       find.segmentMatches,
       find.queryLen,
       find.currentIndex,
+      find.matchIndexBase,
       forkPoint,
       freeMode,
       localMatches,

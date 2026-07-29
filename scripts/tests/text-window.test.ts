@@ -9,7 +9,10 @@ import {
   takeTailWindow,
   toAbsoluteOffset,
 } from "../../src/lib/text-window";
-import { findMatchOffsets } from "../../src/components/text-find";
+import {
+  findMatchOffsets,
+  resolveGlobalMatch,
+} from "../../src/components/text-find";
 import { FIND_MATCH_CAP } from "../../src/lib/text-window";
 
 export function runTextWindowTests(): void {
@@ -60,6 +63,26 @@ export function runTextWindowTests(): void {
       const hits = findMatchOffsets("林晚推开木窗", "林晚");
       assert.equal(hits.length, 1);
       assert.equal(hits[0], 0);
+    });
+
+    test("resolveGlobalMatch maps across segments", () => {
+      const segs = [
+        [10, 4000, 8000], // body
+        [2, 5], // prose
+      ];
+      assert.deepEqual(resolveGlobalMatch(segs, 0), {
+        segmentIndex: 0,
+        localOffset: 10,
+      });
+      assert.deepEqual(resolveGlobalMatch(segs, 2), {
+        segmentIndex: 0,
+        localOffset: 8000,
+      });
+      assert.deepEqual(resolveGlobalMatch(segs, 3), {
+        segmentIndex: 1,
+        localOffset: 2,
+      });
+      assert.equal(resolveGlobalMatch(segs, 99), null);
     });
   });
 }

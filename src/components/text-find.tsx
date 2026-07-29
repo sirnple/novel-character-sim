@@ -329,6 +329,26 @@ export function useTextFindSegments(segments: readonly string[]): UseTextFindSeg
   };
 }
 
+/**
+ * Map a global match index (across segments) → segment + local start offset.
+ * Used to jump virtualized bodies before mark nodes exist in the DOM.
+ */
+export function resolveGlobalMatch(
+  segmentMatches: readonly number[][],
+  globalIndex: number,
+): { segmentIndex: number; localOffset: number } | null {
+  if (globalIndex < 0) return null;
+  let remaining = globalIndex;
+  for (let s = 0; s < segmentMatches.length; s++) {
+    const list = segmentMatches[s] || [];
+    if (remaining < list.length) {
+      return { segmentIndex: s, localOffset: list[remaining]! };
+    }
+    remaining -= list.length;
+  }
+  return null;
+}
+
 /** Scroll the current match into view inside a container (or document). */
 export function useScrollToMatch(
   containerRef: RefObject<HTMLElement | null>,
@@ -345,6 +365,75 @@ export function useScrollToMatch(
     el?.scrollIntoView({ block: "center", behavior: "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps is intentional external list
   }, [currentIndex, matchCount, containerRef, ...deps]);
+}
+
+/**
+ * Find jump for virtualized novel body: first scrollToCharOffset so the chunk
+ * mounts and renders the mark, then scrollIntoView the mark.
+ */
+export function useScrollToVirtualMatch(opts: {
+  containerRef: RefObject<HTMLElement | null>;
+  currentIndex: number;
+  matchCount: number;
+  segmentMatches: readonly number[][];
+  /** Scroll body (segment 0) into virtual list; no-op if null. */
+  scrollBodyToOffset?: (absoluteOffset: number) => void;
+  /** Extra deps that mean highlight DOM may have changed. */
+  deps?: unknown[];
+}) {
+  const {
+    containerRef,
+    currentIndex,
+    matchCount,
+    segmentMatches,
+    scrollBodyToOffset,
+    deps = [],
+  } = opts;
+
+  useEffect(() => {
+    if (matchCount === 0) return;
+    const loc = resolveGlobalMatch(segmentMatches, currentIndex);
+    if (!loc) return;
+
+    // Body is segment 0 and virtualized — mount target chunk first
+    if (loc.segmentIndex === 0 && scrollBodyToOffset) {
+      scrollBodyToOffset(loc.localOffset);
+    }
+
+    let cancelled = false;
+    const tryScrollMark = () => {
+      if (cancelled) return;
+      const root = containerRef.current ?? document;
+      const el = root.querySelector(
+        `[data-match-index="${currentIndex}"]`,
+      ) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+        return true;
+      }
+      return false;
+    };
+
+    // Virtual list needs 1–2 frames after setRange + paint to mount marks
+    let attempts = 0;
+    const tick = () => {
+      if (tryScrollMark() || attempts++ > 12) return;
+      requestAnimationFrame(tick);
+    };
+    const id = requestAnimationFrame(() => requestAnimationFrame(tick));
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    currentIndex,
+    matchCount,
+    containerRef,
+    scrollBodyToOffset,
+    segmentMatches,
+    ...deps,
+  ]);
 }
 
 /** Focus search on Ctrl/Cmd+F (prevents browser find). */
