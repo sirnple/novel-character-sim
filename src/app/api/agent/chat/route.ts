@@ -320,9 +320,9 @@ export async function POST(request: NextRequest) {
                 const fixed = await outlineDef.execute(
                   {
                     prompt:
+                      `【任务模式:rewrite】\n` +
                       `【系统强制改写大纲】上一轮大纲审核未通过（含致命/重要问题）。\n` +
-                      `这是**改写**不是新写：先 get_outline（或用程序保留的上一稿），在上一稿上按 findings 修改；` +
-                      `保留仍成立的情节/角色/时空，禁止无依据整篇推翻。\n` +
+                      `在上一稿上按 findings 修改；保留仍成立的情节/角色/时空，禁止无依据整篇推翻。\n` +
                       `改完 save_outline（完整改写后全文）+ save_foreshadowing_plan。\n\n` +
                       `## 审核 findings\n${findingsText || rev.content.slice(0, 2000)}\n\n` +
                       `原任务：${String(prompt || "").slice(0, 500)}`,

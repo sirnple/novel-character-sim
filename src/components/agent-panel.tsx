@@ -1046,7 +1046,7 @@ export default function AgentPanel({
               if (bid === "main" && typeof totalLength === "number") {
                 setNovel({ novelLength: totalLength });
               }
-              // Client refetches branch body; optional small text still supported
+              // Client refetches branch body + catalog (accept rewrites chapter-meta)
               window.dispatchEvent(
                 new CustomEvent("ncs:branch-updated", {
                   detail: {
@@ -1059,6 +1059,8 @@ export default function AgentPanel({
                   },
                 }),
               );
+              // Overview form/catalog cards listen on this event
+              notifyLibrariesRefresh();
               refreshFsStatus();
             }
           } catch {}

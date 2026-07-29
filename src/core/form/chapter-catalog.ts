@@ -28,6 +28,50 @@ export {
 } from "./chapter-track";
 
 /**
+ * Locate the catalog entry that contains absolute char `offset`
+ * (last chapter with startOffset ≤ offset; respects endOffset when set).
+ */
+export function findChapterAtOffset(
+  chapters: ChapterCatalogEntry[] | null | undefined,
+  offset: number,
+): ChapterCatalogEntry | null {
+  if (!chapters?.length || !Number.isFinite(offset) || offset < 0) return null;
+  const sorted = [...chapters].sort((a, b) => a.startOffset - b.startOffset);
+  let found: ChapterCatalogEntry | null = null;
+  for (const c of sorted) {
+    if (c.startOffset <= offset) found = c;
+    else break;
+  }
+  if (!found) return null;
+  if (
+    found.endOffset != null &&
+    Number.isFinite(found.endOffset) &&
+    offset >= found.endOffset
+  ) {
+    // Past this chapter's end with no later chapter covering offset
+    // (gap or trailing material after last catalogued unit)
+    return found;
+  }
+  return found;
+}
+
+/** Human-readable chapter label for UI (e.g. 分叉点). */
+export function formatChapterLabel(ch: ChapterCatalogEntry | null | undefined): string {
+  if (!ch) return "";
+  const num =
+    ch.number != null && Number.isFinite(ch.number) ? `第${ch.number}章` : "";
+  const title = (ch.title || "").trim();
+  if (num && title) {
+    // Avoid "第3章 第3章 标题"
+    if (title.startsWith(num) || /^第\s*[\d一二三四五六七八九十百千零〇两]+\s*章/.test(title)) {
+      return title;
+    }
+    return `${num} ${title}`;
+  }
+  return title || num || ch.id || "未知章节";
+}
+
+/**
  * Scan full text for chapter headings. Returns catalog sorted by offset.
  */
 export function extractChapterCatalog(

@@ -4,6 +4,8 @@
 import { assert, suite, test } from "../lib/test-harness";
 import {
   extractChapterCatalog,
+  findChapterAtOffset,
+  formatChapterLabel,
   inferChapteringFromCatalog,
   parseChineseNumeral,
 } from "../../src/core/form/chapter-catalog";
@@ -117,6 +119,21 @@ export function runChapterCatalogTests(): void {
       assert.equal(needsContinuationTrackChoice(false, cat), false);
       const mainOnly = cat.filter((c) => c.track === "main");
       assert.equal(needsContinuationTrackChoice(true, mainOnly), false);
+    });
+
+    test("findChapterAtOffset by startOffset range", () => {
+      const chapters = [
+        { id: "a", title: "第1章 开端", number: 1, startOffset: 0, endOffset: 100, source: "regex" as const },
+        { id: "b", title: "第2章 发展", number: 2, startOffset: 100, endOffset: 300, source: "regex" as const },
+        { id: "c", title: "第3章 高潮", number: 3, startOffset: 300, endOffset: 500, source: "regex" as const },
+      ];
+      assert.equal(findChapterAtOffset(chapters, 0)?.id, "a");
+      assert.equal(findChapterAtOffset(chapters, 50)?.id, "a");
+      assert.equal(findChapterAtOffset(chapters, 100)?.id, "b");
+      assert.equal(findChapterAtOffset(chapters, 299)?.id, "b");
+      assert.equal(findChapterAtOffset(chapters, 400)?.id, "c");
+      assert.equal(findChapterAtOffset([], 10), null);
+      assert.ok(formatChapterLabel(chapters[1]).includes("2"));
     });
   });
 }

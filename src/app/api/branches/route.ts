@@ -10,6 +10,7 @@ import {
   createCowBranch,
   resolveBranchText,
   copyBranchChapterMeta,
+  rebuildBranchChapterMetaFromText,
   getBranchChapterMeta,
 } from "@/lib/db";
 import { prependTocToTxt } from "@/lib/export-txt-toc";
@@ -134,12 +135,21 @@ export async function POST(request: NextRequest) {
   } catch (e) {
     console.warn("[branches] copy foreshadowing ledger failed:", (e as Error).message);
   }
-  try {
-    copyBranchChapterMeta(userId, novelId, parentId, id);
-  } catch (e) {
-    console.warn("[branches] copy chapter meta failed:", (e as Error).message);
-  }
   const fullText = resolveBranchText(userId, novelId, id);
+  // TOC must match forked prefix (not full parent catalog past parentOffset)
+  try {
+    rebuildBranchChapterMetaFromText(userId, novelId, id, fullText, parentId);
+  } catch (e) {
+    console.warn(
+      "[branches] rebuild chapter meta failed, fallback copy:",
+      (e as Error).message,
+    );
+    try {
+      copyBranchChapterMeta(userId, novelId, parentId, id, offset);
+    } catch (e2) {
+      console.warn("[branches] copy chapter meta failed:", (e2 as Error).message);
+    }
+  }
   return NextResponse.json({
     success: true,
     branch: {

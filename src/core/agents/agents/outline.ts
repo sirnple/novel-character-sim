@@ -30,13 +30,23 @@ function planInStore(novelId: string, branchId: string): boolean {
   );
 }
 
-/** Detect rewrite / fix-from-review tasks (not first draft). */
+/**
+ * Detect rewrite / fix-from-review (not first draft).
+ * Prefer explicit mode markers; avoid loose words like bare "findings".
+ */
 export function isOutlineRewritePrompt(prompt: string): boolean {
   const p = String(prompt || "");
-  return (
-    /改写大纲|修改大纲|重写大纲|系统强制改写|审核未通过|按审核意见|按审查意见|findings|MODE:\s*rewrite/i.test(
+  if (/【任务模式:\s*create】|\[MODE:\s*create\]/i.test(p)) return false;
+  if (
+    /【任务模式:\s*rewrite】|\[MODE:\s*rewrite_outline\]|【系统强制改写大纲】/i.test(
       p,
-    ) || /【系统强制改写大纲】/.test(p)
+    )
+  ) {
+    return true;
+  }
+  // Explicit human/master rewrite intents only
+  return /改写大纲|修改大纲|重写大纲|系统强制改写|按审核意见修改大纲|大纲审核未通过/.test(
+    p,
   );
 }
 
@@ -73,7 +83,11 @@ export const outlineAgent: AgentDef = {
       keepOutline: isRewrite && prevLen >= 50,
     });
 
-    const TOOLS = resolveAgentToolSchemas("outline_writer");
+    // Create: strip get_outline so the model cannot "probe" empty store
+    const allTools = resolveAgentToolSchemas("outline_writer");
+    const TOOLS = isRewrite
+      ? allTools
+      : allTools.filter((t) => t.name !== "get_outline");
 
     let ideaBlock = "";
     // On rewrite, don't re-pick ideas unless task asks — focus on findings
@@ -113,20 +127,21 @@ export const outlineAgent: AgentDef = {
       ctx.branchId,
     );
 
+    const modeHeader = isRewrite
+      ? "【任务模式:rewrite】\n本轮是**改写已有大纲**，不是新写。\n"
+      : "【任务模式:create】\n本轮是**新写大纲**。**禁止**调用 get_outline（本轮工具列表也不含它）。\n";
+
     let rewriteBlock = "";
     if (isRewrite) {
       const draft =
         prevLen >= 50
           ? String(prevOutline)
-          : "（store 中无上一稿大纲：请 get_outline；若仍空则按 findings + 前文重建，并注明无上一稿）";
+          : "（store 中无上一稿大纲：可 get_outline；若仍空则按 findings + 前文重建，并注明无上一稿）";
       rewriteBlock =
-        "\n\n## 【改写模式 · 不是从零新写】\n" +
-        "本任务是**修改已有大纲**以消除审核问题。\n" +
-        "1. **必须先** `get_outline`（与下方上一稿对照）\n" +
-        "2. 对照用户任务中的 findings：只改点名问题，保留仍成立的情节/角色/时空\n" +
-        "3. **禁止**无依据整篇推翻重写（除非用户明确换方向）\n" +
-        "4. `save_outline` 提交**完整改写后大纲**（不是修改说明/diff）\n" +
-        "5. 更新 `save_foreshadowing_plan`\n\n" +
+        "\n\n## 改写说明\n" +
+        "1. 以下「上一稿」已注入；可再 get_outline 核对\n" +
+        "2. 对照 findings 只改点名问题；保留仍成立的情节/角色/时空\n" +
+        "3. save_outline 提交完整改写稿 + save_foreshadowing_plan\n\n" +
         `### 上一稿大纲（${prevLen} 字）\n` +
         "```\n" +
         draft.slice(0, 12000) +
@@ -138,29 +153,30 @@ export const outlineAgent: AgentDef = {
           JSON.stringify(prevPlan).slice(0, 2000) +
           "\n";
       }
-      console.log(
-        `[outline] rewrite mode keepOutline=${prevLen >= 50} prevLen=${prevLen}`,
-      );
     }
+    console.log(
+      `[outline] mode=${isRewrite ? "rewrite" : "create"} keepOutline=${isRewrite && prevLen >= 50} prevLen=${prevLen} tools=${TOOLS.map((t) => t.name).join(",")}`,
+    );
 
     const ledgerBlock =
       "\n\n## 当前分支活跃伏笔账本\n" +
       formatLedgerForPrompt(ledger) +
       "\n\n## 落盘（必须用工具，程序只认 tool）\n" +
       (isRewrite
-        ? "1. 改写：先 get_outline → 按 findings 改 → **save_outline**（完整改写稿）\n" +
+        ? "1. 按上一稿 + findings 改 → **save_outline**（完整改写稿）\n" +
           "2. **save_foreshadowing_plan**\n" +
           "3. 不要只写「修改说明」；save 的 content 必须是完整大纲正文\n"
-        : "1. 取语境后，**必须** `save_outline`，content=完整大纲正文（给人看的结构文，不是 JSON）\n" +
-          "2. **必须** `save_foreshadowing_plan`，plan=JSON 字符串 {plant,advance,reveal,abandon,rationale}\n" +
-          "3. 不要指望聊天区最终回复被程序当大纲；未 save 即失败\n") +
-      "4. 成功后可简短确认，无需再贴全文\n" +
-      "5. save_outline 的 content 里可用真实换行；不要在聊天里说「已保存」却不调工具";
+        : "1. **不要** get_outline\n" +
+          "2. 取语境后 **save_outline**（完整大纲正文）\n" +
+          "3. **save_foreshadowing_plan**，plan=JSON 字符串 {plant,advance,reveal,abandon,rationale}\n" +
+          "4. 不要指望聊天区最终回复被程序当大纲；未 save 即失败\n") +
+      "成功后可简短确认，无需再贴全文。";
 
     const taskBlock =
       "\n\n## 本次任务\n" + String(ctx.prompt || "请为续写设计大纲。");
 
     const uc =
+      modeHeader +
       (baseUser || "请为续写设计大纲。") +
       taskBlock +
       rewriteBlock +

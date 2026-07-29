@@ -25,6 +25,10 @@ import ReaderTimelineRail, {
 } from "@/components/reader-timeline-rail";
 import type { ChapterCatalogEntry } from "@/types";
 import { isClientDebugMode } from "@/lib/debug-mode";
+import {
+  findChapterAtOffset,
+  formatChapterLabel,
+} from "@/core/form/chapter-catalog";
 
 /** Branch list metadata (no full text). */
 interface BranchInfo {
@@ -49,7 +53,13 @@ export default function WritePage() {
   const bodyHandleRef = useRef<VirtualNovelBodyHandle | null>(null);
   const [newBranchName, setNewBranchName] = useState("");
   // Click-to-fork state — offsets are absolute in full branch body
-  const [forkPoint, setForkPoint] = useState<{ offset: number; label: string; context: string } | null>(null);
+  const [forkPoint, setForkPoint] = useState<{
+    offset: number;
+    label: string;
+    context: string;
+    chapterId?: string;
+    chapterLabel?: string;
+  } | null>(null);
   const [showForkDialog, setShowForkDialog] = useState(false);
 
   /** Full resolved body of the selected branch (virtual scroll mounts only viewport). */
@@ -194,20 +204,29 @@ export default function WritePage() {
     };
   }, [novelId, setNovel, debugMode]);
 
+  const loadCatalog = useCallback(
+    async (branchId: string) => {
+      if (!novelId || !branchId) return;
+      try {
+        const r = await fetch(
+          `/api/chapter-meta?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(branchId)}`,
+        );
+        const d = await r.json();
+        if (d.meta?.chapters) setCatalog(d.meta.chapters);
+        else setCatalog([]);
+      } catch {
+        setCatalog([]);
+      }
+    },
+    [novelId],
+  );
+
   // Chapter catalog for current branch
   useEffect(() => {
     if (!novelId || freeMode) return;
     const bid = activeBranchId || "main";
-    fetch(
-      `/api/chapter-meta?novelId=${encodeURIComponent(novelId)}&branchId=${encodeURIComponent(bid)}`,
-    )
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.meta?.chapters) setCatalog(d.meta.chapters);
-        else setCatalog([]);
-      })
-      .catch(() => setCatalog([]));
-  }, [novelId, activeBranchId, freeMode]);
+    void loadCatalog(bid);
+  }, [novelId, activeBranchId, freeMode, loadCatalog]);
 
   // Poll timeline job for branch
   useEffect(() => {
@@ -341,7 +360,7 @@ export default function WritePage() {
     }
   }, [activeBranchId, freeMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Accept 续写：refetch body (do not trust multi-MB event payloads)
+  // Accept 续写：refetch body + catalog (accept updates chapter-meta server-side)
   useEffect(() => {
     const onBranchUpdated = (ev: Event) => {
       const detail = (ev as CustomEvent).detail as {
@@ -374,10 +393,22 @@ export default function WritePage() {
           })
           .catch(() => {});
       }
+      // Catalog/TOC is rewritten on accept (new 第N章 titles) — always reload for that branch
+      if (activeBranchId === bid || (freeMode && bid === "main") || !activeBranchId) {
+        void loadCatalog(bid);
+      }
     };
     window.addEventListener("ncs:branch-updated", onBranchUpdated);
     return () => window.removeEventListener("ncs:branch-updated", onBranchUpdated);
-  }, [novelId, activeBranchId, freeMode, applyBody, loadBranchBody, setNovelText]);
+  }, [
+    novelId,
+    activeBranchId,
+    freeMode,
+    applyBody,
+    loadBranchBody,
+    loadCatalog,
+    setNovelText,
+  ]);
 
   // Sync writing target to context — ids/offset only (no full sessionNovelText)
   useEffect(() => {
@@ -462,6 +493,8 @@ export default function WritePage() {
       setLocalBranchId(meta.id);
       // Resolved full text from API (parent prefix + empty suffix)
       applyBody(String(b.text || sourceText.slice(0, offset)));
+      // Server rebuilt chapter-meta for this fork — reload TOC immediately
+      void loadCatalog(meta.id);
       setShowForkDialog(false);
       setNewBranchName("");
       setForkPoint(null);
@@ -482,10 +515,16 @@ export default function WritePage() {
     if (abs == null) return;
     const ctxStart = Math.max(0, abs - 100);
     const ctxEnd = Math.min(fullBody.length, abs + 100);
+    const ch = findChapterAtOffset(catalog, abs);
+    const chapterLabel = formatChapterLabel(ch) || undefined;
     setForkPoint({
       offset: abs,
-      label: `偏移 ${abs.toLocaleString()} 字`,
+      label: chapterLabel
+        ? `${chapterLabel} · 偏移 ${abs.toLocaleString()} 字`
+        : `偏移 ${abs.toLocaleString()} 字`,
       context: fullBody.slice(ctxStart, ctxEnd),
+      chapterId: ch?.id,
+      chapterLabel,
     });
   };
 
@@ -976,7 +1015,30 @@ export default function WritePage() {
             <div className="space-y-3">
               <div>
                 <div className="text-sm text-muted-foreground mb-0.5">分叉点</div>
-                <div className="text-sm text-muted-foreground">{forkPoint.label}</div>
+                <div className="text-sm text-foreground/90">
+                  {forkPoint.chapterLabel ? (
+                    <>
+                      <span className="font-medium text-primary/90">
+                        {forkPoint.chapterLabel}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · 偏移 {forkPoint.offset.toLocaleString()} 字
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">{forkPoint.label}</span>
+                  )}
+                </div>
+                {forkPoint.chapterLabel ? (
+                  <p className="text-[11px] text-fog mt-1">
+                    已按当前分支目录定位所在章节；创建后目录会裁到该分叉点之前。
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-fog mt-1">
+                    当前目录无法匹配章节（可先完成章法/目录分析）。
+                  </p>
+                )}
               </div>
               <div>
                 <div className="text-sm text-muted-foreground mb-1">上下文</div>

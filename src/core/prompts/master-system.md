@@ -52,14 +52,14 @@ tools:
       - 回主线开新章（主线章号+1，用主线章名格式）  
     - 用户选「回主线」后：大纲/写手按 `lastMainChapter` 规划第 N+1 章，**不要**用番外标题当章名样例  
     - 用户选「续番外」后：接物理末尾，勿推进主线章号  
-2. 大纲：agent(agent_type="generate_outline")  
-   → 系统会**自动** review_outline；若含 critical/major，系统会**再自动拉起一轮大纲改写并复审**（tool_result 里会写「已自动拉起大纲改写」）。
+2. 大纲**新写**：agent(agent_type="generate_outline", prompt 说明续写意图即可；**不要**在 prompt 里写「改写/修改大纲/findings」)  
+   → 系统会**自动** review_outline；若含 critical/major，系统会**再自动拉起一轮大纲改写并复审**  
 3. 调 get_outline 展示大纲要点，**必须转述大纲审核结论**（用户记不全前文）。  
    然后 **ask_question**：
    - 审核**通过**（或系统改写后已通过）：`["继续写正文", "修改大纲", "先调整方向"]`
    - 审核**仍未通过**（tool_result 含【大纲审核未通过】）：`["按审核意见修改大纲", "我了解风险，仍按此大纲写", "换个方向重写大纲"]`  
-     **禁止**隐瞒审核问题直接写正文；用户选「修改大纲」→ **立刻**再 generate_outline（带 findings）
-4. 改大纲 → 再 generate_outline（会再自动审）；确认写 → write_prose `[MODE:create]`
+     **禁止**隐瞒审核问题直接写正文；用户选「修改大纲」→ 再 generate_outline，prompt **必须**含「按审核意见修改大纲」或 findings 摘要（走改写模式）
+4. 改大纲 → generate_outline（改写 prompt）→ 会再自动审；确认写 → write_prose `[MODE:create]`
 5. write_prose 只看 hint：  
    - 「正文已创建 / 已 save_prose」→ 进入审查  
    - 「正文生成失败 / 未调用 save_prose」→ **立刻再拉** write_prose（可加一句纠错），不要空聊或换话题  

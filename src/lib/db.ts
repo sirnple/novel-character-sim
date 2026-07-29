@@ -991,18 +991,193 @@ export function getBranchChapterMeta(
   }
 }
 
-/** Copy chapter meta when forking a branch. */
+/**
+ * Copy chapter meta when forking a branch.
+ * If parentOffset is set, only keep TOC entries that start before the fork
+ * and clamp endOffset so the catalog matches the CoW prefix (not the full parent book).
+ */
 export function copyBranchChapterMeta(
   userId: string,
   novelId: string,
   fromBranchId: string,
   toBranchId: string,
+  parentOffset?: number,
 ): void {
   const src = getBranchChapterMeta(userId, novelId, fromBranchId);
+  const end =
+    typeof parentOffset === "number" && Number.isFinite(parentOffset) && parentOffset >= 0
+      ? parentOffset
+      : null;
+
+  let chapters = JSON.parse(
+    JSON.stringify(src.chapters || []),
+  ) as ChapterCatalogEntry[];
+
+  if (end != null) {
+    chapters = chapters
+      .filter((c) => typeof c.startOffset === "number" && c.startOffset < end)
+      .map((c) => ({
+        ...c,
+        endOffset:
+          c.endOffset != null
+            ? Math.min(c.endOffset, end)
+            : end,
+      }));
+    // Last chapter ends at fork point
+    if (chapters.length) {
+      const last = chapters[chapters.length - 1];
+      chapters[chapters.length - 1] = {
+        ...last,
+        endOffset: end,
+      };
+    }
+  }
+
+  const last = chapters.length ? chapters[chapters.length - 1] : undefined;
+  const lastMain = [...chapters]
+    .reverse()
+    .find((c) => !c.track || c.track === "main");
+
+  // Mid-chapter fork → open boundary; fork after a chapter title block → closed
+  let chapterBoundary = src.chapterBoundary || "closed";
+  if (end != null) {
+    const startedMid =
+      last &&
+      last.startOffset < end &&
+      (last.endOffset == null || last.endOffset >= end);
+    chapterBoundary = startedMid && chapters.length ? "open" : chapterBoundary;
+  }
+
   saveBranchChapterMeta(userId, {
     ...src,
+    novelId,
     branchId: toBranchId,
-    chapters: JSON.parse(JSON.stringify(src.chapters || [])) as ChapterCatalogEntry[],
+    chapters,
+    chapterBoundary,
+    lastClosedChapter:
+      chapterBoundary === "closed" && last
+        ? {
+            number: last.number,
+            title: last.title,
+            endOffset: last.endOffset ?? end ?? last.startOffset,
+            track: last.track || "main",
+          }
+        : chapterBoundary === "open"
+          ? src.lastClosedChapter
+          : last
+            ? {
+                number: last.number,
+                title: last.title,
+                endOffset: last.endOffset ?? end ?? last.startOffset,
+                track: last.track || "main",
+              }
+            : undefined,
+    lastMainChapter: lastMain
+      ? {
+          number: lastMain.number,
+          title: lastMain.title,
+          endOffset: lastMain.endOffset ?? end ?? lastMain.startOffset,
+          track: "main",
+        }
+      : undefined,
+    openChapter:
+      chapterBoundary === "open" && last
+        ? {
+            number: last.number,
+            title: last.title,
+            startedAtOffset: last.startOffset,
+          }
+        : undefined,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Rebuild branch chapter catalog from the branch's resolved text (preferred after fork).
+ * Falls back to filtered parent meta if extract finds nothing.
+ */
+export function rebuildBranchChapterMetaFromText(
+  userId: string,
+  novelId: string,
+  branchId: string,
+  fullText: string,
+  parentBranchId?: string,
+): void {
+  // Lazy import avoids circular init with form modules in some test loaders
+  const { extractChapterCatalog, findChapterAtOffset } =
+    require("@/core/form/chapter-catalog") as typeof import("@/core/form/chapter-catalog");
+  const form = getNovelForm(userId, novelId);
+  let chapters = extractChapterCatalog(fullText || "", form?.chaptering);
+  if (!chapters.length && parentBranchId) {
+    const parent = getBranchChapterMeta(userId, novelId, parentBranchId);
+    const end = (fullText || "").length;
+    chapters = (parent.chapters || [])
+      .filter((c) => c.startOffset < end)
+      .map((c, i, arr) => ({
+        ...c,
+        endOffset:
+          i + 1 < arr.length
+            ? arr[i + 1].startOffset
+            : end,
+      }));
+  } else {
+    for (let i = 0; i < chapters.length; i++) {
+      chapters[i] = {
+        ...chapters[i],
+        endOffset:
+          i + 1 < chapters.length
+            ? chapters[i + 1].startOffset
+            : (fullText || "").length,
+      };
+    }
+  }
+
+  const prev = getBranchChapterMeta(userId, novelId, branchId);
+  const end = (fullText || "").length;
+  // Chapter containing the fork tip (end of CoW prefix)
+  const atFork =
+    end > 0 ? findChapterAtOffset(chapters, Math.max(0, end - 1)) : null;
+  const last = atFork || (chapters.length ? chapters[chapters.length - 1] : undefined);
+  const lastMain = [...chapters]
+    .reverse()
+    .find((c) => !c.track || c.track === "main");
+  const midOpen =
+    !!last &&
+    last.startOffset < end &&
+    (last.endOffset == null || last.endOffset >= end) &&
+    end - last.startOffset > 0;
+
+  saveBranchChapterMeta(userId, {
+    ...prev,
+    novelId,
+    branchId,
+    chapters,
+    chapterBoundary: midOpen ? "open" : prev.chapterBoundary || "closed",
+    lastMainChapter: lastMain
+      ? {
+          number: lastMain.number,
+          title: lastMain.title,
+          endOffset: lastMain.endOffset ?? end,
+          track: "main",
+        }
+      : undefined,
+    lastClosedChapter:
+      !midOpen && last
+        ? {
+            number: last.number,
+            title: last.title,
+            endOffset: last.endOffset ?? end,
+            track: last.track || "main",
+          }
+        : prev.lastClosedChapter,
+    openChapter:
+      midOpen && last
+        ? {
+            number: last.number,
+            title: last.title,
+            startedAtOffset: last.startOffset,
+          }
+        : undefined,
     updatedAt: new Date().toISOString(),
   });
 }

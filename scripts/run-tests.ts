@@ -29,6 +29,7 @@ import { runShareStoreTests } from "./tests/share-store.test";
 import { runAnalysisParallelReadyTests } from "./tests/analysis-parallel-ready.test";
 import { runAutoPassTests } from "./tests/auto-pass.test";
 import { runParseToolArgsTests } from "./tests/parse-tool-args.test";
+import { runOutlineModeTests } from "./tests/outline-mode.test";
 import { runRuntimeSettingsTests } from "./tests/runtime-settings.test";
 import { runCharacterAnalysisWindowsTests } from "./tests/character-analysis-windows.test";
 import { runCharacterAnalysisMergeTests } from "./tests/character-analysis-merge.test";
@@ -46,6 +47,7 @@ async function main() {
   runAnalysisParallelReadyTests();
   runAutoPassTests();
   runParseToolArgsTests();
+  runOutlineModeTests();
   runRuntimeSettingsTests();
   runProseGuardTests();
   runIntermediateStoreTests();
