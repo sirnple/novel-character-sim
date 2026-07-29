@@ -103,6 +103,21 @@ export const saveProseTool: ToolDefinition = {
   },
   execute: async (args, ctx) => {
     const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
+    // Stream/max_tokens often cuts tool JSON mid-novel — never accept a truncated salvage
+    if (args.__truncatedArgs === true || args.__truncatedArgs === "true") {
+      const partialLen = String(args.content ?? "").length;
+      console.warn(
+        `[save_prose] reject truncated tool args partialLen=${partialLen} ${novelId}::${branchId}`,
+      );
+      return {
+        content:
+          `${SAVE_PROSE_REJECT_PREFIX}：工具参数被截断（已收到约 ${partialLen} 字，JSON 未闭合）。` +
+          `请**缩短正文**（建议单次 2000–6000 字完整场景）后再次 save_prose；` +
+          `不要重复粘贴已截断的长文。一次成功即可结束，勿连续多次 save。`,
+        messages: [],
+      };
+    }
+
     const raw = String(args.content ?? "");
     const previous = getProse(novelId, branchId);
     // Only enforce relative length when overwriting existing valid prose (rewrite path)
@@ -111,7 +126,7 @@ export const saveProseTool: ToolDefinition = {
         ? previous
         : undefined;
 
-    const check = validateProseContent(raw, { previousProse });
+    const check = validateProseContent(raw, { previousProse, minLen: 80 });
     if (!check.ok) {
       return {
         content: `${SAVE_PROSE_REJECT_PREFIX}：${check.message}。请修正后再次 save_prose，content 必须是完整小说正文。`,
@@ -119,9 +134,12 @@ export const saveProseTool: ToolDefinition = {
       };
     }
 
-    saveProse(novelId, branchId, check.prose);
+    const prose = check.prose;
+    saveProse(novelId, branchId, prose);
     return {
-      content: `${SAVE_PROSE_OK_PREFIX}（${check.prose.length} 字）。审查 agent 可用 get_prose 读取。`,
+      content:
+        `${SAVE_PROSE_OK_PREFIX}（${prose.length} 字）。` +
+        `任务已完成：请停止调用工具，用一句话确认即可。不要再次 save_prose。`,
       messages: [],
     };
   },

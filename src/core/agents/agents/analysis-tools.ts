@@ -16,7 +16,10 @@ import {
   getStoryInfo,
   getNovelForm,
   getTimeline,
+  listTimelineJobRows,
   upsertExtractedStyle,
+  normalizeWritingStyle,
+  normalizeIdeaEntries,
   replaceExtractedIdeas,
   listStyles,
   listIdeas,
@@ -48,6 +51,10 @@ import {
 import { entitiesToProfiles } from "./character-extract-tools";
 import {
   ANALYSIS_AGENT_DEPENDENCIES,
+  ANALYSIS_OPTIONAL_DOMAINS,
+  ANALYSIS_WRITE_REQUIRED_DOMAINS,
+  partitionAnalysisPending,
+  isWriteReadyFromDomainMap,
   ANALYSIS_DOMAIN_TO_AGENT,
   ANALYSIS_SUBAGENT_TYPES,
   buildLaunchPlan,
@@ -271,7 +278,10 @@ export const ANALYSIS_OK = {
   story: "故事世界已存",
   detail: "角色详情已存",
   rels: "角色关系已存",
+  /** Full timeline payload in workspace (legacy / rare LLM submit path) */
   timeline: "时间线已存",
+  /** Preferred: async job kicked off; does not wait for full extract */
+  timelineJob: "时间线任务已启动",
   style: "文风已存",
   ideas: "点子已存",
   finish: "全书分析已完成",
@@ -1919,23 +1929,43 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "submit_style",
     description:
-      "提交文风 JSON 到工作区（不写文笔库）。成功含「文风已存」。" +
-      "通常提交一次后结束；若需修正可再次覆盖。",
+      "提交文风 JSON 到分析工作区，并同步写入文笔库。" +
+      "style_json 须为 WritingStyle 字段（genre, styleDescription, narrativeTechniques, " +
+      "languageFeatures, pacingDescription, tone, examplePassages, contentRating）；" +
+      "也接受中文键自由结构（会归一化）。成功含「文风已存」。",
     parameters: {
       type: "object",
       properties: {
-        style_json: { type: "string", description: "WritingStyle JSON" },
+        style_json: {
+          type: "string",
+          description:
+            "WritingStyle JSON，推荐字段：genre, styleDescription, languageFeatures, " +
+            "pacingDescription, tone, narrativeTechniques[], examplePassages[], contentRating",
+        },
       },
       required: ["style_json"],
     },
     execute: async (args, ctx) => {
       const { userId, novelId, branchId } = ids(ctx);
       try {
-        const style = JSON.parse(String(args.style_json || "")) as WritingStyle;
+        const raw = JSON.parse(String(args.style_json || ""));
+        const style = normalizeWritingStyle(raw);
+        if (!style) {
+          return {
+            content:
+              "文风提交失败：JSON 无法归一化为 WritingStyle（需 styleDescription/genre/tone 等有效字段）。" +
+              "请用英文键：genre, styleDescription, languageFeatures, pacingDescription, tone。",
+            messages: [],
+          };
+        }
         ensureWs(userId, novelId, branchId);
         patchNovelAnalysisWorkspace(userId, novelId, branchId, { style });
+        const title = resolveBookTitle(userId, novelId);
+        const lib = upsertExtractedStyle(userId, novelId, title, style);
         return {
-          content: `${ANALYSIS_OK.style}（已写入工作区）`,
+          content: lib
+            ? `${ANALYSIS_OK.style}（已写入工作区 + 文笔库「${lib.name}」）`
+            : `${ANALYSIS_OK.style}（已写入工作区；文笔库写入失败）`,
           messages: [],
         };
       } catch (e) {
@@ -1947,11 +1977,17 @@ export const analysisDomainTools: ToolDefinition[] = [
     name: "submit_ideas",
     description:
       "提交点子到工作区（不写点子库）。成功含「点子已存」。" +
-      "通常整批提交一次后结束；若需修正可再次覆盖（覆盖整份点子列表）。",
+      "ideas_json 为数组或 {ideas:[]}；每项必须有 title + content（2–4 句说明）。" +
+      "也接受中文键（标题/内容/描述/标签），会归一化。无 content 的条目会被丢弃。" +
+      "通常整批提交一次后结束；若需修正可再次覆盖。",
     parameters: {
       type: "object",
       properties: {
-        ideas_json: { type: "string", description: "Idea 数组或 {ideas:[]}" },
+        ideas_json: {
+          type: "string",
+          description:
+            'Idea 数组或 {ideas:[{title,content,tags[]}]}；推荐英文键，content 必填',
+        },
       },
       required: ["ideas_json"],
     },
@@ -1959,21 +1995,28 @@ export const analysisDomainTools: ToolDefinition[] = [
       const { userId, novelId, branchId } = ids(ctx);
       try {
         const raw = JSON.parse(String(args.ideas_json || ""));
-        const list = Array.isArray(raw) ? raw : raw.ideas || [];
         const bookTitle = resolveBookTitle(userId, novelId);
-        const entries = list.map((it: any, i: number) => ({
-          id: it.id || `idea_${novelId}_${i}`,
-          title: String(it.title || `点子${i + 1}`),
-          content: String(it.content || it.text || ""),
-          tags: Array.isArray(it.tags) ? it.tags : [],
-          source: "extracted" as const,
-          sourceNovelId: novelId,
-          sourceNovelTitle: bookTitle,
-        }));
+        const { entries, rejected, emptyContent } = normalizeIdeaEntries(raw, {
+          novelId,
+          novelTitle: bookTitle,
+        });
+        if (!entries.length) {
+          return {
+            content:
+              `点子提交失败：没有可用条目（${emptyContent ? `有 ${emptyContent} 条缺 content；` : ""}` +
+              `丢弃 ${rejected}）。每条必须含 title + content（2–4 句可执行说明）。` +
+              `示例：[{"title":"…","content":"…","tags":["设定"]}]`,
+            messages: [],
+          };
+        }
         ensureWs(userId, novelId, branchId);
         patchNovelAnalysisWorkspace(userId, novelId, branchId, { ideas: entries });
+        const note =
+          rejected > 0
+            ? `（另丢弃 ${rejected} 条空内容/无效）`
+            : "";
         return {
-          content: `${ANALYSIS_OK.ideas}：${entries.length} 条（已写入工作区）`,
+          content: `${ANALYSIS_OK.ideas}：${entries.length} 条（已写入工作区）${note}`,
           messages: [],
         };
       } catch (e) {
@@ -2030,7 +2073,21 @@ export const analysisMasterTools: ToolDefinition[] = [
           0,
         ) + dbChars.reduce((n, c) => n + (c.relationships?.length || 0), 0);
       const characterRelationships = relEdges > 0 || relOnChars > 0;
-      const timeline = !!(ws?.timeline || getTimeline(userId, novelId, branchId));
+      /** Saved timeline snapshots (complete or partial) */
+      const timelineData = !!(
+        ws?.timeline ||
+        getTimeline(userId, novelId, branchId)
+      );
+      const tlJobs = listTimelineJobRows(userId, novelId, branchId);
+      const latestTlJob = tlJobs[0] || null;
+      const timelineJobStatus = latestTlJob?.status || null;
+      /** Job kicked or finished — enough for orchestration (async background) */
+      const timelineJobStarted = !!(
+        latestTlJob &&
+        ["queued", "running", "done"].includes(String(latestTlJob.status))
+      );
+      /** Domain "ready" for agent dispatch: data OR background job already started */
+      const timeline = timelineData || timelineJobStarted;
       const style =
         !!ws?.style ||
         listStyles(userId).some((s) => s.sourceNovelId === novelId);
@@ -2055,6 +2112,9 @@ export const analysisMasterTools: ToolDefinition[] = [
         if (ok) done.push(key);
         else pending.push(key);
       }
+      const { pendingRequired, pendingOptional } =
+        partitionAnalysisPending(pending);
+      const writeReady = isWriteReadyFromDomainMap(domainReady);
 
       // agent_type → ready (for launch plan)
       const readyByAgent: Record<string, boolean> = {
@@ -2093,11 +2153,21 @@ export const analysisMasterTools: ToolDefinition[] = [
           );
         }
       }
-      // Wrap-up: always offer save option; finish when user asks or picks it
-      if (pending.length === 0 && done.length > 0) {
+      // Wrap-up when required domains done — timeline optional/background never blocks
+      if (pendingRequired.length === 0 && done.length > 0) {
+        const optNote =
+          pendingOptional.length > 0
+            ? `（可选后台仍缺：${pendingOptional.join("、")}；不阻塞写作与保存）`
+            : "";
         nextActions.push(
-          "本轮可收尾：ask_question 选项须含「确认保存到本书」；" +
-            "用户点选保存或文字要求保存 → finish_novel_analysis(userConfirmed=true)",
+          `本轮可收尾${optNote}：ask_question 选项须含「确认保存到本书」；` +
+            "用户点选保存或文字要求保存 → finish_novel_analysis(userConfirmed=true)。" +
+            "时间线为后台异步，勿等待其完成再 finish。",
+        );
+      } else if (writeReady && pendingRequired.length > 0) {
+        nextActions.push(
+          "写作门槛已齐（章法·故事·角色名单）；可继续补 pendingRequired，" +
+            "或先 ask 是否保存；时间线可选不阻塞。",
         );
       }
 
@@ -2123,7 +2193,16 @@ export const analysisMasterTools: ToolDefinition[] = [
         detailRichDb: detailInDb,
         entitiesResolved,
         relationshipEdges: relEdges,
+        /** Timeline data present (not just job started) */
+        timelineData,
+        /** Orchestration ready: data OR background job started */
         timeline,
+        timelineJobStatus,
+        timelineJobId: latestTlJob?.id || null,
+        /** Optional domains never block 写作 / finish */
+        optionalDomains: [...ANALYSIS_OPTIONAL_DOMAINS],
+        writeRequiredDomains: [...ANALYSIS_WRITE_REQUIRED_DOMAINS],
+        writeReady,
         style,
         ideas,
         ideaCount: ideaCountWs || ideaCountDb,
@@ -2138,6 +2217,8 @@ export const analysisMasterTools: ToolDefinition[] = [
         readyByAgent,
         done,
         pending,
+        pendingRequired,
+        pendingOptional,
         nextActions,
         /** 用户点名单域时：缺依赖则 sequence = 依赖… + 目标 */
         launchPlan,
@@ -2150,7 +2231,7 @@ export const analysisMasterTools: ToolDefinition[] = [
             "│  │  └─ extract_character_relationships（角色关系）",
             "│  └─ （详情是关系的依赖）",
             "├─ analyze_story_world（故事世界）",
-            "├─ analyze_timeline（时间线）",
+            "├─ analyze_timeline（时间线 · 后台可选，不阻塞写作）",
             "├─ extract_style（文风）",
             "└─ extract_ideas（点子）",
           ].join("\n"),
@@ -2162,7 +2243,9 @@ export const analysisMasterTools: ToolDefinition[] = [
          * Do NOT hardcode a fixed menu; options must be unambiguous for humans.
          */
         decisionHint: {
-          alreadyComplete: pending.length === 0 && done.length > 0,
+          /** Required domains complete (timeline optional does not block) */
+          alreadyComplete: pendingRequired.length === 0 && done.length > 0,
+          writeReady,
           /** Soft: only suggest asking when scope is unclear (partial done, vague user request) */
           shouldClarifyScope:
             done.length > 0 &&
@@ -2194,13 +2277,16 @@ export const analysisMasterTools: ToolDefinition[] = [
             };
             return map[d] || d;
           }),
+          pendingOptionalZh: pendingOptional.map((d) =>
+            d === "timeline" ? "时间线（后台可选）" : d,
+          ),
           agentZh: {
             analyze_form: "章法",
             analyze_character_list: "角色名单",
             extract_character_detail: "角色详情",
             extract_character_relationships: "角色关系",
             analyze_story_world: "故事世界",
-            analyze_timeline: "时间线",
+            analyze_timeline: "时间线（后台）",
             extract_style: "文风",
             extract_ideas: "点子",
           },
@@ -2217,6 +2303,8 @@ export const analysisMasterTools: ToolDefinition[] = [
             "用户点了保存类选项，或文字要求保存 → finish_novel_analysis(userConfirmed=true)，不要再追问",
             "用户要求分析已在 done 中的域：必须 ask 是否重新分析（覆盖）还是保留；禁止静默重跑",
             "parallelReady 有多项时：同轮多个 agent() 并行，禁止无谓串行",
+            "时间线为后台异步可选：不阻塞写作；勿等待时间线跑完再保存；pending 仅剩 timeline 时仍可 finish",
+            "写作就绪 = 章法目录 + 故事 + 角色名单（status.writeReady）；detail/rels/文风/点子/时间线非写作硬门槛",
             "选项数量适中（一般 2～5 个），只放与当前用户意图相关的，不要堆无关全书菜单",
           ],
           /** Prefer offering save on wrap-up (not a “nag ban”) */

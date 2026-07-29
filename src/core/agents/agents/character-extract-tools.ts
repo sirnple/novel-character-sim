@@ -32,6 +32,7 @@ import {
   patchNovelAnalysisWorkspace,
 } from "@/core/extractor/novel-analysis-workspace";
 import { rebuildDraftFromRoster } from "../character-draft-utils";
+import { filterDisplayAliases } from "@/core/character-analysis/mention-kind";
 import {
   BATCH_TEXT_BUDGET,
   formatBatchOverflowNotice,
@@ -84,10 +85,14 @@ export function entitiesToProfiles(entities: ResolvedEntity[]): CharacterProfile
       surface: a.surface,
     }));
     const displayName = (e.canonicalName || e.name || "").trim() || e.name;
+    // Drop analysis-only surfaces (deictic/desc/generic) from roster aliases
+    const displayAliases = filterDisplayAliases(
+      (e.aliases || []).filter((a) => a && a !== displayName),
+    );
     return {
       id: `char_${i}_${displayName.replace(/\s+/g, "").slice(0, 24)}`,
       name: displayName,
-      aliases: e.aliases || [],
+      aliases: displayAliases,
       // brief stays only as optional one-liner on appearance for list UI, short enough
       // that profileHasDetail still fails until multi-dimension detail is submitted
       appearance: {

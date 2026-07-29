@@ -3,6 +3,7 @@ import type { LLMProvider, LLMMessage, ToolSchema } from "@/types";
 import type { StreamEvent } from "@/core/agents/types";
 import { extractJSON } from "@/lib/utils";
 import { recordTokenUsage, usageFromClaude } from "@/lib/token-meter";
+import { parseToolCallArguments } from "@/core/llm/parse-tool-args";
 
 export class ClaudeProvider implements LLMProvider {
   private client: Anthropic;
@@ -196,6 +197,7 @@ export class ClaudeProvider implements LLMProvider {
     let currentToolId = "";
     let currentToolName = "";
     let currentToolArgs = "";
+    let lastArgDeltaEmit = 0;
     let outText = "";
     let finalUsage: any = null;
 
@@ -213,15 +215,32 @@ export class ClaudeProvider implements LLMProvider {
         currentToolId = event.content_block.id;
         currentToolName = event.content_block.name;
         currentToolArgs = "";
+        lastArgDeltaEmit = 0;
       } else if (event.type === "content_block_delta" && event.delta.type === "input_json_delta") {
         currentToolArgs += event.delta.partial_json;
+        if (
+          currentToolId &&
+          currentToolArgs.length >= 80 &&
+          currentToolArgs.length - lastArgDeltaEmit >= 400
+        ) {
+          lastArgDeltaEmit = currentToolArgs.length;
+          yield {
+            type: "tool_arg_delta",
+            id: currentToolId,
+            name: currentToolName || "tool",
+            argsChars: currentToolArgs.length,
+            preview: `组装参数中… ${currentToolArgs.length} 字`,
+          };
+        }
       } else if (event.type === "content_block_stop") {
         if (currentToolId) {
-          try {
-            const args = JSON.parse(currentToolArgs);
+          const args = parseToolCallArguments(currentToolArgs, currentToolName);
+          if (args) {
             yield { type: "tool_use", id: currentToolId, name: currentToolName, args };
-          } catch {
-            // incomplete JSON, skip
+          } else {
+            console.warn(
+              `[LLM:claude] drop tool_use name=${currentToolName} argsLen=${currentToolArgs.length}`,
+            );
           }
           currentToolId = "";
           currentToolName = "";

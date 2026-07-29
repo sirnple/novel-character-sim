@@ -20,6 +20,8 @@ export interface ToolContext {
   novelId: string;
   branchId: string;
   userId: string;
+  /** User-selected style library id (writer / style review fetch via get_style). */
+  selectedStyleId?: string | null;
 }
 
 /** Sub-agent conversation trail for UI (chat-style, not raw API blocks). */
@@ -71,5 +73,15 @@ export interface AgentContext {
 
 export type StreamEvent =
   | { type: "text_delta"; text: string }
+  /** Partial tool-call args while streaming (e.g. long save_prose content). */
+  | {
+      type: "tool_arg_delta";
+      id: string;
+      name: string;
+      /** Cumulative argument JSON char length so far */
+      argsChars: number;
+      /** Optional short preview (not full body) */
+      preview?: string;
+    }
   | { type: "tool_use"; id: string; name: string; args: Record<string, any> }
   | { type: "done" };

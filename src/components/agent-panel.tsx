@@ -5,6 +5,7 @@ import Markdown from "@/components/markdown";
 import { useNovel } from "@/lib/novel-context";
 import { notifyLibrariesRefresh } from "@/lib/library-events";
 import { isUserConfirmSave } from "@/lib/analysis-confirm";
+import { toolLabel } from "@/lib/tool-labels";
 
 const WRITE_AGENT_TYPES = new Set([
   "generate_outline", "write_prose", "review_outline",
@@ -180,73 +181,7 @@ interface AgentMessage {
   timestamp: string;
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  get_outline: "获取大纲",
-  get_prose: "获取正文",
-  get_findings: "获取审查发现",
-  get_branch_text: "获取分支前文",
-  get_branch_characters: "获取角色",
-  get_branch_timeline: "获取时间线",
-  get_branch_world: "获取世界观",
-  get_branch_meta: "获取分支信息",
-  get_novel_form: "获取目录/章法",
-  save_outline: "保存大纲",
-  save_prose: "保存正文",
-  save_findings: "保存审查发现",
-  clear_findings: "清空审查发现",
-  get_current_novel: "当前小说",
-  get_current_branch: "当前分支",
-  get_analysis_context: "分析上下文",
-  get_analysis_status: "分析状态",
-  run_form_analysis: "程序·章法一键(兼容)",
-  scan_chapter_catalog: "扫描章节目录",
-  build_form_draft: "建章法草稿",
-  list_form_catalog: "分页列目录",
-  apply_catalog_tracks: "修正章节轨",
-  set_form_narrative: "写入形态字段",
-  enrich_form_draft: "LLM补全章法(旧)",
-  submit_form: "提交章法",
-  scan_character_mentions: "角色列表流水线",
-  list_cross_name_candidates: "异名怀疑列表",
-  resolve_cross_name_pair: "异名对表态",
-  list_surface_candidates: "列出称呼候选",
-  lookup_surface: "查称呼上下文(可批)",
-  lookup_offset: "按位置读文(可批)",
-  submit_character_entities: "提交角色实体",
-  finish_novel_analysis: "完成分析",
-  list_text_units: "列出章节单元",
-  get_unit_text: "读单元正文(可批)",
-  get_kept_roster: "角色名单摘要",
-  // Sub-agents — 动宾中文名
-  analyze_form: "分析章法",
-  analyze_story_world: "分析故事世界",
-  analyze_character_list: "分析角色列表",
-  extract_character_detail: "抽取角色详情",
-  extract_character_relationships: "抽取角色关系",
-  analyze_timeline: "分析时间线",
-  extract_style: "抽取文风",
-  extract_ideas: "抽取点子",
-  // legacy aliases
-  story_world: "分析故事世界",
-  form_analysis: "分析章法",
-  resolve_character_roster: "分析角色列表",
-  character_roster: "分析角色列表",
-  character_entity_resolve: "分析角色列表",
-  character_detail: "抽取角色详情",
-  character_detail_agent: "抽取角色详情",
-  character_relationships: "抽取角色关系",
-  timeline_analysis: "分析时间线",
-  style_extract: "抽取文风",
-  style_extract_agent: "抽取文风",
-  idea_extract: "抽取点子",
-  idea_extract_agent: "抽取点子",
-  agent: "调用子 Agent",
-};
 
-function toolLabel(name?: string) {
-  if (!name) return "tool";
-  return TOOL_LABELS[name] || name;
-}
 
 /** Expand legacy trails that still stringify Anthropic tool blocks as JSON. */
 function normalizeSubMessages(messages: SubAgentMessage[]): SubAgentMessage[] {
@@ -517,12 +452,12 @@ function ToolPairCard({ call, result }: { call?: SubAgentMessage; result?: SubAg
           <span className="text-fog group-open:rotate-90 transition-transform inline-block">▸</span>
           <Wrench className="w-3 h-3 shrink-0 text-sky-500" />
           <span className="text-sky-400/90">工具</span>
-          <span className="px-1.5 py-0.5 rounded bg-sky-900/40 text-sky-200 text-xs">
+          <span
+            className="px-1.5 py-0.5 rounded bg-sky-900/40 text-sky-200 text-xs"
+            title={name || undefined}
+          >
             {toolLabel(name)}
           </span>
-          {name && TOOL_LABELS[name] && (
-            <span className="text-fog text-xs">{name}</span>
-          )}
           <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
             {pending ? (
               progress ? (
@@ -936,7 +871,7 @@ export default function AgentPanel({
                 }];
               });
             } else if (event.type === "ask_question_auto") {
-              // 一键续写：审核卡点已自动通过
+              // 一键续写：自动代答（优先改到通过，非带病放行）
               currentTextMsgId = null;
               const question = String(event.question || "");
               const options = Array.isArray(event.options) ? event.options.map(String) : [];
@@ -951,7 +886,7 @@ export default function AgentPanel({
                     toolCallId: event.toolCallId as string,
                     question,
                     options,
-                    answer: answer ? `（一键续写自动通过）${answer}` : "（一键续写自动通过）",
+                    answer: answer ? `（一键续写代答）${answer}` : "（一键续写代答）",
                   },
                 };
                 if (existing) {
@@ -1010,7 +945,7 @@ export default function AgentPanel({
                     try {
                       const parsed = JSON.parse(event.result);
                       if (parsed?.autoPassed && parsed?.answer) {
-                        answer = answer || `（一键续写自动通过）${parsed.answer}`;
+                        answer = answer || `（一键续写代答）${parsed.answer}`;
                       }
                       if (parsed?.question) question = question || String(parsed.question);
                       if (Array.isArray(parsed?.options)) options = options || parsed.options.map(String);
@@ -1061,17 +996,44 @@ export default function AgentPanel({
                 }]);
               }
             } else if (event.type === "stopped") {
-              if (currentTextMsgId) {
-                setMessages(prev => prev.map(m =>
-                  m.id === currentTextMsgId && !m.content ? { ...m, content: "**已停止**" } : m
-                ));
-              } else {
-                setMessages(prev => [...prev, {
-                  id: Math.random().toString(36).slice(2),
-                  role: "agent", content: "**已停止**",
-                  timestamp: new Date().toISOString(),
-                }]);
-              }
+              // Clear sub-agent / tool running indicators (stop button)
+              setMessages((prev) => {
+                let changed = false;
+                const next = prev.map((m) => {
+                  if (m.role === "tool" && m.metadata?.status === "running") {
+                    changed = true;
+                    return {
+                      ...m,
+                      content: m.content?.trim()
+                        ? `${m.content}\n\n**已停止**`
+                        : "**已停止**",
+                      metadata: { ...m.metadata, status: "done" as const },
+                    };
+                  }
+                  if (m.id === currentTextMsgId && !m.content?.trim()) {
+                    changed = true;
+                    return { ...m, content: "**已停止**" };
+                  }
+                  return m;
+                });
+                if (
+                  !next.some(
+                    (m) =>
+                      m.role === "agent" &&
+                      (m.content || "").includes("已停止"),
+                  ) &&
+                  !currentTextMsgId
+                ) {
+                  next.push({
+                    id: Math.random().toString(36).slice(2),
+                    role: "agent",
+                    content: "**已停止**",
+                    timestamp: new Date().toISOString(),
+                  });
+                  changed = true;
+                }
+                return changed ? next : prev;
+              });
             } else if (event.type === "continuation_accepted") {
               const bid = String(event.branchId || branchId || "main");
               const totalLength =
@@ -1103,14 +1065,61 @@ export default function AgentPanel({
         }
       }
     } catch (e) {
-      if ((e as Error).name !== "AbortError") {
+      if ((e as Error).name === "AbortError") {
+        // Client abort often drops SSE before "stopped" — still clear running chips
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.role === "tool" && m.metadata?.status === "running"
+              ? {
+                  ...m,
+                  content: m.content?.trim()
+                    ? `${m.content}\n\n**已停止**`
+                    : "**已停止**",
+                  metadata: { ...m.metadata, status: "done" as const },
+                }
+              : m,
+          ),
+        );
+      } else {
         setMessages(prev => [...prev, {
           id: Math.random().toString(36).slice(2),
           role: "agent", content: "**连接失败**: " + (e as Error).message,
           timestamp: new Date().toISOString(),
         }]);
+        // Fail-safe: don't leave sub-agents spinning after connection errors
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.role === "tool" && m.metadata?.status === "running"
+              ? {
+                  ...m,
+                  content: m.content?.trim()
+                    ? `${m.content}\n\n**中断**`
+                    : "**中断**",
+                  metadata: { ...m.metadata, status: "done" as const },
+                }
+              : m,
+          ),
+        );
       }
     }
+    // Always clear any leftover running tool cards when the chat turn ends
+    setMessages((prev) => {
+      let any = false;
+      const next = prev.map((m) => {
+        if (m.role === "tool" && m.metadata?.status === "running") {
+          any = true;
+          return {
+            ...m,
+            content: m.content?.trim()
+              ? `${m.content}\n\n**已结束**`
+              : "**已结束**",
+            metadata: { ...m.metadata, status: "done" as const },
+          };
+        }
+        return m;
+      });
+      return any ? next : prev;
+    });
     abortRef.current = null;
     setStatus("idle");
     refreshFsStatus();
@@ -1238,12 +1247,12 @@ export default function AgentPanel({
     await runChat(history, userMsg, opts);
   };
 
-  /** 一键续写：全流程自动推进，审核卡点全部自动通过 */
+  /** 一键续写：全流程自动推进；审核有问题则改到通过，不带病放行 */
   const handleOneClickContinue = async () => {
     if (status === "generating" || !branchId || !novelId || isAnalysis) return;
     const text =
       "请对本分支进行【一键续写】：按标准流程完成 大纲→大纲审核→写正文→六维审查→接受续写写入分支。" +
-      "所有审核卡点自动通过，不要停下来等我确认。完成后简要汇报。";
+      "不要停下来等我确认；但审核/审查若有致命或重要问题，必须改写到通过后再往下，禁止「了解风险仍继续」。完成后简要汇报。";
     await handleSend(text, { autoPassCheckpoints: true });
   };
 
@@ -1292,33 +1301,21 @@ export default function AgentPanel({
 
   const handleStop = () => {
     abortRef.current?.abort();
-  };
-
-  const toolNames: Record<string, string> = {
-    generate_outline: "大纲 Agent", write_prose: "Writer Agent",
-    review_outline: "大纲审核",
-    review_character: "角色审查", review_continuity: "连贯与逻辑审查",
-    review_foreshadowing: "伏笔审查", review_style: "风格审查",
-    review_world: "世界观审查", review_pacing: "节奏审查",
-    get_novel_context: "获取原文", get_characters: "获取角色",
-    get_timeline: "获取时间线", get_codex: "获取创作法典",
-    get_world_bible: "获取世界观",
-    get_findings: "审查清单", get_outline: "获取大纲",
-    get_branch_text: "分支前文", get_branch_characters: "角色",
-    clear_findings: "清空审查",
-    ask_question: "向你提问",
-    run_reviews: "六维审查（并行）",
-    accept_continuation: "接受续写",
-    ...TOOL_LABELS,
-    analyze_form: "分析章法",
-    analyze_story_world: "分析故事世界",
-    analyze_character_list: "分析角色列表",
-    resolve_character_roster: "分析角色列表",
-    extract_character_detail: "抽取角色详情",
-    extract_character_relationships: "抽取角色关系",
-    analyze_timeline: "分析时间线",
-    extract_style: "抽取文风",
-    extract_ideas: "抽取点子",
+    // Optimistic UI: hide running pulse immediately (stream may die without "stopped")
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.role === "tool" && m.metadata?.status === "running"
+          ? {
+              ...m,
+              content: m.content?.trim()
+                ? `${m.content}\n\n**已停止**`
+                : "**已停止**",
+              metadata: { ...m.metadata, status: "done" as const },
+            }
+          : m,
+      ),
+    );
+    setStatus("idle");
   };
 
   // External trigger: overview FAB → 一键分析
@@ -1380,7 +1377,7 @@ export default function AgentPanel({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border border-amber-500/40 bg-amber-500/10 text-amber-200/90 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
                   >
                     <Zap className="w-3 h-3" />
-                    一键续写（审核自动通过）
+                    一键续写（有问题改到通过）
                   </button>
                 </div>
               </>
@@ -1480,7 +1477,7 @@ export default function AgentPanel({
               >
                 <div className="flex items-center gap-2">
                   {isDone && isReview && !hasFindings ? (
-                    <span className="text-xs text-green-600">✓ {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}</span>
+                    <span className="text-xs text-green-600">✓ {toolLabel(msg.metadata?.tool)}</span>
                   ) : (
                     <>
                       {isSubAgentCard ? (
@@ -1489,7 +1486,7 @@ export default function AgentPanel({
                         <Wrench className="w-3 h-3 text-muted-foreground" />
                       )}
                       <span className={`text-xs ${isSubAgentCard ? "text-primary/90 font-medium" : "text-muted-foreground"}`}>
-                        {toolNames[msg.metadata?.tool || ""] || msg.metadata?.tool}
+                        {toolLabel(msg.metadata?.tool)}
                         {isSubAgentCard ? " · 子 Agent" : ""}
                       </span>
                       <span className={`w-2 h-2 rounded-full ml-auto ${isRunning ? "bg-primary animate-pulse" : "bg-green-500"}`} />
@@ -1635,7 +1632,7 @@ export default function AgentPanel({
                 type="button"
                 onClick={() => handleOneClickContinue()}
                 disabled={!branchId || !novelId}
-                title="大纲→正文→审查→接受；所有审核卡点自动通过"
+                title="大纲→正文→审查→接受；有问题自动改到通过，不带病放行"
                 className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border border-amber-500/40 bg-amber-500/10 text-amber-200/90 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
               >
                 <Zap className="w-3 h-3" />

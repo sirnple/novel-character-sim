@@ -139,11 +139,31 @@ export async function withBranchLock<T>(
   }
 }
 
-/** Start a new outline round: wipe session drafts (prose/findings/plan/realization). */
-export function beginOutlineRound(novelId: string, branchId: string): void {
+/**
+ * Start a new outline round.
+ * - Default: wipe session drafts (prose/findings/plan/realization/outline).
+ * - keepOutline: rewrite mode — preserve previous outline + foreshadow plan so
+ *   get_outline still returns the last draft for revision.
+ */
+export function beginOutlineRound(
+  novelId: string,
+  branchId: string,
+  opts?: { keepOutline?: boolean },
+): void {
   const k = key(novelId, branchId);
-  storeMap().set(k, {});
-  console.log(`[Store] beginOutlineRound ${k}`);
+  const prev = storeMap().get(k) || {};
+  if (opts?.keepOutline && prev.outline && String(prev.outline).trim().length >= 50) {
+    storeMap().set(k, {
+      outline: prev.outline,
+      foreshadowPlan: prev.foreshadowPlan,
+    });
+    console.log(
+      `[Store] beginOutlineRound ${k} keepOutline len=${String(prev.outline).length}`,
+    );
+  } else {
+    storeMap().set(k, {});
+    console.log(`[Store] beginOutlineRound ${k}`);
+  }
 }
 
 export function saveOutline(novelId: string, branchId: string, outline: Outline): void {

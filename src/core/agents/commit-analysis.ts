@@ -29,6 +29,7 @@ import {
   getTimeline,
   getNovelForm,
   upsertExtractedStyle,
+  normalizeIdeaEntries,
   replaceExtractedIdeas,
   listStyles,
   listIdeas,
@@ -212,8 +213,13 @@ export function commitAnalysisWorkspace(input: {
 
   if (ws?.style) {
     const title = resolveBookTitle(userId, novelId);
-    upsertExtractedStyle(userId, novelId, title, ws.style);
-    committed.push("style");
+    const entry = upsertExtractedStyle(userId, novelId, title, ws.style);
+    if (entry) {
+      committed.push("style");
+    } else {
+      skipped.push("style(invalid payload — no styleDescription/genre after normalize)");
+      console.warn("[commit-analysis] style upsert failed keys=", Object.keys(ws.style as object));
+    }
   } else if (listStyles(userId).some((s) => s.sourceNovelId === novelId)) {
     skipped.push("style(already in library)");
   } else {
@@ -222,13 +228,27 @@ export function commitAnalysisWorkspace(input: {
 
   if (ws?.ideas?.length) {
     const bookTitle = resolveBookTitle(userId, novelId);
-    const entries = ws.ideas.map((it) => ({
-      ...it,
-      sourceNovelId: novelId,
-      sourceNovelTitle: bookTitle || it.sourceNovelTitle,
-    }));
-    replaceExtractedIdeas(userId, novelId, entries);
-    committed.push(`ideas(${entries.length})`);
+    const { entries, emptyContent, rejected } = normalizeIdeaEntries(ws.ideas, {
+      novelId,
+      novelTitle: bookTitle,
+    });
+    if (entries.length) {
+      replaceExtractedIdeas(userId, novelId, entries);
+      committed.push(`ideas(${entries.length})`);
+      if (emptyContent || rejected) {
+        skipped.push(
+          `ideas(dropped empty/invalid: emptyContent=${emptyContent} rejected=${rejected})`,
+        );
+      }
+    } else {
+      skipped.push(
+        "ideas(invalid — all empty content after normalize; re-run extract_ideas)",
+      );
+      console.warn(
+        "[commit-analysis] ideas all empty content; count=",
+        ws.ideas.length,
+      );
+    }
   } else if (listIdeas(userId).some((i) => i.sourceNovelId === novelId)) {
     skipped.push("ideas(already in library)");
   } else {

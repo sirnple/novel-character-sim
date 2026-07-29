@@ -22,6 +22,50 @@ export function isIdentityStrongKind(k: MentionKind): boolean {
   return k === "proper" || k === "personal_nick";
 }
 
+/**
+ * Mentions only useful during coref / extract analysis — never show as UI aliases.
+ * (我/他、瘦瘦的小孩、那人 等)
+ */
+export function isAnalysisOnlyMentionKind(k: MentionKind): boolean {
+  return k === "deictic" || k === "desc" || k === "generic";
+}
+
+/** Surface kinds ok for roster alias / page display. */
+export function isDisplayAliasKind(k: MentionKind): boolean {
+  return !isAnalysisOnlyMentionKind(k);
+}
+
+/**
+ * Filter aliases for UI / roster display.
+ * Prefer per-mention `kind` when provided; else rule-based resolveMentionKind.
+ */
+export function filterDisplayAliases(
+  aliases: string[],
+  mentions?: Array<{ surface?: string; kind?: MentionKind | string | null }>,
+): string[] {
+  const kindBySurface = new Map<string, MentionKind>();
+  for (const m of mentions || []) {
+    const s = (m.surface || "").trim().replace(/\s+/g, " ");
+    if (!s) continue;
+    const parsed = parseMentionKind(m.kind);
+    if (parsed) {
+      const prev = kindBySurface.get(s);
+      kindBySurface.set(s, prev ? preferMentionKind(prev, parsed) : parsed);
+    }
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of aliases || []) {
+    const s = (raw || "").trim().replace(/\s+/g, " ");
+    if (!s || seen.has(s)) continue;
+    const k = kindBySurface.get(s) || resolveMentionKind(s);
+    if (!isDisplayAliasKind(k)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
 /** True personal name — exclusive clash is strongest "different people" signal. */
 export function isProperKind(k: MentionKind): boolean {
   return k === "proper";

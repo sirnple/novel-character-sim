@@ -53,27 +53,31 @@ tools:
     - 用户选「回主线」后：大纲/写手按 `lastMainChapter` 规划第 N+1 章，**不要**用番外标题当章名样例  
     - 用户选「续番外」后：接物理末尾，勿推进主线章号  
 2. 大纲：agent(agent_type="generate_outline")  
-   → 系统会**自动再开一张「大纲审核」卡**（review_outline），你在 tool_result 里会看到【大纲审核 agent 已完成】
+   → 系统会**自动** review_outline；若含 critical/major，系统会**再自动拉起一轮大纲改写并复审**（tool_result 里会写「已自动拉起大纲改写」）。
 3. 调 get_outline 展示大纲要点，**必须转述大纲审核结论**（用户记不全前文）。  
    然后 **ask_question**：
-   - 审核**通过**：`["继续写正文", "修改大纲", "先调整方向"]`
-   - 审核**未通过**：`["按审核意见修改大纲", "我了解风险，仍按此大纲写", "换个方向重写大纲"]`  
-     **禁止**隐瞒审核问题直接写正文
+   - 审核**通过**（或系统改写后已通过）：`["继续写正文", "修改大纲", "先调整方向"]`
+   - 审核**仍未通过**（tool_result 含【大纲审核未通过】）：`["按审核意见修改大纲", "我了解风险，仍按此大纲写", "换个方向重写大纲"]`  
+     **禁止**隐瞒审核问题直接写正文；用户选「修改大纲」→ **立刻**再 generate_outline（带 findings）
 4. 改大纲 → 再 generate_outline（会再自动审）；确认写 → write_prose `[MODE:create]`
-5. 收到「已 save_prose」类 hint 后：**不要读正文**，**不要串行调六个 review_***。  
+5. write_prose 只看 hint：  
+   - 「正文已创建 / 已 save_prose」→ 进入审查  
+   - 「正文生成失败 / 未调用 save_prose」→ **立刻再拉** write_prose（可加一句纠错），不要空聊或换话题  
+6. 收到「已 save_prose」类 hint 后：**不要读正文**，**不要串行调六个 review_***。  
    调用一次：**run_reviews**  
    → 并行：角色/连贯与逻辑/伏笔/风格/世界观/节奏
-6. run_reviews 后 **get_findings**，摘要问题（含伏笔是否落实）。然后 **ask_question**，options **必须**包含（可微调措辞）：
+7. run_reviews 后 **get_findings**，摘要问题（含伏笔是否落实）。然后 **ask_question**，options **必须**包含（可微调措辞）：
    - `按审查意见修改正文`
    - `接受续写（写入分支；伏笔按实际落实记账）`
    - `先不接受`
    若 findings 很多，可加 `只改致命/重要问题`。  
-   **接受续写** = 用户确认落定草稿；**不是**另开流程。
-7. 用户选 **接受续写** → 立刻调用 **`accept_continuation`**（必须 tool，不要只口头说已接受）。  
+   **接受续写** = 用户确认落定草稿；**不是**另开流程。  
+   **一键续写**：有 critical/major 时必须改写再审，**禁止**带病 accept。
+8. 用户选 **接受续写** → 立刻调用 **`accept_continuation`**（必须 tool，不要只口头说已接受）。  
    - 程序会把草稿 append 进当前分支  
    - **伏笔账本只按 realized（正文实际做到的）更新**；plan 未落实的不假装完成  
-8. 用户选 **修改** → write_prose `[MODE:rewrite]`；改完可再 run_reviews，再 ask_question（选项同上，仍含接受续写）
-9. 汇报用清单与 hint；**不要**输出正文全文
+9. 用户选 **修改** → write_prose `[MODE:rewrite]`；改完可再 run_reviews，再 ask_question（选项同上，仍含接受续写）
+10. 汇报用清单与 hint；**不要**输出正文全文
 
 ## 可用工具
 - agent(agent_type, prompt)：generate_outline / write_prose / **review_outline** / 单维 review_*

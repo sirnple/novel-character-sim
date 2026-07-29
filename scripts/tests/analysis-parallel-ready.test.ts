@@ -8,6 +8,10 @@ import {
   listParallelReadyAgents,
   ANALYSIS_AGENT_DEPENDENCIES,
   ANALYSIS_SUBAGENT_TYPES,
+  partitionAnalysisPending,
+  isWriteReadyFromDomainMap,
+  ANALYSIS_OPTIONAL_DOMAINS,
+  ANALYSIS_WRITE_REQUIRED_DOMAINS,
 } from "../../src/core/agents/analysis-allowlist";
 import {
   groupPendingToolsForExecution,
@@ -156,6 +160,51 @@ export function runAnalysisParallelReadyTests(): void {
 
     test("empty pending → empty waves", () => {
       assert.equal(groupPendingToolsForExecution([], true).length, 0);
+    });
+  });
+
+  suite("timeline optional for write / wrap-up", () => {
+    test("timeline is the only optional domain by default", () => {
+      assert.deepEqual([...ANALYSIS_OPTIONAL_DOMAINS], ["timeline"]);
+    });
+
+    test("partitionAnalysisPending isolates timeline", () => {
+      const { pendingRequired, pendingOptional } = partitionAnalysisPending([
+        "style",
+        "timeline",
+        "ideas",
+      ]);
+      assert.deepEqual(pendingOptional, ["timeline"]);
+      assert.deepEqual(pendingRequired.sort(), ["ideas", "style"].sort());
+    });
+
+    test("writeReady needs form + story + character_list only", () => {
+      assert.equal(
+        isWriteReadyFromDomainMap({
+          form: true,
+          story: true,
+          character_list: true,
+          timeline: false,
+        }),
+        true,
+      );
+      assert.equal(
+        isWriteReadyFromDomainMap({
+          form: true,
+          story: true,
+          character_list: false,
+        }),
+        false,
+      );
+      assert.ok(ANALYSIS_WRITE_REQUIRED_DOMAINS.includes("form"));
+      assert.ok(ANALYSIS_WRITE_REQUIRED_DOMAINS.includes("story"));
+      assert.ok(ANALYSIS_WRITE_REQUIRED_DOMAINS.includes("character_list"));
+      assert.equal(
+        (ANALYSIS_WRITE_REQUIRED_DOMAINS as readonly string[]).includes(
+          "timeline",
+        ),
+        false,
+      );
     });
   });
 }

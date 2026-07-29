@@ -90,6 +90,49 @@ export const ANALYSIS_DOMAIN_TO_AGENT: Record<string, AnalysisSubagentType> = {
 };
 
 /**
+ * Status domain keys that do **not** block writing or analysis wrap-up/save.
+ * Timeline runs as an async background job; partial/missing timeline is OK for 写作.
+ */
+export const ANALYSIS_OPTIONAL_DOMAINS = ["timeline"] as const;
+export type AnalysisOptionalDomain = (typeof ANALYSIS_OPTIONAL_DOMAINS)[number];
+
+/**
+ * Minimum domains for 写作 gate (matches write page + overview canContinue):
+ * 目录/章法 · 故事 · 角色名单. Detail/rels/style/ideas/timeline are not required.
+ */
+export const ANALYSIS_WRITE_REQUIRED_DOMAINS = [
+  "form",
+  "story",
+  "character_list",
+] as const;
+export type AnalysisWriteRequiredDomain =
+  (typeof ANALYSIS_WRITE_REQUIRED_DOMAINS)[number];
+
+export function isOptionalAnalysisDomain(domain: string): boolean {
+  return (ANALYSIS_OPTIONAL_DOMAINS as readonly string[]).includes(domain);
+}
+
+/** Split status domain keys into required vs optional pending for wrap-up. */
+export function partitionAnalysisPending(pending: string[]): {
+  pendingRequired: string[];
+  pendingOptional: string[];
+} {
+  const pendingRequired: string[] = [];
+  const pendingOptional: string[] = [];
+  for (const d of pending) {
+    if (isOptionalAnalysisDomain(d)) pendingOptional.push(d);
+    else pendingRequired.push(d);
+  }
+  return { pendingRequired, pendingOptional };
+}
+
+export function isWriteReadyFromDomainMap(
+  ready: Partial<Record<string, boolean>>,
+): boolean {
+  return ANALYSIS_WRITE_REQUIRED_DOMAINS.every((d) => !!ready[d]);
+}
+
+/**
  * Flatten transitive deps (topo order) for a target agent.
  * Does not include the target itself.
  */

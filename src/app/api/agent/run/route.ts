@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   const resolvedType = resolveAnalysisAgentType(String(agent_type));
   const agentDef = getAgent(resolvedType) || getAgent(String(agent_type));
   if (!agentDef) {
-    return new Response(JSON.stringify({ error: `Unknown agent: ${agent_type}` }), { status: 400, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: `未知子 Agent: ${agent_type}` }), { status: 400, headers: { "Content-Type": "application/json" } });
   }
 
   const novelId = String(context?.novelId || "");

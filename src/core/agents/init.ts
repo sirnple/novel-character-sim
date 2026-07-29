@@ -91,7 +91,7 @@ export function initRegistry(): void {
       const agentDef = getAgent(resolved) || getAgent(raw);
       if (!agentDef) {
         throw new Error(
-          `Unknown agent: ${raw}` +
+          `未知子 Agent: ${raw}` +
             (resolved !== raw ? ` (resolved: ${resolved})` : "") +
             `。可用: ${listAgentTypes().join(", ")}`,
         );

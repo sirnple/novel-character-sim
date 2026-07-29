@@ -119,23 +119,27 @@ export default function NovelPage() {
 
   const statusItems = useMemo(
     () => [
-      { id: "story", label: "故事", ok: !!storyInfo?.plotSummary },
-      { id: "chars", label: "角色", ok: characters.length > 0 },
+      { id: "story", label: "故事", ok: !!storyInfo?.plotSummary, required: true },
+      { id: "chars", label: "角色", ok: characters.length > 0, required: true },
       {
         id: "catalog",
         label: "目录",
         ok: hasCatalog,
+        required: true,
       },
       {
         id: "tl",
         label: "时间线",
         ok: (timeline?.totalChapters || timeline?.chapters?.length || 0) > 0,
+        /** Background optional — not part of write gate */
+        required: false,
       },
     ],
     [storyInfo, characters.length, hasCatalog, timeline],
   );
-  const readyCount = statusItems.filter((c) => c.ok).length;
-  /** Write requires story + characters + catalog (TOC); form bone stays backend-only */
+  const requiredItems = statusItems.filter((c) => c.required);
+  const readyCount = requiredItems.filter((c) => c.ok).length;
+  /** Write requires story + characters + catalog (TOC); timeline is background optional */
   const canContinue =
     hasCatalog && characters.length > 0 && !!storyInfo?.plotSummary;
   const needsAnalysis = !canContinue;
@@ -167,13 +171,21 @@ export default function NovelPage() {
                 <span className="mx-2 text-border">·</span>
                 {characters.length} 角色
                 <span className="mx-2 text-border">·</span>
-                资料 {readyCount}/{statusItems.length}
+                写作资料 {readyCount}/{requiredItems.length}
+                {canContinue ? (
+                  <span className="ml-1.5 text-primary/80">· 可写作</span>
+                ) : null}
               </p>
               <div className="flex flex-wrap gap-2 mt-5">
                 {statusItems.map((c) => (
                   <span
                     key={c.id}
                     className={c.ok ? "ov-chip-ok" : "ov-chip-empty"}
+                    title={
+                      c.required
+                        ? "写作所需"
+                        : "后台可选，不阻塞写作"
+                    }
                   >
                     {c.ok ? (
                       <Check className="w-3.5 h-3.5" />
@@ -181,6 +193,9 @@ export default function NovelPage() {
                       <Minus className="w-3.5 h-3.5 opacity-50" />
                     )}
                     {c.label}
+                    {!c.required ? (
+                      <span className="opacity-60 text-[10px] ml-0.5">可选</span>
+                    ) : null}
                   </span>
                 ))}
               </div>

@@ -63,7 +63,9 @@ export const libraryTools: ToolDefinition[] = [
   },
   {
     name: "list_styles",
-    description: "列出文笔库（可跨书嫁接的语言肌理，非形态章法）。默认本书来源；scope=all 看全部。写作时单选一种。",
+    description:
+      "列出文笔库（可跨书嫁接的语言肌理，非形态章法）。默认本书来源；scope=all 看全部。" +
+      "写作/风格审查前可先 list 再 get_style。若用户已选用风格，列表会标注【当前选用】。",
     parameters: {
       type: "object",
       properties: {
@@ -77,33 +79,66 @@ export const libraryTools: ToolDefinition[] = [
       if (scope !== "all") {
         styles = styles.filter(s => s.sourceNovelId === ctx.novelId || !s.sourceNovelId);
       }
-      const lines = styles.map(
-        (s, n) =>
-          `${n + 1}. [${s.id}] ${s.name} — ${(s.description || s.style?.styleDescription || "").slice(0, 60)}`,
-      );
+      const selected = (ctx as { selectedStyleId?: string | null }).selectedStyleId || "";
+      const lines = styles.map((s, n) => {
+        const mark = selected && s.id === selected ? " 【当前选用】" : "";
+        return `${n + 1}. [${s.id}]${mark} ${s.name} — ${(s.description || s.style?.styleDescription || "").slice(0, 60)}`;
+      });
+      const hint = selected
+        ? `\n用户已选用 styleId=${selected}，请 get_style(id="${selected}") 取完整说明书。`
+        : "\n未预选风格时：可 list 后选一条 get_style，或 scope=all 跨书选取。";
       return {
-        content: lines.length ? `文笔库\n${lines.join("\n")}` : "文笔库为空。可分析「文笔」模块。",
+        content: lines.length
+          ? `文笔库\n${lines.join("\n")}${hint}`
+          : "文笔库为空。可分析「文笔」模块。",
         messages: [],
       };
     },
   },
   {
     name: "get_style",
-    description: "按 id 获取一条风格的完整说明书。",
+    description:
+      "获取一条文笔的完整说明书（句式/语气/节奏/范例）。" +
+      "id 可省略或填 selected：使用用户当前选用的风格；也可传 list_styles 返回的 id。",
     parameters: {
       type: "object",
       properties: {
-        id: { type: "string", description: "风格 id" },
+        id: {
+          type: "string",
+          description: "风格 id；空 / selected / current = 用户当前选用",
+        },
       },
-      required: ["id"],
+      required: [],
     },
     execute: async (args, ctx) => {
-      const s = getStyle(ctx.userId || "guest", String(args.id || ""));
-      if (!s) return { content: "风格不存在", messages: [] };
+      const rawId = String(args.id || "").trim();
+      const selected = (ctx as { selectedStyleId?: string | null }).selectedStyleId || "";
+      let id =
+        !rawId || rawId === "selected" || rawId === "current" || rawId === "选用"
+          ? selected
+          : rawId;
+      if (!id) {
+        // Fallback: first style for this novel
+        const book = listStyles(ctx.userId || "guest").filter(
+          (s) => s.sourceNovelId === ctx.novelId,
+        );
+        id = book[0]?.id || listStyles(ctx.userId || "guest")[0]?.id || "";
+      }
+      if (!id) {
+        return {
+          content:
+            "未找到风格：用户未选用且文笔库为空。可 list_styles 查看，或先完成「文笔」分析。",
+          messages: [],
+        };
+      }
+      const s = getStyle(ctx.userId || "guest", id);
+      if (!s) return { content: `风格不存在：${id}`, messages: [] };
       const st = s.style;
       return {
         content: [
           `# ${s.name}`,
+          `id: ${s.id}`,
+          selected && s.id === selected ? "（用户当前选用）" : "",
           s.description,
           `类型：${st.genre || ""}`,
           `文风：${st.styleDescription || ""}`,
@@ -112,7 +147,7 @@ export const libraryTools: ToolDefinition[] = [
           `节奏：${st.pacingDescription || ""}`,
           `手法：${(st.narrativeTechniques || []).join("、")}`,
           st.examplePassages?.length
-            ? `范例：\n${st.examplePassages.map(p => `【${p.aspect}】${p.text.slice(0, 200)}`).join("\n")}`
+            ? `范例：\n${st.examplePassages.map((p) => `【${p.aspect}】${(p.text || "").slice(0, 200)}`).join("\n")}`
             : "",
         ]
           .filter(Boolean)

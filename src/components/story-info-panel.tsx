@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { CharacterProfile, StoryInfo } from "@/types";
 import { BookOpen, ChevronRight, Globe, User } from "lucide-react";
 import OverviewDetailSheet from "@/components/overview-detail-sheet";
+import { filterDisplayAliases } from "@/core/character-analysis/mention-kind";
 
 export default function StoryInfoPanel({
   storyInfo,
@@ -160,8 +161,10 @@ export function CharacterPreviewCard({
   const [open, setOpen] = useState(false);
   const c = character;
   const initial = (c.name || "?").charAt(0);
+  // Hide deictic/desc/generic mentions (analysis-only) from roster UI
+  const aliases = filterDisplayAliases(c.aliases || []);
   const sub =
-    c.aliases?.[0] || c.drive?.goal?.slice(0, 22) || c.personality?.traits?.[0] || "—";
+    aliases[0] || c.drive?.goal?.slice(0, 22) || c.personality?.traits?.[0] || "—";
 
   return (
     <>
@@ -183,7 +186,7 @@ export function CharacterPreviewCard({
         open={open}
         onClose={() => setOpen(false)}
         title={c.name}
-        subtitle={(c.aliases || []).join(" / ") || undefined}
+        subtitle={aliases.length ? aliases.join(" / ") : undefined}
       >
         <div className="space-y-5">
           {c.personality?.description && (

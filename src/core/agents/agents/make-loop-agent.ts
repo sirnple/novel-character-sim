@@ -9,6 +9,7 @@ import type { ToolSchema } from "@/types";
 import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { toolSaveSucceeded } from "../save-verify";
+import { agentLabel, toolLabel } from "@/lib/tool-labels";
 
 export interface LoopAgentOptions {
   /** resolveAgentPrompt agentId */
@@ -59,9 +60,11 @@ export function makeLoopAgent(opts: LoopAgentOptions): AgentDef {
         (templateUser && templateUser.trim()) ||
         analysisTargetUserPrompt(ctx.novelId, branchId);
 
+      const zhName = agentLabel(opts.agentId);
+      const zhTool = toolLabel(opts.submitTool);
       const system =
         sys ||
-        `You are ${opts.agentId}. Analyze the novel, then store results with tool ${opts.submitTool}.`;
+        `你是「${zhName}」。请分析小说，并用工具「${zhTool}」（${opts.submitTool}）落盘结果。`;
 
       const run = (user: string) =>
         runSubAgentToolLoop(llm, system, user, tools, ctx, onChunk, onTrail, {
@@ -78,16 +81,16 @@ export function makeLoopAgent(opts: LoopAgentOptions): AgentDef {
       if (!saved.ok) {
         const retryHint =
           opts.submitTool === "submit_character_entities"
-            ? `（系统）你尚未成功 ${opts.submitTool}。` +
-              `若已 scan 过：禁止再 scan_character_mentions；` +
-              `按上次「未写入」：双挂/异名用 ops merge 或 resolve_cross_name_pair(distinct|uncertain)，再 submit。`
-            : `（系统）你尚未成功调用 ${opts.submitTool}。请立即调用该工具存储结果。`;
+            ? `（系统）你尚未成功「${zhTool}」。` +
+              `若已扫名：禁止再 scan_character_mentions；` +
+              `双挂/异名用 ops merge 或 resolve_cross_name_pair(distinct|uncertain)，再 submit。`
+            : `（系统）你尚未成功调用「${zhTool}」（${opts.submitTool}）。请立即调用该工具存储结果。`;
         const retryUc = `${uc}\n\n${retryHint}`;
         const second = await run(retryUc);
         trail = trail.concat(
           {
             role: "assistant",
-            content: `（系统：请调用 ${opts.submitTool}）`,
+            content: `（系统：请调用「${zhTool}」）`,
           } as TrailMessage,
           ...second.trail.filter((m) => m.role !== "system"),
         );
@@ -96,12 +99,12 @@ export function makeLoopAgent(opts: LoopAgentOptions): AgentDef {
 
       if (!saved.ok) {
         return {
-          content: `${opts.agentId} 失败：未成功 ${opts.submitTool}（${saved.detail || "未调用"}）`,
+          content: `「${zhName}」失败：未成功「${zhTool}」（${saved.detail || "未调用"}）`,
           messages: trail,
         };
       }
       return {
-        content: `${opts.agentId} 完成：${saved.detail.slice(0, 200)}`,
+        content: `「${zhName}」完成：${saved.detail.slice(0, 200)}`,
         messages: trail,
       };
     },

@@ -181,23 +181,59 @@ export const characterRelationshipsAgent: AgentDef = {
   },
 };
 
-export const timelineAnalysisAgent: AgentDef = makeLoopAgent({
-  agentId: "analyze_timeline",
-  tools: pick(
-    [
-      "get_analysis_context",
-      "list_text_units",
-      "get_unit_text",
-      "get_kept_roster",
-      "get_text_slice",
-      "submit_timeline_events",
-    ],
-    domain,
-  ),
-  submitTool: "submit_timeline_events",
-  okMarker: ANALYSIS_OK.timeline,
-  maxSteps: 30,
-});
+/**
+ * Timeline is an async background job (same as modular extract).
+ * Master must not wait for full chapter-by-chapter extract before save/write.
+ */
+export const timelineAnalysisAgent: AgentDef = {
+  execute: async (ctx, _llm, onChunk) => {
+    const userId = String(ctx.userId || "");
+    const novelId = String(ctx.novelId || "");
+    const branchId = String(ctx.branchId || "main");
+    if (!userId || !novelId) {
+      return {
+        content: "analyze_timeline 失败：缺少 userId/novelId",
+        messages: [],
+      };
+    }
+
+    const { getTimeline, listTimelineJobRows } = await import("@/lib/db");
+    const existing = getTimeline(userId, novelId, branchId);
+    const nCh = existing?.chapters?.length || existing?.totalChapters || 0;
+    if (nCh > 0) {
+      const msg = `${ANALYSIS_OK.timeline}：已有 ${nCh} 章（跳过重跑；强制请用户确认后清缓存）`;
+      onChunk?.(msg);
+      return { content: msg, messages: [] };
+    }
+
+    const jobs = listTimelineJobRows(userId, novelId, branchId);
+    const active = jobs.find((j) =>
+      ["queued", "running"].includes(String(j.status)),
+    );
+    if (active) {
+      const msg =
+        `${ANALYSIS_OK.timelineJob}：job=${active.id} status=${active.status}` +
+        `（后台进行中，不阻塞写作/保存）`;
+      onChunk?.(msg);
+      return { content: msg, messages: [] };
+    }
+
+    try {
+      const { startTimelineJob } = await import("@/core/form/timeline-job");
+      const job = startTimelineJob({ userId, novelId, branchId });
+      const msg =
+        `${ANALYSIS_OK.timelineJob}：job=${job.id} units=${job.total}` +
+        `（已后台排队，写作不依赖其完成）`;
+      onChunk?.(msg);
+      return { content: msg, messages: [] };
+    } catch (e) {
+      return {
+        content: `analyze_timeline 启动失败: ${(e as Error).message}`,
+        messages: [],
+      };
+    }
+  },
+};
 
 export const styleExtractAgent: AgentDef = makeLoopAgent({
   agentId: "extract_style",
@@ -231,9 +267,12 @@ export const novelAnalysisAgent: AgentDef = {
     const toolBlock = `
 
 ## 可用编排
-- 先 get_current_* + **get_analysis_status**（看 parallelReady / nextActions）
+- 先 get_current_* + **get_analysis_status**（看 parallelReady / nextActions / writeReady / pendingRequired）
 - **波次**：章法 → 同轮并行（名单∥故事∥时间线∥文风∥点子）→ 详情 → 关系
 - 依赖已齐的兄弟域：同一回复里多个 agent()，系统并行执行；禁止无谓串行
+- **时间线 analyze_timeline**：只启动后台 job，立刻返回；**不阻塞**写作与 finish
+- **写作就绪 writeReady**：章法 + 故事 + 角色名单即可；勿等时间线跑完
+- pending 仅剩 timeline 或 pendingRequired 为空时：可收尾保存，勿干等时间线
 - **用户点名单域**：get_analysis_status(for_agent=目标) → launchPlan
 - 范围不清 → ask_question（收尾须含保存选项）
 - **已 done 的域**：用户再要求分析 → 必须 ask 是否重新分析/覆盖，禁止静默重跑

@@ -25,6 +25,7 @@ import {
   surfacesForCoref,
   surfacesOf,
 } from "./coref/features";
+import { filterDisplayAliases } from "./mention-kind";
 import { locateCharactersInWindow } from "./locate-mentions";
 import type { MergedCharacter } from "./merge-adjacent";
 import type {
@@ -76,14 +77,22 @@ export function mergedCharacterToResolvedEntity(
   let name = (c.canonicalName || "").trim();
   let aliases: string[];
   if (name) {
-    aliases = allSurfaces.filter((s) => s !== name);
+    // surfaces field keeps full bag for analysis tools; aliases for UI only
+    // (drop deictic / desc / generic).
+    aliases = filterDisplayAliases(
+      allSurfaces.filter((s) => s !== name),
+      c.mentions,
+    );
   } else {
     const corefSurfaces = surfacesForCoref(c, true);
     const picked = pickPrimaryAndAliases(
       corefSurfaces.length ? corefSurfaces : allSurfaces,
     );
     name = picked.name;
-    aliases = picked.aliases;
+    aliases = filterDisplayAliases(
+      picked.aliases.filter((s) => s !== name),
+      c.mentions,
+    );
   }
   const anchors = (c.mentions || [])
     .filter((m) => m.offsetAnchor && typeof m.offsetAnchor.globalStart === "number")

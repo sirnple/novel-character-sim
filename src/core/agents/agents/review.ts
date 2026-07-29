@@ -34,6 +34,17 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
           `- themes: ${themes || "—"}\n`;
       }
 
+      // Style review: must fetch style via tools (do not inject full profile)
+      let styleHint = "";
+      if (dimensionCode === "style") {
+        styleHint = ctx.selectedStyleId
+          ? `\n\n## 文风对照（必须用工具）\n` +
+            `用户选用 styleId=\`${ctx.selectedStyleId}\`。\n` +
+            `审查前必做：**get_style(id="${ctx.selectedStyleId}")** 或 **get_style()**，再对照 get_prose。\n`
+          : `\n\n## 文风对照（必须用工具）\n` +
+            `未预选风格：先 **list_styles**，再 **get_style**；优先本书来源，再对照 get_prose。\n`;
+      }
+
       const isFs = dimensionCode === "foreshadowing";
       const saveHint = isFs
         ? `\n\n## 落盘（必须）\n取证后**必须**调用 save_foreshadowing_realization，参数 realization 为 JSON 字符串（含 pass/findings/realized/gaps）。` +
@@ -50,7 +61,7 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
         dimensionName,
         dimensionCode,
       });
-      const uc = baseUc + genreHint + saveHint;
+      const uc = baseUc + genreHint + styleHint + saveHint;
       // tools allowlist from review-*-system.md frontmatter
       const tools = resolveAgentToolSchemas(agentId);
 

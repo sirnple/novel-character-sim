@@ -2280,6 +2280,141 @@ const EMPTY_STYLE: WritingStyle = {
   contentRating: { level: "", description: "", hasExplicitContent: false },
 };
 
+/** Agent free-form / Chinese keys → WritingStyle (so library upsert does not drop rows). */
+const STYLE_ZH_FIELD_MAP: Record<string, keyof WritingStyle> = {
+  类型: "genre",
+  体裁: "genre",
+  题材: "genre",
+  风格描述: "styleDescription",
+  文风描述: "styleDescription",
+  文笔描述: "styleDescription",
+  整体风格: "styleDescription",
+  叙事风格: "styleDescription",
+  风格: "styleDescription",
+  语言特点: "languageFeatures",
+  语言特征: "languageFeatures",
+  用语: "languageFeatures",
+  语气: "tone",
+  基调: "tone",
+  氛围: "tone",
+  氛围营造: "tone",
+  节奏: "pacingDescription",
+  句式节奏: "pacingDescription",
+  节奏描述: "pacingDescription",
+  叙事手法: "narrativeTechniques",
+  叙事技巧: "narrativeTechniques",
+};
+
+/**
+ * Normalize LLM style payloads (EN WritingStyle or free Chinese key map).
+ * Returns null only when there is no usable text at all.
+ */
+export function normalizeWritingStyle(
+  raw: unknown,
+): WritingStyle | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const out: WritingStyle = {
+    ...EMPTY_STYLE,
+    contentRating: { ...EMPTY_STYLE.contentRating },
+    narrativeTechniques: [],
+    examplePassages: [],
+  };
+
+  const asStr = (v: unknown) =>
+    typeof v === "string" ? v.trim() : v != null && typeof v !== "object" ? String(v).trim() : "";
+
+  // Standard EN fields
+  out.genre = asStr(r.genre) || out.genre;
+  out.styleDescription =
+    asStr(r.styleDescription) || asStr(r.description) || out.styleDescription;
+  out.languageFeatures =
+    asStr(r.languageFeatures) || asStr(r.language) || out.languageFeatures;
+  out.pacingDescription =
+    asStr(r.pacingDescription) || asStr(r.pacing) || out.pacingDescription;
+  out.tone = asStr(r.tone) || out.tone;
+  if (Array.isArray(r.narrativeTechniques)) {
+    out.narrativeTechniques = r.narrativeTechniques
+      .map((x) => asStr(x))
+      .filter(Boolean);
+  }
+  if (Array.isArray(r.examplePassages)) {
+    out.examplePassages = r.examplePassages as WritingStyle["examplePassages"];
+  }
+  if (r.contentRating && typeof r.contentRating === "object") {
+    const cr = r.contentRating as Record<string, unknown>;
+    out.contentRating = {
+      level: asStr(cr.level) || "",
+      description: asStr(cr.description) || "",
+      hasExplicitContent: Boolean(cr.hasExplicitContent),
+    };
+  }
+
+  // Chinese / free-form keys → known fields; rest fold into styleDescription
+  const freeLines: string[] = [];
+  for (const [k, v] of Object.entries(r)) {
+    if (
+      [
+        "genre",
+        "styleDescription",
+        "description",
+        "languageFeatures",
+        "language",
+        "pacingDescription",
+        "pacing",
+        "tone",
+        "narrativeTechniques",
+        "examplePassages",
+        "contentRating",
+      ].includes(k)
+    ) {
+      continue;
+    }
+    const text =
+      typeof v === "string"
+        ? v.trim()
+        : Array.isArray(v)
+          ? v.map((x) => asStr(x)).filter(Boolean).join("；")
+          : v && typeof v === "object"
+            ? ""
+            : asStr(v);
+    if (!text) continue;
+    const mapped = STYLE_ZH_FIELD_MAP[k];
+    if (mapped === "narrativeTechniques") {
+      out.narrativeTechniques = [
+        ...out.narrativeTechniques,
+        ...text.split(/[；;、,，]/).map((s) => s.trim()).filter(Boolean),
+      ];
+    } else if (mapped && mapped !== "examplePassages" && mapped !== "contentRating") {
+      const cur = out[mapped];
+      if (typeof cur === "string" && !cur) {
+        (out as Record<string, unknown>)[mapped] = text;
+      } else if (typeof cur === "string" && cur) {
+        freeLines.push(`${k}：${text}`);
+      } else {
+        freeLines.push(`${k}：${text}`);
+      }
+    } else {
+      freeLines.push(`${k}：${text}`);
+    }
+  }
+  if (freeLines.length) {
+    out.styleDescription = out.styleDescription
+      ? `${out.styleDescription}\n${freeLines.join("\n")}`
+      : freeLines.join("\n");
+  }
+
+  const hasContent = Boolean(
+    out.styleDescription ||
+      out.genre ||
+      out.tone ||
+      out.languageFeatures ||
+      out.pacingDescription ||
+      out.narrativeTechniques.length,
+  );
+  return hasContent ? out : null;
+}
+
 function rowToStyle(row: any): StyleLibraryEntry {
   let style: WritingStyle = { ...EMPTY_STYLE };
   try {
@@ -2351,9 +2486,18 @@ export function upsertExtractedStyle(
   userId: string,
   novelId: string,
   novelTitle: string,
-  writingStyle: WritingStyle | null | undefined,
+  writingStyle: WritingStyle | Record<string, unknown> | null | undefined,
 ): StyleLibraryEntry | null {
-  if (!writingStyle?.styleDescription && !writingStyle?.genre) return null;
+  const normalized = normalizeWritingStyle(writingStyle);
+  if (!normalized) {
+    console.warn(
+      "[upsertExtractedStyle] rejected empty/unrecognized style payload",
+      writingStyle && typeof writingStyle === "object"
+        ? Object.keys(writingStyle as object)
+        : writingStyle,
+    );
+    return null;
+  }
   const id = `style_${novelId}_canon`;
   // Prefer explicit title; if caller passed novelId by mistake, re-read novels row
   let title = (novelTitle || "").trim();
@@ -2367,8 +2511,12 @@ export function upsertExtractedStyle(
     id,
     // Display name = novel title so styles are distinguishable across books
     name: title,
-    description: writingStyle.styleDescription || writingStyle.tone || writingStyle.genre || "",
-    style: { ...EMPTY_STYLE, ...writingStyle },
+    description:
+      normalized.styleDescription ||
+      normalized.tone ||
+      normalized.genre ||
+      "",
+    style: normalized,
     source: "extracted",
     sourceNovelId: novelId,
     sourceNovelTitle: title,
@@ -2378,6 +2526,179 @@ export function upsertExtractedStyle(
 }
 
 // ---- Idea library (user-global, cross-novel) ----
+
+/**
+ * Normalize one idea from agent free-form / Chinese keys → IdeaLibraryEntry fields.
+ * Returns null when both title and content are empty after normalize.
+ */
+export function normalizeIdeaEntry(
+  raw: unknown,
+  opts?: { id?: string; novelId?: string; novelTitle?: string; index?: number },
+): IdeaLibraryEntry | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return null;
+    // bare string → title + empty content (caller may reject)
+    return {
+      id: opts?.id || `idea_${opts?.novelId || "x"}_${opts?.index ?? 0}`,
+      title: s.slice(0, 80),
+      content: "",
+      tags: [],
+      source: "extracted",
+      sourceNovelId: opts?.novelId || "",
+      sourceNovelTitle: opts?.novelTitle || "",
+    };
+  }
+  if (typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const asStr = (v: unknown) =>
+    typeof v === "string"
+      ? v.trim()
+      : v != null && typeof v !== "object"
+        ? String(v).trim()
+        : "";
+
+  const title =
+    asStr(r.title) ||
+    asStr(r.name) ||
+    asStr(r.标题) ||
+    asStr(r.名称) ||
+    asStr(r.点子) ||
+    asStr(r.主题) ||
+    "";
+
+  let content =
+    asStr(r.content) ||
+    asStr(r.text) ||
+    asStr(r.body) ||
+    asStr(r.description) ||
+    asStr(r.detail) ||
+    asStr(r.summary) ||
+    asStr(r.idea) ||
+    asStr(r.内容) ||
+    asStr(r.描述) ||
+    asStr(r.说明) ||
+    asStr(r.正文) ||
+    asStr(r.详情) ||
+    asStr(r.摘要) ||
+    "";
+
+  // Nested { idea: { title, content } } etc.
+  if (!content && r.idea && typeof r.idea === "object") {
+    const nested = normalizeIdeaEntry(r.idea, opts);
+    if (nested) {
+      return {
+        ...nested,
+        title: title || nested.title,
+        id: opts?.id || nested.id,
+      };
+    }
+  }
+
+  let tags: string[] = [];
+  const rawTags = r.tags ?? r.标签 ?? r.tag;
+  if (Array.isArray(rawTags)) {
+    tags = rawTags.map((t) => asStr(t)).filter(Boolean).slice(0, 8);
+  } else if (typeof rawTags === "string" && rawTags.trim()) {
+    tags = rawTags
+      .split(/[,，、;；|/]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 8);
+  }
+
+  // Fold leftover string fields into content so free-form JSON is not dropped
+  if (!content) {
+    const known = new Set([
+      "id",
+      "title",
+      "name",
+      "content",
+      "text",
+      "body",
+      "description",
+      "detail",
+      "summary",
+      "idea",
+      "tags",
+      "tag",
+      "source",
+      "sourceNovelId",
+      "sourceNovelTitle",
+      "createdAt",
+      "标题",
+      "名称",
+      "点子",
+      "主题",
+      "内容",
+      "描述",
+      "说明",
+      "正文",
+      "详情",
+      "摘要",
+      "标签",
+    ]);
+    const extras: string[] = [];
+    for (const [k, v] of Object.entries(r)) {
+      if (known.has(k)) continue;
+      const t = asStr(v);
+      if (t) extras.push(`${k}：${t}`);
+    }
+    if (extras.length) content = extras.join("\n");
+  }
+
+  if (!title && !content) return null;
+
+  const i = opts?.index ?? 0;
+  return {
+    id:
+      asStr(r.id) ||
+      opts?.id ||
+      `idea_${opts?.novelId || "x"}_${i}`,
+    title: (title || content.slice(0, 40) || `点子${i + 1}`).slice(0, 80),
+    content: content.slice(0, 2000),
+    tags,
+    source: "extracted",
+    sourceNovelId: opts?.novelId || asStr(r.sourceNovelId) || "",
+    sourceNovelTitle: opts?.novelTitle || asStr(r.sourceNovelTitle) || "",
+  };
+}
+
+/** Normalize a batch; drops empty rows; warns via console when content missing. */
+export function normalizeIdeaEntries(
+  raw: unknown,
+  opts?: { novelId?: string; novelTitle?: string },
+): { entries: IdeaLibraryEntry[]; rejected: number; emptyContent: number } {
+  const list = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as any).ideas)
+      ? (raw as any).ideas
+      : [];
+  const entries: IdeaLibraryEntry[] = [];
+  let rejected = 0;
+  let emptyContent = 0;
+  list.forEach((it: unknown, i: number) => {
+    const n = normalizeIdeaEntry(it, {
+      novelId: opts?.novelId,
+      novelTitle: opts?.novelTitle,
+      index: i,
+    });
+    if (!n) {
+      rejected++;
+      return;
+    }
+    if (!n.content.trim()) {
+      emptyContent++;
+      // Keep title-only only if we have literally nothing else — still store but flag
+      // Prefer drop: empty content is useless in the idea bank
+      rejected++;
+      return;
+    }
+    entries.push(n);
+  });
+  return { entries, rejected, emptyContent };
+}
 
 function rowToIdea(row: any): IdeaLibraryEntry {
   let tags: string[] = [];

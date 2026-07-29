@@ -7,6 +7,7 @@ import { createLLMProvider } from "@/core/llm/factory";
 import { buildNovelContext } from "@/core/parser/novel-parser";
 import { isChinese, extractJSON, generateId } from "@/lib/utils";
 import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
+import { normalizeIdeaEntries } from "@/lib/db";
 import type { ParsedNovel, IdeaLibraryEntry } from "@/types";
 
 const TAG_HINT = "设定|剧情|角色|冲突|伏笔|氛围|对白";
@@ -98,17 +99,17 @@ function mapIdeas(
   novelId: string,
   novelTitle: string,
 ): IdeaLibraryEntry[] {
-  return (ideas || [])
-    .filter(i => i?.title && i?.content)
-    .slice(0, 15)
-    .map(i => ({
-      id: `idea_${generateId()}`,
-      title: String(i.title).slice(0, 80),
-      content: String(i.content).slice(0, 800),
-      tags: (Array.isArray(i.tags) ? i.tags.map(String) : []).slice(0, 6),
-      source: "extracted" as const,
-      // Provenance only — idea text itself should stay portable
-      sourceNovelId: novelId,
-      sourceNovelTitle: novelTitle || "",
-    }));
+  const { entries } = normalizeIdeaEntries(ideas || [], {
+    novelId,
+    novelTitle,
+  });
+  return entries.slice(0, 15).map((e) => ({
+    ...e,
+    id: e.id?.startsWith("idea_") ? e.id : `idea_${generateId()}`,
+    content: e.content.slice(0, 800),
+    tags: e.tags.slice(0, 6),
+    source: "extracted" as const,
+    sourceNovelId: novelId,
+    sourceNovelTitle: novelTitle || "",
+  }));
 }

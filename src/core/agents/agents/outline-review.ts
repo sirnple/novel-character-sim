@@ -110,9 +110,13 @@ export async function runOutlineReview(
       (f, i) =>
         `${i + 1}. 【${f.severity}】${f.description}${f.suggestion ? ` → ${f.suggestion}` : ""}`,
     );
+  const marker = pass ? "【大纲审核通过】" : "【大纲审核未通过】";
   const summary =
-    `大纲审核 ${pass ? "通过" : "未通过"}（${findings.length} 条，已 save_findings）` +
-    (lines.length ? "：\n" + lines.join("\n") : "。");
+    `${marker} 大纲审核 ${pass ? "通过" : "未通过"}（${findings.length} 条，已 save_findings）` +
+    (lines.length ? "：\n" + lines.join("\n") : "。") +
+    (pass
+      ? ""
+      : "\n→ 主 agent：**必须**再调 generate_outline 按上述意见改写大纲，禁止隐瞒问题直接写正文。");
 
   return { pass, findings, summary };
 }
@@ -121,9 +125,20 @@ export const outlineReviewAgent: AgentDef = {
   execute: async (ctx, llm, _onChunk, onTrail) => {
     const result = await runOutlineReview(ctx, llm, onTrail);
     return {
-      content: result.summary + "（主 agent 可用 get_findings 查看 outline 维）",
+      content:
+        result.summary +
+        "（主 agent 可用 get_findings 查看 outline 维；未通过时先改大纲再写正文）",
       messages: [],
       askUser: result.askUser,
     };
   },
 };
+
+/** True when outline findings include critical/major (or review failed to save). */
+export function outlineReviewFailedFromFindings(
+  findings: Array<{ severity?: string }>,
+): boolean {
+  return findings.some(
+    (f) => f.severity === "critical" || f.severity === "major",
+  );
+}

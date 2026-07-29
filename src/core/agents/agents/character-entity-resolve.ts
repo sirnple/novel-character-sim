@@ -163,7 +163,7 @@ export const characterEntityResolveAgent: AgentDef = {
       {
         role: "tool_call",
         toolName: "scan_character_mentions",
-        content: "scan_character_mentions()",
+        content: "调用「角色列表流水线」scan_character_mentions",
       },
     ]);
     const scanRes = await scanTool.execute({}, ctx, llm, onChunk);
@@ -215,7 +215,7 @@ export const characterEntityResolveAgent: AgentDef = {
       pushTrail([
         {
           role: "assistant",
-          content: `oneshot 无 uncertain 对；entities=${entities.length}，准备 submit。`,
+          content: `指代 oneshot 无未定对；实体 ${entities.length} 个，准备提交名单。`,
         },
       ]);
     }
@@ -239,7 +239,7 @@ export const characterEntityResolveAgent: AgentDef = {
       {
         role: "tool_call",
         toolName: "submit_character_entities",
-        content: `submit_character_entities(n=${entities.length})`,
+        content: `提交角色实体（${entities.length} 人）`,
       },
     ]);
     const submitRes = await submitTool.execute(

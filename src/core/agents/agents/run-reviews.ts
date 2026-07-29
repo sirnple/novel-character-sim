@@ -28,7 +28,13 @@ export type ReviewProgressEvent =
  * - If any dimension hits critical get miss, askUser is bubbled for direct user ask
  */
 export async function runReviewsParallel(
-  ctx: { prompt: string; novelId: string; branchId: string; userId: string },
+  ctx: {
+    prompt: string;
+    novelId: string;
+    branchId: string;
+    userId: string;
+    selectedStyleId?: string | null;
+  },
   llm: Parameters<AgentDef["execute"]>[1],
   onProgress?: (ev: ReviewProgressEvent) => void,
 ): Promise<{
@@ -54,7 +60,13 @@ export async function runReviewsParallel(
         // Do not share onChunk across parallel agents (stream interleaving);
         // each card gets trail via onProgress done.
         const result = await agentDef.execute(
-          { prompt, novelId: ctx.novelId, branchId: ctx.branchId, userId: ctx.userId },
+          {
+            prompt,
+            novelId: ctx.novelId,
+            branchId: ctx.branchId,
+            userId: ctx.userId,
+            selectedStyleId: ctx.selectedStyleId ?? null,
+          },
           llm,
         );
         onProgress?.({

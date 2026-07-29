@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { CharacterProfile, ChapterTimeline, CharacterChapterState } from "@/types";
 import { Users, Loader2, ChevronDown, ChevronUp, Edit3, Download, MessageCircle, Clock, ChevronRight } from "lucide-react";
 import { useRateLimitCooldown, useRateLimitTip } from "@/lib/rate-limit-ui";
+import { filterDisplayAliases } from "@/core/character-analysis/mention-kind";
 import CharacterEditor from "./character-editor";
 import CharacterChat from "./character-chat";
 
@@ -244,11 +245,14 @@ ${char.relationships.map((r) => `- ${r.characterName}：${r.type} — ${r.descri
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-semibold text-lg">{char.name}</h3>
-                  {char.aliases.length > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      别名：{char.aliases.join("、")}
-                    </p>
-                  )}
+                  {(() => {
+                    const als = filterDisplayAliases(char.aliases || []);
+                    return als.length > 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        别名：{als.join("、")}
+                      </p>
+                    ) : null;
+                  })()}
                 </div>
                 <div className="flex items-center gap-2">
                   <button

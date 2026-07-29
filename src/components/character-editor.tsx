@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { CharacterProfile } from "@/types";
 import { X } from "lucide-react";
+import { filterDisplayAliases } from "@/core/character-analysis/mention-kind";
 
 interface CharacterEditorProps {
   profile: CharacterProfile;
@@ -17,9 +18,12 @@ export default function CharacterEditor({
   onSave,
   onCancel,
 }: CharacterEditorProps) {
-  const [edited, setEdited] = useState<CharacterProfile>(
-    JSON.parse(JSON.stringify(profile))
-  );
+  const [edited, setEdited] = useState<CharacterProfile>(() => {
+    const copy = JSON.parse(JSON.stringify(profile)) as CharacterProfile;
+    // Don't surface analysis-only mentions (deictic/desc/generic) in the editor
+    copy.aliases = filterDisplayAliases(copy.aliases || []);
+    return copy;
+  });
 
   const updateField = (field: string, value: unknown) => {
     setEdited((prev) => ({ ...prev, [field]: value }));

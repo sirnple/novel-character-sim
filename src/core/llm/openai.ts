@@ -8,6 +8,7 @@ import { logSession } from "@/lib/session-log";
 import { recordTokenUsage, usageFromOpenAI } from "@/lib/token-meter";
 import { toOpenAIFunctionTools } from "@/core/agents/analysis-allowlist";
 import { recordChatWithToolAttempt } from "@/core/llm/chat-with-tool-metrics";
+import { parseToolCallArguments } from "@/core/llm/parse-tool-args";
 
 /**
  * Persist DeepSeek-style reasoning_content when LLM_SAVE_COT=1 (or "true").
@@ -586,6 +587,7 @@ export class OpenAIProvider implements LLMProvider {
     let currentToolId = "";
     let currentToolName = "";
     let currentToolArgs = "";
+    let lastArgDeltaEmit = 0;
     let outputLen = 0;
     let streamUsage: any = null;
     let outText = "";
@@ -605,27 +607,59 @@ export class OpenAIProvider implements LLMProvider {
         for (const tc of delta.tool_calls) {
           if (tc.id) {
             if (currentToolId && currentToolId !== tc.id) {
-              try {
-                yield { type: "tool_use", id: currentToolId, name: currentToolName, args: JSON.parse(currentToolArgs) };
-              } catch { /* skip incomplete */ }
+              const args = parseToolCallArguments(currentToolArgs, currentToolName);
+              if (args) {
+                yield { type: "tool_use", id: currentToolId, name: currentToolName, args };
+              } else {
+                console.warn(
+                  `[LLM:chatWithTools] drop incomplete tool_use name=${currentToolName} argsLen=${currentToolArgs.length}`,
+                );
+              }
             }
             if (tc.id !== currentToolId) {
               currentToolId = tc.id;
               currentToolName = tc.function?.name || "";
               currentToolArgs = "";
+              lastArgDeltaEmit = 0;
             }
+          }
+          if (tc.function?.name && !currentToolName) {
+            currentToolName = tc.function.name;
           }
           if (tc.function?.arguments) {
             currentToolArgs += tc.function.arguments;
+            outputLen += tc.function.arguments.length;
+            // Heartbeat while long tool args stream (save_prose body can be huge)
+            const now = Date.now();
+            if (
+              currentToolId &&
+              currentToolArgs.length >= 80 &&
+              (currentToolArgs.length - lastArgDeltaEmit >= 400 ||
+                now - lastArgDeltaEmit > 600)
+            ) {
+              lastArgDeltaEmit = currentToolArgs.length;
+              yield {
+                type: "tool_arg_delta",
+                id: currentToolId,
+                name: currentToolName || "tool",
+                argsChars: currentToolArgs.length,
+                preview: `组装参数中… ${currentToolArgs.length} 字`,
+              };
+            }
           }
         }
       }
     }
 
     if (currentToolId) {
-      try {
-        yield { type: "tool_use", id: currentToolId, name: currentToolName, args: JSON.parse(currentToolArgs) };
-      } catch { /* skip */ }
+      const args = parseToolCallArguments(currentToolArgs, currentToolName);
+      if (args) {
+        yield { type: "tool_use", id: currentToolId, name: currentToolName, args };
+      } else {
+        console.warn(
+          `[LLM:chatWithTools] drop final tool_use name=${currentToolName} argsLen=${currentToolArgs.length}`,
+        );
+      }
     }
 
     const elapsed = Date.now() - t0;

@@ -60,6 +60,16 @@ export interface ToolLoopOptions {
    * also refresh the live trail so the UI can show progress on the tool card.
    */
   streamToolProgressToTrail?: boolean;
+  /**
+   * After this tool returns a successful marker, end the loop immediately
+   * (writer: stop re-saving after 正文已存).
+   */
+  stopOnToolSuccess?: {
+    toolName: string;
+    okMarker: string;
+    /** Optional: only stop if result matches /（N 字）/ and N >= min */
+    minStoredChars?: number;
+  };
 }
 
 export async function runToolLoop(
@@ -100,6 +110,9 @@ export async function runToolLoop(
     // OpenCode Go / DeepSeek V4 returns 400 on Anthropic sequential tool_use/tool_result pairs.
     const pendingTools: Array<{ toolId: string; toolName: string; args: Record<string, any> }> = [];
     const eventStream = llm.chatWithTools(conversation, tools, { temperature, maxTokens });
+    /** Live partial tool-call card while long args stream (e.g. save_prose) */
+    let partialToolName = "";
+    let partialToolChars = 0;
 
     for await (const event of eventStream) {
       if (event.type === "text_delta") {
@@ -107,6 +120,27 @@ export async function runToolLoop(
         // Stream current step only (not cumulative across tool rounds)
         if (onChunk) onChunk(stepText);
         emitProvisional(stepText);
+      } else if (event.type === "tool_arg_delta") {
+        partialToolName = event.name || partialToolName;
+        partialToolChars = event.argsChars || partialToolChars;
+        const label =
+          event.preview ||
+          `正在调用 ${partialToolName || "工具"}… 参数 ${partialToolChars} 字`;
+        // Keep parent card + trail alive so UI does not look frozen mid-save_prose
+        onChunk?.(stepText ? `${stepText}\n\n${label}` : label);
+        if (onTrail) {
+          onTrail([
+            ...trail,
+            ...(stepText.trim()
+              ? [{ role: "assistant" as const, content: stepText }]
+              : []),
+            {
+              role: "tool_call",
+              toolName: partialToolName || "tool",
+              content: label,
+            },
+          ]);
+        }
       } else if (event.type === "tool_use") {
         pendingTools.push({
           toolId: event.id,
@@ -192,6 +226,9 @@ export async function runToolLoop(
               novelId: ctx.novelId || (args.novelId as string) || "",
               branchId: ctx.branchId || (args.branchId as string) || "main",
               userId: ctx.userId,
+              selectedStyleId:
+                (ctx as { selectedStyleId?: string | null }).selectedStyleId ??
+                null,
             },
             llm,
             toolOnChunk,
@@ -229,6 +266,30 @@ export async function runToolLoop(
       if (!askUserFromCritical && isCriticalGetTool(toolName) && isCriticalMissContent(resultContent)) {
         askUserFromCritical = askUserForCriticalMiss(toolName, resultContent);
         criticalMissText = resultContent;
+      }
+
+      // Writer etc.: successful save_prose → stop (avoid re-save loops)
+      const stop = options?.stopOnToolSuccess;
+      if (
+        stop &&
+        toolName === stop.toolName &&
+        resultContent.includes(stop.okMarker)
+      ) {
+        let okLen = true;
+        if (stop.minStoredChars != null && stop.minStoredChars > 0) {
+          const m = resultContent.match(/（\s*(\d+)\s*字\s*）/);
+          const n = m ? parseInt(m[1], 10) : 0;
+          okLen = n >= stop.minStoredChars;
+        }
+        if (okLen) {
+          console.log(
+            `[tool-loop] stopOnToolSuccess ${stop.toolName} after: ${resultContent.slice(0, 80)}`,
+          );
+          return {
+            finalText: resultContent,
+            trail,
+          };
+        }
       }
     }
 

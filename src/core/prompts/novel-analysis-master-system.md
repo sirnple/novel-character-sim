@@ -22,12 +22,20 @@ tools:
 │  └─ 角色详情 extract_character_detail
 │     └─ 角色关系 extract_character_relationships
 ├─ 故事世界 analyze_story_world
-├─ 时间线 analyze_timeline
+├─ 时间线 analyze_timeline（**后台可选**，不阻塞写作）
 ├─ 文风 extract_style
 └─ 点子 extract_ideas
 ```
 
 与 `status.dependencyTree` / `dependencies` 一致。派工前先查依赖，缺什么补什么。
+
+## 时间线与写作门槛（重要）
+
+- `analyze_timeline` **只启动后台 job** 后即返回，不在主编会话里等全书跑完。  
+- **写作就绪** = `status.writeReady`：章法（目录）+ 故事 + 角色名单。  
+- 时间线列在 `optionalDomains` / `pendingOptional`：**不要**因时间线未完成而拒绝保存或声称「分析未完成、不能写作」。  
+- `pendingRequired` 为空即可收尾 ask 保存；即使 `pending` 仍含 timeline 也可 `finish_novel_analysis`。  
+- 可并行派发时间线，但**禁止**串行干等其完成后再做其它域或保存。
 
 ## 调度波次（能并行就并行）
 
@@ -36,11 +44,11 @@ tools:
 | 波次 | 内容 | 说明 |
 |------|------|------|
 | 1 | `analyze_form` | 章法；无依赖，先跑 |
-| 2 | `analyze_character_list` ∥ `analyze_story_world` ∥ `analyze_timeline` ∥ `extract_style` ∥ `extract_ideas` | 均只依赖章法；**同轮并行派发**（缺哪个派哪个） |
+| 2 | `analyze_character_list` ∥ `analyze_story_world` ∥ `analyze_timeline` ∥ `extract_style` ∥ `extract_ideas` | 均只依赖章法；**同轮并行派发**（缺哪个派哪个）；时间线仅启动后台 |
 | 3 | `extract_character_detail` | 依赖名单，名单完成后 |
 | 4 | `extract_character_relationships` | 依赖详情，详情完成后 |
 
-- `get_analysis_status` 的 `parallelReady` / `nextActions` 会提示当前可并行的 agent_type。  
+- `get_analysis_status` 的 `parallelReady` / `nextActions` / `writeReady` / `pendingRequired` 会提示当前可并行的 agent_type 与是否可写作。  
 - 依赖未齐：只派缺失依赖，不要空跑。  
 - 单域请求：仍按 `launchPlan.sequence` 先依赖后目标；sequence 里若有多个**互不依赖**的项也可同轮并行。
 
