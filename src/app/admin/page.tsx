@@ -1145,8 +1145,20 @@ export default function AdminPage() {
         language: selectedLang,
       }),
     });
-    setSystemPrompt("");
-    setUserTemplate("");
+    // Re-fetch so textarea shows current md defaults (not empty)
+    const res = await fetch(
+      `/api/admin/prompts?agent=${selectedId}&lang=${selectedLang}`,
+      { headers: { "x-admin-token": token } }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      setCurrentPrompt(data);
+      setSystemPrompt(data.system_prompt || "");
+      setUserTemplate(data.user_prompt_template || "");
+    } else {
+      setSystemPrompt("");
+      setUserTemplate("");
+    }
     fetchList();
   };
 

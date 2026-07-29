@@ -8,24 +8,34 @@ import {
 
 const PROMPTS_DIR = path.join(process.cwd(), "src", "core", "prompts");
 
-/** Raw file cache (includes frontmatter) */
-const rawCache = new Map<string, string>();
-/** Parsed document cache */
+/** Raw file cache (includes frontmatter); invalidated when mtime changes. */
+const rawCache = new Map<string, { mtimeMs: number; text: string }>();
+/** Parsed document cache; key = name + mtimeMs */
 const docCache = new Map<string, ParsedAgentDocument>();
 
-function readRaw(name: string): string {
-  if (rawCache.has(name)) return rawCache.get(name)!;
+function readRaw(name: string): { mtimeMs: number; text: string } {
   const p = path.join(PROMPTS_DIR, name);
-  const t = fs.readFileSync(p, "utf-8");
-  rawCache.set(name, t);
-  return t;
+  const mtimeMs = fs.statSync(p).mtimeMs;
+  const hit = rawCache.get(name);
+  if (hit && hit.mtimeMs === mtimeMs) return hit;
+  const text = fs.readFileSync(p, "utf-8");
+  const entry = { mtimeMs, text };
+  rawCache.set(name, entry);
+  // Drop stale parsed doc for this file
+  for (const key of docCache.keys()) {
+    if (key.startsWith(`${name}@`)) docCache.delete(key);
+  }
+  return entry;
 }
 
-/** Load full agent document (frontmatter + body). Cached. */
+/** Load full agent document (frontmatter + body). Cached until file mtime changes. */
 export function loadPromptDocument(name: string): ParsedAgentDocument {
-  if (docCache.has(name)) return docCache.get(name)!;
-  const doc = parseAgentFrontmatter(readRaw(name));
-  docCache.set(name, doc);
+  const { mtimeMs, text } = readRaw(name);
+  const cacheKey = `${name}@${mtimeMs}`;
+  const hit = docCache.get(cacheKey);
+  if (hit) return hit;
+  const doc = parseAgentFrontmatter(text);
+  docCache.set(cacheKey, doc);
   return doc;
 }
 

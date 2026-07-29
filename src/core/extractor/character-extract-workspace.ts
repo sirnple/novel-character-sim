@@ -59,8 +59,15 @@ export interface CharacterExtractWorkspace {
    * Post-coref roster snapshot (ids match uncertain pair ids) for neighbor tools.
    * Mentions keep offset anchors when available.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  corefRoster?: any[];
+  corefRoster?: Array<{
+    id: string;
+    windowLo?: number;
+    windowHi?: number;
+    gender?: string;
+    age?: string;
+    mentions?: Array<{ surface?: string }>;
+    [key: string]: unknown;
+  }>;
 }
 
 type Store = Map<string, CharacterExtractWorkspace>;

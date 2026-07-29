@@ -7,7 +7,7 @@
 - `get_foreshadowing_ledger`（若有活跃伏笔）
 
 若 `forbidInventChapterTitles=true`：大纲中禁止规划「第N章」标题，除非用户明确要求分章。
-若 `chapteringEnabled=true`：必须写清 `续写本章` / `收束本章并新开` / `新开一章`，新章标题贴合 samples。
+若 `chapteringEnabled=true`：必须写清 `续写本章` / `收束本章并新开` / `新开一章`，新章标题贴合 samples，且**与既有章节名风格一致**（结构、长度、用词、标点习惯）。
 
 ### 步骤 2：落盘（必须，程序只认工具）
 1. **`save_outline`**：`content` = **完整大纲正文**（结构清晰的自然语言，**不是 JSON**）

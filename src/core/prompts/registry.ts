@@ -215,7 +215,7 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
   {
     agentId: "outline_review",
     name: "大纲审核",
-    description: "写正文前审核大纲：承接、出场合法性、类型逻辑、伏笔",
+    description: "写正文前审核大纲：承接、章名风格、出场合法性、类型逻辑、伏笔",
     category: "review",
     variables: ["prompt", "novelId", "branchId"],
     bilingual: false,
@@ -231,7 +231,7 @@ export const AGENT_REGISTRY: AgentPromptMeta[] = [
   {
     agentId: "continuity_review",
     name: "连贯与逻辑审查",
-    description: "事实/时间线 + 本体逻辑（梦与现实等）；按小说类型调节松紧",
+    description: "前文衔接与自然度 + 事实/时间线 + 本体逻辑；按小说类型调节松紧",
     category: "review",
     variables: ["prompt", "novelId", "branchId", "dimensionName", "dimensionCode"],
     bilingual: false,
