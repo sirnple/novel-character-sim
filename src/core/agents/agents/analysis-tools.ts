@@ -1026,8 +1026,8 @@ export const analysisDomainTools: ToolDefinition[] = [
       const text = loadText(userId, novelId, branchId);
       if (!text.trim()) return { content: "正文为空", messages: [] };
 
-      // Product default: re-run form unless caller explicitly sets forceRefresh:false
-      const force = args.forceRefresh === false ? false : true;
+      // forceRefresh=true 强制重跑；默认有章法则跳过（与工具描述一致）
+      const force = args.forceRefresh === true;
       const existing = getNovelForm(userId, novelId);
       let ws = getNovelAnalysisWorkspace(userId, novelId, branchId);
       if (!ws) {
@@ -1126,8 +1126,8 @@ export const analysisDomainTools: ToolDefinition[] = [
         const head = skipped
           ? `${ANALYSIS_OK.scan}（已缓存，跳过重扫）`
           : pipeline
-            ? `${ANALYSIS_OK.scan}（①窗扫→②overlap→③oneshot→④canonicalName）`
-            : `${ANALYSIS_OK.scan}（旧路径：LLM 分段扫名+局部消解）`;
+            ? `${ANALYSIS_OK.scan}（①窗扫→②overlap→③oneshot→④canonicalName；catalog）`
+            : `${ANALYSIS_OK.scan}（旧路径：LLM 分段扫名+局部消解；catalog）`;
         const top =
           topLines.length > 0
             ? topLines.map((s, i) => `${i + 1}. ${s}`).join("\n")

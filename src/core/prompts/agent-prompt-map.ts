@@ -58,6 +58,11 @@ export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
   character_roster_gate: {
     system: "character-roster-gate-system.md",
   },
+  /** Legacy Pass-1 chatWithTool path (CharacterExtractor); keep md for registry tests / fallback */
+  character_list: {
+    system: "character-list-system.md",
+    systemEn: "character-list-system.en.md",
+  },
   analyze_character_list: {
     system: "character-entity-resolve-system.md",
     systemEn: "character-entity-resolve-system.en.md",
@@ -86,10 +91,10 @@ export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
     system: "character-detail-agent-system.md",
     user: "character-detail-agent-user.md",
   },
-  // legacy aliases → same agent md as extract_character_detail
+  // Legacy chatWithTool detail pass (CharacterExtractor)
   character_detail: {
-    system: "character-detail-agent-system.md",
-    user: "character-detail-agent-user.md",
+    system: "character-detail-system.md",
+    systemEn: "character-detail-system.en.md",
   },
   character_detail_agent: {
     system: "character-detail-agent-system.md",
@@ -103,6 +108,27 @@ export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
     system: "character-relationships-system.md",
     user: "character-relationships-user.md",
   },
+  /** Legacy chatWithTool relationship pass (non-agent) */
+  relationships: {
+    system: "relationships-system.md",
+    systemEn: "relationships-system.en.md",
+  },
+  chapter_end_states: {
+    system: "chapter-end-states-system.md",
+    systemEn: "chapter-end-states-system.en.md",
+  },
+  story_info: {
+    system: "story-info-system.md",
+    systemEn: "story-info-system.en.md",
+  },
+  timeline: {
+    system: "timeline-system.md",
+    systemEn: "timeline-system.en.md",
+  },
+  timeline_states: {
+    system: "timeline-states-system.md",
+    systemEn: "timeline-states-system.en.md",
+  },
   analyze_timeline: {
     system: "timeline-analysis-system.md",
     user: "timeline-analysis-user.md",
@@ -115,9 +141,12 @@ export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
     system: "style-extract-agent-system.md",
     user: "style-extract-agent-user.md",
   },
+  /** Legacy chatWithTool style extract */
   style_extract: {
-    system: "style-extract-agent-system.md",
-    user: "style-extract-agent-user.md",
+    system: "style-extract-system.md",
+    systemEn: "style-extract-system.en.md",
+    user: "style-extract-user.md",
+    userEn: "style-extract-user.en.md",
   },
   style_extract_agent: {
     system: "style-extract-agent-system.md",
@@ -127,9 +156,12 @@ export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
     system: "idea-extract-agent-system.md",
     user: "idea-extract-agent-user.md",
   },
+  /** Legacy chatWithTool idea extract */
   idea_extract: {
-    system: "idea-extract-agent-system.md",
-    user: "idea-extract-agent-user.md",
+    system: "idea-extract-system.md",
+    systemEn: "idea-extract-system.en.md",
+    user: "idea-extract-user.md",
+    userEn: "idea-extract-user.en.md",
   },
   idea_extract_agent: {
     system: "idea-extract-agent-system.md",

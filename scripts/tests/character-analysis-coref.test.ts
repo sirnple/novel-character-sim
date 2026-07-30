@@ -859,7 +859,8 @@ export async function runCharacterAnalysisCorefTests(): Promise<void> {
           _tool: { name: string },
         ) => {
           calls.push("judge");
-          return { same: true, reason: "same surface residual" };
+          // Oneshot uses ternary verdict (not legacy same:boolean)
+          return { verdict: "same", reason: "same surface residual" };
         },
       };
       // Single shared surface → soft score, likely agent/auto_reject path;

@@ -431,7 +431,11 @@ export async function runCharacterNameFrequencyTests(): Promise<void> {
       assert.ok(listed.includes("a@") || listed.includes("锚点"), listed);
       const hits = catalog.lookup("孙悟空", 3);
       assert.ok(hits.length >= 1);
-      assert.ok(hits[0].anchorId.startsWith("a@"), hits[0].anchorId);
+      // Unit-grain anchors prefer u@{unitIndex}; offset form a@ is fallback
+      assert.ok(
+        hits[0].anchorId.startsWith("u@") || hits[0].anchorId.startsWith("a@"),
+        hits[0].anchorId,
+      );
     });
 
     test("normalizeAnchors accepts a@offset strings", () => {
