@@ -37,10 +37,10 @@ function main() {
   });
 
   test("saveFindings → getFindings", () => {
-    saveFindings(N1, B1, [{ dimension: "char", severity: "major", description: "问题1", suggestion: "改" }]);
+    saveFindings(N1, B1, [{ dimension: "character", severity: "major", description: "问题1", suggestion: "改" }]);
     const f = getFindings(N1, B1);
     assert.equal(f.length, 1);
-    assert.equal(f[0].dimension, "char");
+    assert.equal(f[0].dimension, "character");
   });
 
   // 2. outline reset clears prose + findings
@@ -54,19 +54,19 @@ function main() {
   // 3. dimension overwrite: same dimension replaces, different dims accumulate
   test("saveFindings overwrites by dimension", () => {
     // Set up baseline
-    saveFindings(N1, B1, [{ dimension: "char", severity: "minor", description: "旧的", suggestion: "忽略" }]);
-    saveFindings(N1, B1, [{ dimension: "cont", severity: "major", description: "旧的连续", suggestion: "改" }]);
+    saveFindings(N1, B1, [{ dimension: "character", severity: "minor", description: "旧的", suggestion: "忽略" }]);
+    saveFindings(N1, B1, [{ dimension: "continuity", severity: "major", description: "旧的连续", suggestion: "改" }]);
     assert.equal(getFindings(N1, B1).length, 2);
 
-    // Overwrite "char" dimension
-    saveFindings(N1, B1, [{ dimension: "char", severity: "critical", description: "新的", suggestion: "改" }]);
+    // Overwrite "character" dimension
+    saveFindings(N1, B1, [{ dimension: "character", severity: "critical", description: "新的", suggestion: "改" }]);
     const f = getFindings(N1, B1);
-    assert.equal(f.length, 2, "still 2 total (1 char + 1 cont)");
-    const charFind = f.find((x: any) => x.dimension === "char");
-    assert.equal(charFind?.description, "新的", "char dimension should be replaced");
+    assert.equal(f.length, 2, "still 2 total (1 character + 1 continuity)");
+    const charFind = f.find((x: any) => x.dimension === "character");
+    assert.equal(charFind?.description, "新的", "character dimension should be replaced");
     assert.equal(charFind?.severity, "critical", "severity updated");
-    const contFind = f.find((x: any) => x.dimension === "cont");
-    assert.equal(contFind?.description, "旧的连续", "cont dimension unchanged");
+    const contFind = f.find((x: any) => x.dimension === "continuity");
+    assert.equal(contFind?.description, "旧的连续", "continuity dimension unchanged");
   });
 
   // 4. clearFindings only clears findings, keeps outline+prose

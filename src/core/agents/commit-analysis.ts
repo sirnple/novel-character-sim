@@ -6,10 +6,10 @@ import {
   getNovelAnalysisWorkspace,
   clearNovelAnalysisWorkspace,
 } from "@/core/extractor/novel-analysis-workspace";
-import { getCharacterExtractWorkspace } from "@/core/extractor/character-extract-workspace";
+import { getCharacterExtractWorkspace } from "@/core/character-analysis/runtime/character-extract-workspace";
 import { buildFormDraftFromText } from "@/core/form/form-analyzer";
 import { entitiesToProfiles } from "./agents/character-extract-tools";
-import { collapseTechnicalFarSameNameKeys } from "@/core/extractor/character-local-entities";
+import { collapseTechnicalFarSameNameKeys } from "@/core/character-analysis/runtime/character-local-entities";
 import {
   applyRelationshipEdges,
   mergeCharacterProfiles,
@@ -280,3 +280,4 @@ export function commitAnalysisWorkspace(input: {
     characters: nChars,
   };
 }
+

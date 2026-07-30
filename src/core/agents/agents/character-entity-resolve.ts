@@ -13,10 +13,10 @@ import { getTool } from "../registry";
 import {
   getCharacterExtractWorkspace,
   saveResolvedEntities,
-} from "@/core/extractor/character-extract-workspace";
-import { collapseTechnicalFarSameNameKeys } from "@/core/extractor/character-local-entities";
-import { SUBMIT_ENTITIES_OK } from "@/core/extractor/character-entity-types";
-import { foldSafeEntityRedundancies } from "@/core/extractor/character-entity-consistency";
+} from "@/core/character-analysis/runtime/character-extract-workspace";
+import { collapseTechnicalFarSameNameKeys } from "@/core/character-analysis/runtime/character-local-entities";
+import { SUBMIT_ENTITIES_OK } from "@/core/character-analysis/runtime/character-entity-types";
+import { foldSafeEntityRedundancies } from "@/core/character-analysis/runtime/character-entity-consistency";
 import {
   getNovelAnalysisWorkspace,
   patchNovelAnalysisWorkspace,
@@ -368,3 +368,4 @@ export const characterEntityResolveAgent: AgentDef = {
     };
   },
 };
+

@@ -2563,7 +2563,7 @@ export function normalizeWritingStyle(
     } else if (mapped && mapped !== "examplePassages" && mapped !== "contentRating") {
       const cur = out[mapped];
       if (typeof cur === "string" && !cur) {
-        (out as Record<string, unknown>)[mapped] = text;
+        (out as unknown as Record<string, unknown>)[mapped] = text;
       } else if (typeof cur === "string" && cur) {
         freeLines.push(`${k}：${text}`);
       } else {

@@ -151,7 +151,10 @@ export const foreshadowTools: ToolDefinition[] = [
           description: f.description,
           suggestion: f.suggestion || "",
         }));
-      saveFindings(ctx.novelId, ctx.branchId, findings);
+      saveFindings(ctx.novelId, ctx.branchId, findings, {
+        dimension: "foreshadowing",
+        overwrite: true,
+      });
       const r = realization.realized;
       const lines = [
         `${SAVE_FS_REALIZATION_OK} pass=${realization.pass}（未写持久账本；Accept 后落定）`,

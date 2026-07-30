@@ -1,9 +1,5 @@
 /**
- * @deprecated Prefer the real agent `character_entity_resolve` via getAgent().
- * Kept only for type re-exports used by older imports.
+ * @deprecated Import from `@/core/character-analysis/runtime/character-entity-resolve` (or `@/core/character-analysis`).
+ * Compatibility re-export — character runtime lives under character-analysis.
  */
-export type { ResolvedEntity } from "./character-entity-types";
-export {
-  normalizeResolvedEntities,
-  SUBMIT_ENTITIES_OK,
-} from "./character-entity-types";
+export * from "@/core/character-analysis/runtime/character-entity-resolve";

@@ -38,7 +38,7 @@ tools:
 **松 ≠ 什么都行**：梦中角色无桥接进现实、已死角色无解释现身、开头与前文硬切断 → 仍 major+。
 
 ### 5. 落盘（必须）
-**`save_findings`** dimension=`"continuity"`，findings 为 JSON 数组字符串。  
+**`save_findings`**：dimension 或 agent_type=`"continuity"`，overwrite=true，findings 为 JSON 数组字符串（`[]` 仅清本维）。  
 聊天勿贴 JSON 全文。
 
 ---

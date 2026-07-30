@@ -8,24 +8,24 @@ import {
   ensureCrossNameCandidates,
   getCharacterExtractWorkspace,
   saveResolvedEntities,
-} from "@/core/extractor/character-extract-workspace";
+} from "@/core/character-analysis/runtime/character-extract-workspace";
 import {
   anchorsForSurfaces,
   formatLookupResult,
   formatSurfaceCandidatesForPrompt,
-} from "@/core/extractor/character-surface-catalog";
+} from "@/core/character-analysis/runtime/character-surface-catalog";
 import {
   findFirstSecondPersonAliasIssues,
   normalizeResolvedEntities,
   validateSubmitEntities,
   SUBMIT_ENTITIES_OK,
   type ResolvedEntity,
-} from "@/core/extractor/character-entity-types";
+} from "@/core/character-analysis/runtime/character-entity-types";
 import {
   mergeAnchors,
   normalizeAnchors,
-} from "@/core/extractor/mention-anchor";
-import type { SurfaceCatalog } from "@/core/extractor/character-surface-catalog";
+} from "@/core/character-analysis/runtime/mention-anchor";
+import type { SurfaceCatalog } from "@/core/character-analysis/runtime/character-surface-catalog";
 import {
   beginNovelAnalysisWorkspace,
   getNovelAnalysisWorkspace,
@@ -42,22 +42,22 @@ import {
   collapseTechnicalFarSameNameKeys,
   formatLocalEntitiesForPrompt,
   DEFAULT_SAME_NAME_UNIT_DISTANCE,
-} from "@/core/extractor/character-local-entities";
+} from "@/core/character-analysis/runtime/character-local-entities";
 import {
   formatUncoveredForPrompt,
   listUncoveredSurfaces,
   claimedSurfaceSet,
-} from "@/core/extractor/character-entity-coverage";
+} from "@/core/character-analysis/runtime/character-entity-coverage";
 import {
   applyEntityOps,
   parseEntityOps,
-} from "@/core/extractor/character-entity-ops";
-import { mergeResolvedEntities } from "@/core/extractor/character-entity-types";
+} from "@/core/character-analysis/runtime/character-entity-ops";
+import { mergeResolvedEntities } from "@/core/character-analysis/runtime/character-entity-types";
 import {
   foldSafeEntityRedundancies,
   formatDualHangBlockForSubmit,
   listBlockingConsistencyIssues,
-} from "@/core/extractor/character-entity-consistency";
+} from "@/core/character-analysis/runtime/character-entity-consistency";
 import {
   formatCrossNameCandidatesForPrompt,
   formatUnresolvedCrossNameBlock,
@@ -66,7 +66,7 @@ import {
   recordCrossNameResolution,
   recordMergesFromOps,
   type CrossNameVerdict,
-} from "@/core/extractor/character-cross-name";
+} from "@/core/character-analysis/runtime/character-cross-name";
 
 /**
  * Stage roster entities as profiles in analysis workspace (master commits later).
@@ -1127,3 +1127,4 @@ export const characterExtractTools: ToolDefinition[] = [
     },
   },
 ];
+

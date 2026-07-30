@@ -29,10 +29,11 @@ tools:
 
 ### 3. 落盘（必须，唯一真相）
 调用 **`save_findings`**：
-- `dimension`: `"outline"`
+- `dimension` 或 `agent_type`: `"outline"`（只写大纲维）
+- `overwrite`: true（覆盖本维；不碰正文六维 findings）
 - `findings`: JSON 数组字符串  
   `[{"severity":"critical|major|minor","description":"...","suggestion":"..."}]`  
-  无问题：`"[]"`
+  无问题：`"[]"`（仅清大纲维）
 
 ### 4. 收尾
 工具成功后一句确认即可；**不要**在聊天里贴 JSON 全文。

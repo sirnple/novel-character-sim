@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
         getNovelAnalysisWorkspace,
       } = await import("@/core/extractor/novel-analysis-workspace");
       const { clearCharacterExtractWorkspace } = await import(
-        "@/core/extractor/character-extract-workspace"
+        "@/core/character-analysis/runtime/character-extract-workspace"
       );
       const { text } = getBranchProse(userId, novelId, branchId);
       const fullText = (text || getNovel(userId, novelId)?.text || "").trim();
@@ -815,3 +815,4 @@ export async function POST(request: NextRequest) {
     headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
   });
 }
+

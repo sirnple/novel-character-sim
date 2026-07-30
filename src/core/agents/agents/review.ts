@@ -50,8 +50,9 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
         ? `\n\n## 落盘（必须）\n取证后**必须**调用 save_foreshadowing_realization，参数 realization 为 JSON 字符串（含 pass/findings/realized/gaps）。` +
           `不要在聊天里贴完整 JSON；程序只认 tool 成功。工具会返回人类可读摘要。\n`
         : `\n\n## 落盘（必须）\n取证后**必须**调用 save_findings：\n` +
-          `- dimension: "${dimensionCode}"\n` +
-          `- findings: JSON 数组字符串，无问题用 "[]"\n` +
+          `- dimension 或 agent_type: "${dimensionCode}"（本审查 agent 类型，只写本维）\n` +
+          `- overwrite: true（覆盖本维旧结果；不要清其它维、不要 clear_findings 全表）\n` +
+          `- findings: JSON 数组字符串，无问题用 "[]"（overwrite 下即清空本维）\n` +
           `不要在聊天里贴 JSON；程序只认 save_findings 成功。\n`;
 
       const { system: sys, user: baseUc } = resolveAgentPrompt(agentId, "zh", {

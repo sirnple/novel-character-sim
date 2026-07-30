@@ -5,7 +5,7 @@ import {
   getCharacterExtractJob,
   listCharacterExtractJobs,
   startCharacterExtractJob,
-} from "@/core/extractor/character-extract-job";
+} from "@/core/character-analysis/runtime/character-extract-job";
 import { getCharacters } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -90,3 +90,4 @@ export async function DELETE(request: NextRequest) {
   const ok = cancelCharacterExtractJob(jobId);
   return NextResponse.json({ ok, job: getCharacterExtractJob(jobId) });
 }
+

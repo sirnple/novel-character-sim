@@ -25,8 +25,9 @@ tools:
 
 ### 3. 落盘（必须）
 **`save_findings`**：
-- dimension: `"character"`
-- findings: JSON 数组字符串；无问题 `"[]"`
+- dimension 或 agent_type: `"character"`（只写本维）
+- overwrite: true（覆盖本维；勿 clear 全表）
+- findings: JSON 数组字符串；无问题 `"[]"`（仅清空本维）
   `[{"severity":"critical|major|minor","description":"...","suggestion":"..."}]`
 
 工具成功后一句确认；**不要**在聊天贴 JSON。

@@ -19,7 +19,8 @@ This is a **Next.js 14 App Router** web app that extracts characters from novels
 
 - **`llm/`** — Multi-provider abstraction. `factory.ts` reads env config and instantiates the active provider. `openai.ts` handles OpenAI + DeepSeek (both OpenAI-compatible), `claude.ts` handles Anthropic. Both share `extractJSON()` from `lib/utils.ts` for robust JSON parsing from LLM responses. The retry wrapper in `openai.ts` handles `Premature close` and other network errors with exponential backoff.
 - **`parser/`** — TXT chunking with configurable overlap. `buildNovelContext()` selects representative chunks (first, evenly-spaced middle, last).
-- **`extractor/`** — `CharacterExtractor` runs 3 passes (list → detail → relationships). Uses `isChinese()` to select zh/en prompts. `StoryExtractor` extracts plot, chapters, world setting. Pass 2 limited to top 5 characters (protagonists/antagonists first) to stay under API timeout.
+- **`character-analysis/`** — Character pipeline (window scan, coref stages, merge, canonical names) plus **`runtime/`** (workspaces, entity ops, surface catalog, legacy job). Prefer `runCharacterAnalysisPipeline` and imports from `@/core/character-analysis` or `@/core/character-analysis/runtime/*`.
+- **`extractor/`** — Non-character extractors only: `StoryExtractor`, style/ideas/timeline, `novel-analysis-workspace`, `relationship-types`, `run-modular-extract`. Character modules re-export from `character-analysis/runtime` for compatibility (`@/core/extractor/character-*` still works).
 - **`simulation/`** — `engine.ts` orchestrates Director → Character agents → Recorder rounds. Director advances plot, characters respond in-character, Recorder weaves prose. Up to 10 rounds. `types.ts` holds system prompt builders that embed full character profiles.
 
 ### API routes (`src/app/api/`)

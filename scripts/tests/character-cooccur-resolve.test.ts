@@ -7,7 +7,7 @@ import {
   buildEntityUnitStats,
   generateCorefCandidates,
   resolveResidualCooccurProgram,
-  scorePair,
+  scoreCooccurPair,
   type EntityUnitStats,
 } from "../../src/core/extractor/character-cooccur-resolve";
 import { resolveCharacterCorefConfig } from "../../src/lib/character-coref-config";
@@ -143,7 +143,7 @@ function ent(
     ent("血屠", [], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
   ];
   const stats = buildEntityUnitStats(entities);
-  const sc = scorePair(entities, stats, 0, 1, cfg);
+  const sc = scoreCooccurPair(entities, stats, 0, 1, cfg);
   // exclusive = min(5/5, 5/5) = 1.0 → 0.5 contribution; jaccard high; temporal may penalize
   assert.ok(sc.sExclusive >= 0.9, `sExclusive=${sc.sExclusive}`);
   // with temporal low overlap (spans 0-4 vs 5-9), penalty -0.2
@@ -161,7 +161,7 @@ function ent(
     ent("丙", [], [0, 1]),
   ];
   const stats = buildEntityUnitStats(entities);
-  const sc = scorePair(entities, stats, 0, 1, cfg);
+  const sc = scoreCooccurPair(entities, stats, 0, 1, cfg);
   assert.ok(sc.sJ0 >= 0.99, `sJ0=${sc.sJ0}`);
   assert.ok(sc.sJ <= sc.sJ0 * 0.5 + 1e-9, `sJ should be discounted, got ${sc.sJ}`);
 }

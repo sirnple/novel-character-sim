@@ -186,24 +186,48 @@ export const intermediateTools: ToolDefinition[] = [
   {
     name: "save_findings",
     description:
-      "保存本维审查结果（唯一真相）。审查结束必须调用。findings 为 JSON 数组字符串。",
+      "按审查维度保存 findings（可覆盖该维或追加）。dimension/agent_type 标明审查 agent；" +
+      "overwrite=true（默认）只替换该维，不影响其它维；改写正文前禁止清空全部 findings。",
     parameters: {
       type: "object",
       properties: {
         dimension: {
           type: "string",
-          description: "维度：outline / character / continuity / foreshadowing / style / world / pacing",
+          description:
+            "审查维度或 agent 类型：outline / character / continuity / foreshadowing / style / world / pacing，" +
+            "或 review_continuity / continuity_review 等别名",
+        },
+        agent_type: {
+          type: "string",
+          description:
+            "可选，与 dimension 同义（审查 agent id，如 review_character、review_continuity）。二者至少一个。",
         },
         findings: {
           type: "string",
-          description: 'JSON 数组：[{"severity":"critical|major|minor","description":"...","suggestion":"..."}]；无问题用 []',
+          description:
+            'JSON 数组：[{"severity":"critical|major|minor","description":"...","suggestion":"..."}]；本维无问题用 []（overwrite=true 时清除该维）',
+        },
+        overwrite: {
+          type: "boolean",
+          description:
+            "是否覆盖该维已有 findings。默认 true=替换本维；false=追加本维。不覆盖其它审查 agent 的结果。",
         },
       },
-      required: ["dimension", "findings"],
+      required: ["findings"],
     },
     execute: async (args, ctx) => {
       const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
-      const dim = String(args.dimension || "other");
+      const dimRaw = String(args.dimension || args.agent_type || "").trim();
+      if (!dimRaw) {
+        return {
+          content: "save_findings 需要 dimension 或 agent_type（审查 agent 类型）。",
+          messages: [],
+        };
+      }
+      const overwrite =
+        args.overwrite === undefined || args.overwrite === null
+          ? true
+          : Boolean(args.overwrite);
       let parsed: any[] = [];
       const raw = args.findings;
       try {
@@ -211,40 +235,65 @@ export const intermediateTools: ToolDefinition[] = [
         else if (Array.isArray(raw)) parsed = raw;
       } catch {
         return {
-          content: `${dim}: findings JSON 解析失败，请重试 save_findings。`,
+          content: `${dimRaw}: findings JSON 解析失败，请重试 save_findings。`,
           messages: [],
         };
       }
       if (!Array.isArray(parsed)) {
-        return { content: `${dim}: findings 必须是 JSON 数组。`, messages: [] };
+        return { content: `${dimRaw}: findings 必须是 JSON 数组。`, messages: [] };
       }
       const normalized = parsed
         .filter((f) => f && (f.description || f.suggestion))
         .map((f) => ({
-          dimension: dim,
+          dimension: dimRaw,
           severity: String(f.severity || "minor"),
           description: String(f.description || "").trim(),
           suggestion: String(f.suggestion || "").trim(),
         }))
         .filter((f) => f.description.length > 0);
-      saveFindings(novelId, branchId, normalized);
+      saveFindings(novelId, branchId, normalized, {
+        dimension: dimRaw,
+        overwrite,
+      });
       const readable = formatFindingsReadable(normalized);
+      const mode = overwrite ? "覆盖本维" : "追加本维";
       return {
         content:
-          `${dim}: ${normalized.length} 条 ${SAVE_FINDINGS_OK}。\n\n` +
-          (normalized.length ? readable : "本维无问题。"),
+          `${dimRaw}: ${normalized.length} 条 ${SAVE_FINDINGS_OK}（${mode}）。\n\n` +
+          (normalized.length ? readable : "本维无问题（已按 overwrite 更新该维）。"),
         messages: [],
       };
     },
   },
   {
     name: "clear_findings",
-    description: "清空已存 findings。修改完成下次重审前可调一次。",
-    parameters: { type: "object", properties: {}, required: [] },
+    description:
+      "清空 findings。优先传 dimension/agent_type 只清一维；" +
+      "全量清空仅用于整轮重审前。改写正文前禁止调用（写手需要 get_findings）。",
+    parameters: {
+      type: "object",
+      properties: {
+        dimension: {
+          type: "string",
+          description: "可选。只清空该审查维度（如 continuity / review_style）",
+        },
+        agent_type: {
+          type: "string",
+          description: "可选。与 dimension 同义",
+        },
+      },
+      required: [],
+    },
     execute: async (args, ctx) => {
       const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
-      clearFindings(novelId, branchId);
-      return { content: "已清空 findings。", messages: [] };
+      const dim = String(args.dimension || args.agent_type || "").trim();
+      clearFindings(novelId, branchId, dim || undefined);
+      return {
+        content: dim
+          ? `已清空 findings 维度：${dim}`
+          : "已清空全部 findings。",
+        messages: [],
+      };
     },
   },
 ];

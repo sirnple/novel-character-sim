@@ -45,7 +45,8 @@ export async function runOutlineReview(
     baseUser +
     `\n\n## 本书类型\ngenre: ${genre || "（未知）"}\nthemes: ${(info?.themes || []).join("、") || "—"}\n` +
     `\n## 落盘（必须）\n` +
-    `取证后调用 save_findings：dimension="outline"，findings=JSON 数组字符串（无问题 "[]"）。\n` +
+    `取证后调用 save_findings：dimension="outline"（或 agent_type=outline_review），` +
+    `overwrite=true，findings=JSON 数组字符串（无问题 "[]" 仅清大纲维）。\n` +
     `不要在聊天贴完整 JSON。程序只认 save_findings。\n`;
 
   // tools allowlist from review-outline-system.md frontmatter

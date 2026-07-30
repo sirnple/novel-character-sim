@@ -18,6 +18,6 @@ tools:
 ## 步骤
 1. `get_prose`（必做）
 2. 按需 `get_branch_text`
-3. **`save_findings`** dimension=`"pacing"`，findings JSON 数组；无问题 `"[]"`
+3. **`save_findings`** dimension=`"pacing"`，overwrite=true，findings JSON 数组；无问题 `"[]"`（只清本维）
 
 聊天勿贴 JSON。成功标准：`save_findings` 成功。

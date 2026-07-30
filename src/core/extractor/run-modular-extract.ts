@@ -12,7 +12,7 @@ import { extractWritingStyle } from "@/core/extractor/style-extractor";
 import { extractIdeas } from "@/core/extractor/idea-extractor";
 import { analyzeNovelForm } from "@/core/form/form-analyzer";
 import { startTimelineJob } from "@/core/form/timeline-job";
-import { startCharacterExtractJob } from "@/core/extractor/character-extract-job";
+import { startCharacterExtractJob } from "@/core/character-analysis/runtime/character-extract-job";
 import {
   saveNovel, saveStoryInfo, saveCharacters,
   getStoryInfo, getCharacters, getTimeline, getChapterStates, getNovel,
@@ -424,3 +424,4 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
   result.ideas = listIdeas(userId);
   return result;
 }
+

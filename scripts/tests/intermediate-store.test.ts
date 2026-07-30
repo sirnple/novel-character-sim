@@ -32,11 +32,11 @@ export function runIntermediateStoreTests(): void {
 
     test("saveFindings → getFindings round-trip", () => {
       saveFindings("novel_a", "main", [
-        { dimension: "char", severity: "major", description: "问题1", suggestion: "改" },
+        { dimension: "character", severity: "major", description: "问题1", suggestion: "改" },
       ]);
       const f = getFindings("novel_a", "main");
       assert.equal(f.length, 1);
-      assert.equal(f[0].dimension, "char");
+      assert.equal(f[0].dimension, "character");
     });
 
     test("saveOutline clears prose + findings (keeps new outline)", () => {
@@ -48,23 +48,53 @@ export function runIntermediateStoreTests(): void {
 
     test("saveFindings overwrites by dimension", () => {
       saveFindings("novel_a", "main", [
-        { dimension: "char", severity: "minor", description: "旧的", suggestion: "忽略" },
+        { dimension: "character", severity: "minor", description: "旧的", suggestion: "忽略" },
       ]);
       saveFindings("novel_a", "main", [
-        { dimension: "cont", severity: "major", description: "旧的连续", suggestion: "改" },
+        { dimension: "continuity", severity: "major", description: "旧的连续", suggestion: "改" },
       ]);
       assert.equal(getFindings("novel_a", "main").length, 2);
 
       saveFindings("novel_a", "main", [
-        { dimension: "char", severity: "critical", description: "新的", suggestion: "改" },
+        { dimension: "character", severity: "critical", description: "新的", suggestion: "改" },
       ]);
       const f = getFindings("novel_a", "main");
-      assert.equal(f.length, 2, "still 2 total (1 char + 1 cont)");
-      const charFind = f.find((x) => x.dimension === "char");
+      assert.equal(f.length, 2, "still 2 total (1 character + 1 continuity)");
+      const charFind = f.find((x) => x.dimension === "character");
       assert.equal(charFind?.description, "新的");
       assert.equal(charFind?.severity, "critical");
-      const contFind = f.find((x) => x.dimension === "cont");
+      const contFind = f.find((x) => x.dimension === "continuity");
       assert.equal(contFind?.description, "旧的连续");
+    });
+
+    test("empty findings + dimension clears only that dim", () => {
+      saveFindings("novel_a", "main", [
+        { dimension: "character", severity: "major", description: "角色问题", suggestion: "改" },
+      ]);
+      saveFindings("novel_a", "main", [
+        { dimension: "continuity", severity: "major", description: "连贯问题", suggestion: "改" },
+      ]);
+      saveFindings("novel_a", "main", [], {
+        dimension: "review_character",
+        overwrite: true,
+      });
+      const f = getFindings("novel_a", "main");
+      assert.equal(f.length, 1);
+      assert.equal(f[0].dimension, "continuity");
+    });
+
+    test("overwrite=false appends same dimension", () => {
+      saveFindings("novel_a", "main", [
+        { dimension: "style", severity: "minor", description: "A", suggestion: "改" },
+      ]);
+      saveFindings(
+        "novel_a",
+        "main",
+        [{ dimension: "style", severity: "minor", description: "B", suggestion: "改" }],
+        { dimension: "style", overwrite: false },
+      );
+      const f = getFindings("novel_a", "main").filter((x) => x.dimension === "style");
+      assert.equal(f.length, 2);
     });
 
     test("clearFindings keeps outline + prose", () => {
@@ -77,6 +107,19 @@ export function runIntermediateStoreTests(): void {
       assert.equal(getFindings("novel_a", "main").length, 0);
       assert.equal(getOutline("novel_a", "main"), "大纲");
       assert.equal(getProse("novel_a", "main"), "正文");
+    });
+
+    test("clearFindings by dimension only", () => {
+      saveFindings("novel_a", "main", [
+        { dimension: "world", severity: "minor", description: "W", suggestion: "改" },
+      ]);
+      saveFindings("novel_a", "main", [
+        { dimension: "pacing", severity: "minor", description: "P", suggestion: "改" },
+      ]);
+      clearFindings("novel_a", "main", "review_world");
+      const f = getFindings("novel_a", "main");
+      assert.equal(f.length, 1);
+      assert.equal(f[0].dimension, "pacing");
     });
 
     test("per-branch isolation (same novel)", () => {

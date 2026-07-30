@@ -3,23 +3,23 @@
  * (catalog, localEntities, ResolvedEntity) for analysis agents.
  */
 
-import type { TextUnit } from "@/core/extractor/character-name-units";
-import type { UnitNameHit } from "@/core/extractor/character-name-aggregate";
-import type { LocalEntity } from "@/core/extractor/character-local-entities";
-import type { ResolvedEntity } from "@/core/extractor/character-entity-types";
+import type { TextUnit } from "./runtime/character-name-units";
+import type { UnitNameHit } from "./runtime/character-name-aggregate";
+import type { LocalEntity } from "./runtime/character-local-entities";
+import type { ResolvedEntity } from "./runtime/character-entity-types";
 import {
   isBarePronounOrGeneric,
   isInvalidUnitPrimaryName,
   nameKeyEntity,
-} from "@/core/extractor/character-entity-types";
-import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
-import type { SurfaceCatalog } from "@/core/extractor/character-surface-catalog";
+} from "./runtime/character-entity-types";
+import { buildSurfaceCatalog } from "./runtime/character-surface-catalog";
+import type { SurfaceCatalog } from "./runtime/character-surface-catalog";
 import {
   crossNamePairKey,
   listCrossNameCandidates,
   type CrossNamePairResolution,
-} from "@/core/extractor/character-cross-name";
-import type { CharacterExtractWorkspace } from "@/core/extractor/character-extract-workspace";
+} from "./runtime/character-cross-name";
+import type { CharacterExtractWorkspace } from "./runtime/character-extract-workspace";
 import {
   isDeicticPronounSurface,
   surfacesForCoref,

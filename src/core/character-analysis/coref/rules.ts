@@ -129,13 +129,10 @@ export const ruleSharedWeakSurface: CorefRule = {
       }
     }
     if (f.sharedGenericSurfaces.length) {
+      // gap 0/1/≥2 → all non-zero; always apply
       const d = gap === 0 ? 0.05 : gap === 1 ? 0.02 : -0.05;
-      if (d !== 0) {
-        delta += d;
-        parts.push(`weak/generic「${f.sharedGenericSurfaces.join("、")}」Δ=${d}`);
-      } else {
-        parts.push(`weak/generic「${f.sharedGenericSurfaces.join("、")}」Δ=0`);
-      }
+      delta += d;
+      parts.push(`weak/generic「${f.sharedGenericSurfaces.join("、")}」Δ=${d}`);
     }
 
     // ── midSurface: title | kinship | desc — far gaps neutral (0) ───

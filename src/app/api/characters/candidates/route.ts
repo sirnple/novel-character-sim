@@ -9,7 +9,7 @@ import { isServerDebugMode } from "@/lib/debug-mode";
 import {
   formatCandidatesForPrompt,
   scanCharacterCandidates,
-} from "@/core/extractor/character-candidates";
+} from "@/core/character-analysis/runtime/character-candidates";
 
 export const dynamic = "force-dynamic";
 
@@ -76,3 +76,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

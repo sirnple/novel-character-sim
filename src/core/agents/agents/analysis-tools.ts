@@ -41,7 +41,7 @@ import {
   flagSuspiciousChapterName,
   rawLineAtOffset,
 } from "@/core/form/form-analyzer";
-import { buildNameScanUnits } from "@/core/extractor/character-name-units";
+import { buildNameScanUnits } from "@/core/character-analysis/runtime/character-name-units";
 import {
   applyTrackLabels,
   catalogTrackStats,
@@ -79,20 +79,20 @@ import {
   beginCharacterExtractWorkspace,
   getCharacterExtractWorkspace,
   saveResolvedEntities,
-} from "@/core/extractor/character-extract-workspace";
+} from "@/core/character-analysis/runtime/character-extract-workspace";
 import {
   BATCH_TEXT_BUDGET,
   formatBatchOverflowNotice,
 } from "../batch-tool-limits";
-import { buildSurfaceCatalog } from "@/core/extractor/character-surface-catalog";
-import { scanUnitHitsWithLlm } from "@/core/extractor/character-name-scan";
+import { buildSurfaceCatalog } from "@/core/character-analysis/runtime/character-surface-catalog";
+import { scanUnitHitsWithLlm } from "@/core/character-analysis/runtime/character-name-scan";
 import {
   runCharacterAnalysisPipeline,
   pipelineResultToExtractSeed,
   sealCrossNameLedgerFromEntities,
   formatCharacterPipelineProgress,
 } from "@/core/character-analysis";
-import { buildLocalEntitiesFromUnitHits } from "@/core/extractor/character-local-entities";
+import { buildLocalEntitiesFromUnitHits } from "@/core/character-analysis/runtime/character-local-entities";
 import { relationshipTypePromptList } from "@/core/extractor/relationship-types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { resolveMentionScanOptions } from "@/lib/runtime-settings";
@@ -1465,8 +1465,8 @@ export const analysisDomainTools: ToolDefinition[] = [
     parameters: {
       type: "object",
       properties: {
-        idA: { type: "string" },
-        idB: { type: "string" },
+        idA: { type: "string", description: "uncertain 对中实体 A 的 id" },
+        idB: { type: "string", description: "uncertain 对中实体 B 的 id" },
         verdict: {
           type: "string",
           enum: ["merge", "distinct"],
@@ -1476,7 +1476,7 @@ export const analysisDomainTools: ToolDefinition[] = [
           type: "string",
           description: "merge 时保留的 entity 名或 id（默认 idA 对应实体）",
         },
-        reason: { type: "string" },
+        reason: { type: "string", description: "判定理由（可选）" },
       },
       required: ["idA", "idB", "verdict"],
     },
@@ -2379,3 +2379,4 @@ export function allAnalysisTools(): ToolDefinition[] {
   }
   return Array.from(byName.values());
 }
+

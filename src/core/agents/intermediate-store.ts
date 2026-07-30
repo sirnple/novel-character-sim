@@ -229,22 +229,126 @@ export function getOutline(novelId: string, branchId: string): Outline | undefin
 }
 
 /**
- * Merge findings by dimension (same dim replaces).
- * Safe under parallel reviews: each call is sync RMW; withBranchLock used by callers
- * that do get→await→save. Direct saveFindings is still atomic vs other saveFindings
- * in the same tick; parallel agents should use saveFindingsLocked.
+ * Map tool/agent ids → store dimension codes.
+ * Accepts review_continuity / continuity_review / continuity → "continuity".
  */
-export function saveFindings(novelId: string, branchId: string, findings: ReviewFindings[]): void {
+export function normalizeFindingDimension(raw: string | undefined | null): string {
+  const s = String(raw || "").trim();
+  if (!s) return "other";
+  const lower = s.toLowerCase().replace(/-/g, "_");
+  const aliases: Record<string, string> = {
+    outline: "outline",
+    outline_review: "outline",
+    review_outline: "outline",
+    character: "character",
+    char: "character",
+    character_consistency: "character",
+    character_consistency_review: "character",
+    review_character: "character",
+    continuity: "continuity",
+    cont: "continuity",
+    continuity_review: "continuity",
+    review_continuity: "continuity",
+    foreshadowing: "foreshadowing",
+    foreshadow: "foreshadowing",
+    foreshadowing_review: "foreshadowing",
+    review_foreshadowing: "foreshadowing",
+    style: "style",
+    style_review: "style",
+    review_style: "style",
+    world: "world",
+    world_review: "world",
+    review_world: "world",
+    pacing: "pacing",
+    pacing_review: "pacing",
+    review_pacing: "pacing",
+  };
+  if (aliases[lower]) return aliases[lower];
+  // strip common prefixes/suffixes
+  const stripped = lower
+    .replace(/^review_/, "")
+    .replace(/_review$/, "")
+    .replace(/_consistency$/, "");
+  return aliases[stripped] || stripped || "other";
+}
+
+export interface SaveFindingsOptions {
+  /**
+   * Dimension / review agent type (e.g. continuity, review_continuity).
+   * Required when findings is empty and overwrite=true (to clear that dim only).
+   */
+  dimension?: string;
+  /**
+   * true (default): replace findings for the target dimension(s).
+   * false: append without removing existing items for that dimension.
+   */
+  overwrite?: boolean;
+}
+
+/**
+ * Save findings for one or more dimensions.
+ * - overwrite=true (default): replace only the named dimension(s); other dims kept.
+ * - overwrite=false: append; never wipes other agents' findings.
+ * Empty findings + dimension + overwrite clears that dimension only (not global).
+ */
+export function saveFindings(
+  novelId: string,
+  branchId: string,
+  findings: ReviewFindings[],
+  opts?: SaveFindingsOptions,
+): void {
   const k = key(novelId, branchId);
   const store = storeMap();
   const s = store.get(k) || {};
   const existing = s.findings || [];
-  const dims = Array.from(new Set(findings.map((f) => f.dimension)));
-  const kept = existing.filter((f) => !dims.includes(f.dimension));
-  s.findings = kept.concat(findings);
+  const overwrite = opts?.overwrite !== false;
+
+  const forcedDim = opts?.dimension
+    ? normalizeFindingDimension(opts.dimension)
+    : undefined;
+
+  const normalized = (findings || []).map((f) => ({
+    dimension: forcedDim || normalizeFindingDimension(f.dimension),
+    severity: String(f.severity || "minor"),
+    description: String(f.description || "").trim(),
+    suggestion: String(f.suggestion || "").trim(),
+  })).filter((f) => f.description.length > 0 || overwrite);
+
+  // Drop empty-description rows when not a pure "clear this dim" save
+  const rows = normalized.filter((f) => f.description.length > 0);
+
+  if (overwrite) {
+    const dims = forcedDim
+      ? [forcedDim]
+      : Array.from(new Set(rows.map((f) => f.dimension)));
+    if (dims.length === 0) {
+      // empty [] without dimension → no-op (do not global wipe)
+      store.set(k, s);
+      console.log(`[Store] saveFindings ${k} overwrite no-op (empty, no dimension)`);
+      return;
+    }
+    const kept = existing.filter((f) => !dims.includes(f.dimension));
+    // Tag rows with forced dim when provided
+    const toWrite = forcedDim
+      ? rows.map((f) => ({ ...f, dimension: forcedDim }))
+      : rows;
+    s.findings = kept.concat(toWrite);
+    store.set(k, s);
+    console.log(
+      `[Store] saveFindings ${k} overwrite dims=[${dims.join(",")}] ` +
+        `+${toWrite.length} kept=${kept.length} total=${s.findings.length}`,
+    );
+    return;
+  }
+
+  // append
+  const toWrite = forcedDim
+    ? rows.map((f) => ({ ...f, dimension: forcedDim }))
+    : rows;
+  s.findings = existing.concat(toWrite);
   store.set(k, s);
   console.log(
-    `[Store] saveFindings ${k} dims=[${dims.join(",")}] -> ${s.findings.length} total (${kept.length} kept)`,
+    `[Store] saveFindings ${k} append +${toWrite.length} total=${s.findings.length}`,
   );
 }
 
@@ -253,9 +357,10 @@ export async function saveFindingsLocked(
   novelId: string,
   branchId: string,
   findings: ReviewFindings[],
+  opts?: SaveFindingsOptions,
 ): Promise<void> {
   await withBranchLock(novelId, branchId, () => {
-    saveFindings(novelId, branchId, findings);
+    saveFindings(novelId, branchId, findings, opts);
   });
 }
 
@@ -263,19 +368,35 @@ export function getFindings(novelId: string, branchId: string): ReviewFindings[]
   return storeMap().get(key(novelId, branchId))?.findings || [];
 }
 
-export function clearFindings(novelId: string, branchId: string): void {
+/**
+ * Clear findings. If dimension provided, only that review dimension is cleared.
+ * Full clear only when dimension omitted — prefer per-dim overwrite via save_findings.
+ */
+export function clearFindings(
+  novelId: string,
+  branchId: string,
+  dimension?: string,
+): void {
   const k = key(novelId, branchId);
   const store = storeMap();
   const s = store.get(k);
-  if (s) {
+  if (!s) return;
+  if (dimension) {
+    const dim = normalizeFindingDimension(dimension);
+    s.findings = (s.findings || []).filter((f) => f.dimension !== dim);
+  } else {
     s.findings = [];
-    store.set(k, s);
   }
+  store.set(k, s);
 }
 
-export async function clearFindingsLocked(novelId: string, branchId: string): Promise<void> {
+export async function clearFindingsLocked(
+  novelId: string,
+  branchId: string,
+  dimension?: string,
+): Promise<void> {
   await withBranchLock(novelId, branchId, () => {
-    clearFindings(novelId, branchId);
+    clearFindings(novelId, branchId, dimension);
   });
 }
 

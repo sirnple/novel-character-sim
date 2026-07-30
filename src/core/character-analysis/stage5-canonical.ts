@@ -16,7 +16,7 @@ import {
   isBarePronounOrGeneric,
   isInvalidUnitPrimaryName,
   isUnanchoredRelationLabel,
-} from "@/core/extractor/character-entity-types";
+} from "./runtime/character-entity-types";
 import { isDeicticPronounSurface } from "./coref/features";
 import {
   isProperKind,

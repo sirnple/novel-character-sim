@@ -116,3 +116,6 @@ export {
   pipelineResultToExtractSeed,
   sealCrossNameLedgerFromEntities,
 } from "./to-extract-workspace";
+
+/** Runtime: workspaces, entities, scan units, legacy job (formerly under extractor/) */
+export * from "./runtime";

@@ -24,7 +24,7 @@ tools:
    - 以工具返回的句式/语气/节奏/范例为对照标准
 2. `get_prose`（必做）
 3. 按需 `get_branch_text`（对照原文笔触）
-4. **`save_findings`** dimension=`"style"`，findings JSON 数组；无问题 `"[]"`
+4. **`save_findings`** dimension=`"style"`，overwrite=true，findings JSON 数组；无问题 `"[]"`（只清本维）
 
 ## 检查重点
 - 是否偏离 get_style 中的语言特征、节奏、基调

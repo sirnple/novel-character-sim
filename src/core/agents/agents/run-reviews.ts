@@ -1,6 +1,6 @@
 import type { AgentDef, AskUserRequest } from "../types";
 import { getAgent } from "../agent-registry";
-import { clearFindingsLocked, getFindings } from "../intermediate-store";
+import { getFindings } from "../intermediate-store";
 
 /** All review dimensions — run in parallel by run_reviews. */
 export const REVIEW_AGENT_TYPES = [
@@ -21,9 +21,9 @@ export type ReviewProgressEvent =
 
 /**
  * Run the six review agents concurrently.
- * - Clears findings once up front (fresh review round)
+ * - Does NOT global-clear findings (rewrite 仍可读旧清单；各维 save_findings overwrite 本维)
  * - Each agent get_prose (read) in parallel — safe
- * - Each saveFindingsLocked by dimension — no lost updates
+ * - Each save_findings(dimension, overwrite=true) replaces only that agent’s dim
  * - onProgress lets the SSE layer open one tool card per dimension
  * - If any dimension hits critical get miss, askUser is bubbled for direct user ask
  */
@@ -43,8 +43,6 @@ export async function runReviewsParallel(
   results: { agentType: string; content: string }[];
   askUser?: AskUserRequest;
 }> {
-  await clearFindingsLocked(ctx.novelId, ctx.branchId);
-
   const prompt = ctx.prompt?.trim() || "正文已写完，请自行 get_prose 后按你的维度审查。";
 
   const results = await Promise.all(

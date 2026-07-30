@@ -1,6 +1,11 @@
 import type { AgentDef, TrailMessage } from "../types";
 import { runSubAgentToolLoop } from "../tool-loop";
-import { getProse, saveProse } from "../intermediate-store";
+import {
+  formatFindingsReadable,
+  getFindings,
+  getProse,
+  saveProse,
+} from "../intermediate-store";
 import {
   resolveAgentPrompt,
   resolveAgentToolSchemas,
@@ -136,6 +141,18 @@ export const writerAgent: AgentDef = {
       : `\n\n## 文风（必须用工具取）\n` +
         `未预选风格：先 **list_styles**，再 **get_style(id=…)**；优先本书来源。\n`;
 
+    // Rewrite: snapshot findings so改写不依赖可能被误清的 store（仍应 get_findings 核对）
+    let findingsHint = "";
+    if (isRewrite) {
+      const findings = getFindings(ctx.novelId, ctx.branchId);
+      findingsHint =
+        `\n\n## 审查问题快照（程序注入，改写依据）\n` +
+        (findings.length
+          ? formatFindingsReadable(findings)
+          : "（store 暂无 findings——仍须 get_findings；若仍空则按用户 prompt 中的审查意见改）") +
+        `\n\n可再调用 get_findings 核对；**禁止**在改写前 clear_findings。\n`;
+    }
+
     const hardRules =
       "\n\n## 程序硬性规则（违反即失败）\n" +
       "1. 必须 **get_style**（或 list_styles→get_style）后再写；禁止不取文风就 save。\n" +
@@ -145,7 +162,7 @@ export const writerAgent: AgentDef = {
       "5. save_prose 返回「拒绝保存」：若提示**参数截断**，请**缩短**到 2000–6000 字完整场景再 save 一次；不要原样重贴长文。\n" +
       "6. 返回「正文已存」后**立刻停止**，不要再次 save_prose，不要继续调工具。\n";
 
-    const uc = baseUser + styleHint + hardRules;
+    const uc = baseUser + styleHint + findingsHint + hardRules;
 
     const run = (user: string) =>
       runSubAgentToolLoop(llm, sys, user, tools, ctx, onChunk, onTrail, {
