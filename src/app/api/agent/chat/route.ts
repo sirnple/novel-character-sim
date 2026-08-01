@@ -87,44 +87,20 @@ export async function POST(request: NextRequest) {
     ? `${baseSys}\n\n${ONE_CLICK_CONTINUE_SYSTEM_APPEND}`
     : baseSys;
 
-  // Analysis: ensure workspace has fullText. Only wipe when forceRefresh=true.
-  // Previously every analysis chat reset staging — so "确认保存" on the next turn
-  // wiped charactersDraft/entities before commit/finish could read them.
+  // Analysis session: one-click full wipe; multi-turn continue keeps full flag until commit.
   if (isAnalysis) {
     try {
-      const { getBranchProse, getNovel } = await import("@/lib/db");
-      const {
-        beginNovelAnalysisWorkspace,
-        getNovelAnalysisWorkspace,
-      } = await import("@/core/extractor/novel-analysis-workspace");
-      const { clearCharacterExtractWorkspace } = await import(
-        "@/core/character-analysis/runtime/character-extract-workspace"
+      const { ensureAnalysisSession } = await import(
+        "@/core/extractor/analysis-session"
       );
-      const { text } = getBranchProse(userId, novelId, branchId);
-      const fullText = (text || getNovel(userId, novelId)?.text || "").trim();
-      if (fullText) {
-        const existing = getNovelAnalysisWorkspace(userId, novelId, branchId);
-        if (forceRefresh || !existing) {
-          beginNovelAnalysisWorkspace(userId, novelId, branchId, {
-            fullText,
-            forceRefresh,
-          });
-          if (forceRefresh) {
-            clearCharacterExtractWorkspace(userId, novelId, branchId);
-            console.log(
-              `[agent/chat] analysis workspace reset forceRefresh user=${userId} novel=${novelId}`,
-            );
-          }
-        } else {
-          // Keep staged domains; refresh text only
-          beginNovelAnalysisWorkspace(userId, novelId, branchId, {
-            fullText,
-            forceRefresh: false,
-          });
-        }
-      }
+      ensureAnalysisSession({
+        userId,
+        novelId,
+        branchId,
+        mode: forceRefresh ? "full" : "continue",
+      });
     } catch (e) {
-      console.warn("[agent/chat] analysis workspace init:", (e as Error).message);
+      console.warn("[agent/chat] analysis session init:", (e as Error).message);
     }
   }
 

@@ -12,10 +12,25 @@ import {
 } from "../../src/lib/db";
 import { initRegistry } from "../../src/core/agents/init";
 import { getTool } from "../../src/core/agents/registry";
-import { beginNovelAnalysisWorkspace } from "../../src/core/extractor/novel-analysis-workspace";
+import {
+  beginNovelAnalysisWorkspace,
+  patchNovelAnalysisWorkspace,
+  getNovelAnalysisWorkspace,
+} from "../../src/core/extractor/novel-analysis-workspace";
 import { commitAnalysisWorkspace } from "../../src/core/agents/commit-analysis";
 import { ANALYSIS_OK } from "../../src/core/agents/agents/analysis-tools";
 import type { LLMProvider } from "../../src/types";
+
+/** Character-merge tests only stage roster; clear force flag so commit gate allows partial. */
+function allowPartialCommit(
+  userId: string,
+  novelId: string,
+  branchId: string,
+): void {
+  patchNovelAnalysisWorkspace(userId, novelId, branchId, {
+    forceRefresh: false,
+  } as any);
+}
 
 const dummyLlm = {} as LLMProvider;
 
@@ -186,6 +201,8 @@ export async function runAnalysisCommitTests(): Promise<void> {
         );
         assert.ok(emptyDet.content.includes("过空") || emptyDet.content.includes("未写入"), emptyDet.content);
 
+        // form+roster staged; story still missing under forceRefresh — would block full gate
+        allowPartialCommit(userId, novelId, branchId);
         const result = commitAnalysisWorkspace({ userId, novelId, branchId });
         assert.ok(result.ok, result.content);
         assert.ok(
@@ -363,6 +380,7 @@ export async function runAnalysisCommitTests(): Promise<void> {
             dummyLlm,
           );
 
+          allowPartialCommit(userId, novelId, branchId);
           const result = commitAnalysisWorkspace({ userId, novelId, branchId });
           assert.ok(result.ok, result.content);
           const chars = getCharacters(userId, novelId);
@@ -484,6 +502,143 @@ export async function runAnalysisCommitTests(): Promise<void> {
           assert.ok(draft);
           assert.equal(draft!.length, 2, draft!.map((c) => c.name).join(","));
           assert.ok(!draft!.some((c) => c.name === "路人乙"));
+        } finally {
+          deleteNovel(userId, novelId);
+        }
+      },
+    );
+
+    await testAsync(
+      "forceRefresh empty staging blocks commit (no false 全书完成)",
+      async () => {
+        initRegistry();
+        const userId = `ac_${randomUUID().slice(0, 8)}`;
+        const novelId = `n_${randomUUID().slice(0, 8)}`;
+        const branchId = "main";
+        const text = "第一章\n流浪地球启航。\n".repeat(20);
+        try {
+          importNovel(userId, novelId, "流浪地球", text);
+          // Seed DB form + characters (simulates prior analysis)
+          const { saveNovelForm, saveCharacters } = await import(
+            "../../src/lib/db"
+          );
+          saveNovelForm(userId, novelId, {
+            novelId,
+            formType: "short_story",
+            unitHierarchy: ["chapter"],
+            chaptering: { hasChapters: true, chapterCount: 1 },
+            narrativeArchitecture: {},
+            continuationRules: {},
+            updatedAt: new Date().toISOString(),
+          } as any);
+          saveCharacters(userId, novelId, [
+            {
+              id: "c1",
+              name: "刘启",
+              aliases: [],
+              appearance: { summary: "青年" },
+              personality: {
+                traits: [],
+                description: "",
+                decisionStyle: "",
+                underPressure: "",
+              },
+              drive: {
+                goal: "",
+                motivation: "",
+                fear: "",
+                weakness: "",
+                bottomLine: "",
+                secret: "",
+              },
+              behavior: {
+                patterns: [],
+                habits: [],
+                attitudeToAuthority: "",
+              },
+              worldview: "",
+              values: [],
+              speakingStyle: {
+                description: "",
+                catchphrases: [],
+                sentenceStyle: "",
+                vocabulary: "",
+                emotionalExpression: "",
+              },
+              background: { origin: "", keyEvents: [], description: "" },
+              relationships: [],
+            },
+          ] as any);
+          assert.ok(getNovelForm(userId, novelId));
+          assert.equal(getCharacters(userId, novelId).length, 1);
+
+          // One-click wipe
+          beginNovelAnalysisWorkspace(userId, novelId, branchId, {
+            fullText: text,
+            forceRefresh: true,
+          });
+          assert.equal(
+            getNovelAnalysisWorkspace(userId, novelId, branchId)?.forceRefresh,
+            true,
+          );
+
+          const status = await getTool("get_analysis_status")!.execute(
+            {},
+            { userId, novelId, branchId },
+            dummyLlm,
+          );
+          const st = JSON.parse(status.content);
+          assert.equal(st.forceRefresh, true, status.content);
+          assert.equal(st.form, false, "DB form must not count as done");
+          assert.equal(
+            st.character_list,
+            false,
+            "DB characters must not count as done",
+          );
+          assert.equal(st.story, false);
+          assert.ok(
+            st.pending.includes("form") && st.pending.includes("character_list"),
+            JSON.stringify(st.pending),
+          );
+          assert.ok(
+            st.nextActions.some((a: string) => a.includes("analyze_form")),
+            JSON.stringify(st.nextActions),
+          );
+
+          const blocked = commitAnalysisWorkspace({
+            userId,
+            novelId,
+            branchId,
+          });
+          assert.equal(blocked.ok, false, blocked.content);
+          assert.ok(
+            blocked.content.includes("未落库") ||
+              blocked.content.includes("会话") ||
+              blocked.content.includes("session"),
+            blocked.content,
+          );
+          assert.ok(
+            !blocked.content.includes("全书分析已完成"),
+            "must not claim full success: " + blocked.content,
+          );
+          assert.equal(blocked.committed.length, 0);
+
+          const fin = await getTool("finish_novel_analysis")!.execute(
+            { userConfirmed: true },
+            { userId, novelId, branchId },
+            dummyLlm,
+          );
+          assert.ok(
+            fin.content.includes("未落库") || fin.content.includes("会话"),
+            fin.content,
+          );
+          assert.ok(
+            !fin.content.includes(ANALYSIS_OK.finish),
+            "finish marker forbidden on empty forceRefresh: " + fin.content,
+          );
+          // DB left intact
+          assert.equal(getCharacters(userId, novelId).length, 1);
+          assert.ok(getNovelForm(userId, novelId));
         } finally {
           deleteNovel(userId, novelId);
         }

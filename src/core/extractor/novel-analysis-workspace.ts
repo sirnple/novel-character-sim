@@ -133,10 +133,12 @@ export function beginNovelAnalysisWorkspace(
   data: { fullText: string; modules?: string[]; forceRefresh?: boolean },
 ): NovelAnalysisWorkspace {
   const existing = getNovelAnalysisWorkspace(userId, novelId, branchId);
-  // forceRefresh: reset staging; else keep staged domain results, refresh text
+  // forceRefresh: reset staging; else keep staged domain results, refresh text.
+  // Prefer AnalysisSession.ensureAnalysisSession — it owns full vs continue semantics.
   if (existing && !data.forceRefresh) {
     existing.fullText = data.fullText || existing.fullText;
     if (data.modules) existing.modules = data.modules;
+    // Do NOT clear forceRefresh here: full 一键后的多轮续聊必须保持 full 直到 commit。
     existing.updatedAt = new Date().toISOString();
     store().set(key(userId, novelId, branchId), existing);
     persist(userId, novelId, branchId, existing);

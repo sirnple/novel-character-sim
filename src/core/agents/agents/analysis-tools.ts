@@ -2054,30 +2054,49 @@ export const analysisMasterTools: ToolDefinition[] = [
       const { userId, novelId, branchId } = ids(ctx);
       const ws = getNovelAnalysisWorkspace(userId, novelId, branchId);
       const cws = getCharacterExtractWorkspace(userId, novelId, branchId);
-      // Prefer session workspace; fall back to already-committed DB
-      const form = !!(ws?.form || getNovelForm(userId, novelId));
-      const story = !!(ws?.storyInfo?.plotSummary || getStoryInfo(userId, novelId)?.plotSummary);
+      /**
+       * full 会话（一键从头）：只认本轮会话草稿，禁止把已入库结果当 done。
+       * 内部仍用 workspace.forceRefresh 标记；对外 status 见 sessionMode。
+       */
+      const force = !!ws?.forceRefresh;
+      const form = force
+        ? !!(ws?.form || ws?.formDraft)
+        : !!(ws?.form || getNovelForm(userId, novelId));
+      const story = force
+        ? !!ws?.storyInfo?.plotSummary
+        : !!(
+            ws?.storyInfo?.plotSummary ||
+            getStoryInfo(userId, novelId)?.plotSummary
+          );
       const entitiesResolved = cws?.entities?.length || 0;
       const draftChars = ws?.charactersDraft?.length || 0;
       const dbChars = getCharacters(userId, novelId);
       const charactersInDb = dbChars.length;
-      const characterList = entitiesResolved > 0 || draftChars > 0 || charactersInDb > 0;
+      const characterList = force
+        ? entitiesResolved > 0 || draftChars > 0
+        : entitiesResolved > 0 || draftChars > 0 || charactersInDb > 0;
       // Multi-dimension detail, not roster brief stubs
       const detailInDraft = (ws?.charactersDraft || []).filter(profileHasDetail).length;
       const detailInDb = dbChars.filter(profileHasDetail).length;
-      const characterDetail = detailInDraft > 0 || detailInDb > 0;
+      const characterDetail = force
+        ? detailInDraft > 0
+        : detailInDraft > 0 || detailInDb > 0;
       const relEdges = ws?.relationshipEdges?.length || 0;
-      const relOnChars =
-        (ws?.charactersDraft || []).reduce(
-          (n, c) => n + (c.relationships?.length || 0),
-          0,
-        ) + dbChars.reduce((n, c) => n + (c.relationships?.length || 0), 0);
-      const characterRelationships = relEdges > 0 || relOnChars > 0;
-      /** Saved timeline snapshots (complete or partial) */
-      const timelineData = !!(
-        ws?.timeline ||
-        getTimeline(userId, novelId, branchId)
+      const relOnDraft = (ws?.charactersDraft || []).reduce(
+        (n, c) => n + (c.relationships?.length || 0),
+        0,
       );
+      const relOnDb = dbChars.reduce(
+        (n, c) => n + (c.relationships?.length || 0),
+        0,
+      );
+      const characterRelationships = force
+        ? relEdges > 0 || relOnDraft > 0
+        : relEdges > 0 || relOnDraft > 0 || relOnDb > 0;
+      /** Saved timeline snapshots (complete or partial) */
+      const timelineData = force
+        ? !!ws?.timeline
+        : !!(ws?.timeline || getTimeline(userId, novelId, branchId));
       const tlJobs = listTimelineJobRows(userId, novelId, branchId);
       const latestTlJob = tlJobs[0] || null;
       const timelineJobStatus = latestTlJob?.status || null;
@@ -2088,12 +2107,13 @@ export const analysisMasterTools: ToolDefinition[] = [
       );
       /** Domain "ready" for agent dispatch: data OR background job already started */
       const timeline = timelineData || timelineJobStarted;
-      const style =
-        !!ws?.style ||
-        listStyles(userId).some((s) => s.sourceNovelId === novelId);
+      const style = force
+        ? !!ws?.style
+        : !!ws?.style ||
+          listStyles(userId).some((s) => s.sourceNovelId === novelId);
       const ideaCountWs = ws?.ideas?.length || 0;
       const ideaCountDb = listIdeas(userId).filter((i) => i.sourceNovelId === novelId).length;
-      const ideas = ideaCountWs > 0 || ideaCountDb > 0;
+      const ideas = force ? ideaCountWs > 0 : ideaCountWs > 0 || ideaCountDb > 0;
 
       const domainReady: Record<string, boolean> = {
         form,
@@ -2182,6 +2202,10 @@ export const analysisMasterTools: ToolDefinition[] = [
       const status = {
         novelId,
         branchId,
+        /** @deprecated use sessionMode; true when full 一键会话 */
+        forceRefresh: force,
+        /** full = 只认会话草稿；continue = 可认已入库 */
+        sessionMode: force ? "full" : "continue",
         form,
         story,
         character_list: characterList,
@@ -2302,6 +2326,7 @@ export const analysisMasterTools: ToolDefinition[] = [
             "本轮分析告一段落时：options 必须包含「确认保存到本书」或「保存分析结果」",
             "用户点了保存类选项，或文字要求保存 → finish_novel_analysis(userConfirmed=true)，不要再追问",
             "用户要求分析已在 done 中的域：必须 ask 是否重新分析（覆盖）还是保留；禁止静默重跑",
+            "sessionMode=full（一键从头）时：已入库不算 done；必须本轮各域 submit 后再请用户确认保存；禁止直接 finish",
             "parallelReady 有多项时：同轮多个 agent() 并行，禁止无谓串行",
             "时间线为后台异步可选：不阻塞写作；勿等待时间线跑完再保存；pending 仅剩 timeline 时仍可 finish",
             "写作就绪 = 章法目录 + 故事 + 角色名单（status.writeReady）；detail/rels/文风/点子/时间线非写作硬门槛",
@@ -2361,6 +2386,15 @@ export const analysisMasterTools: ToolDefinition[] = [
       const { userId, novelId, branchId } = ids(ctx);
       const { commitAnalysisWorkspace } = await import("../commit-analysis");
       const result = commitAnalysisWorkspace({ userId, novelId, branchId });
+      // 仅 ok 时打成功标记；空提交/forceRefresh 缺域不得被 toolSaveSucceeded 当成完成
+      if (!result.ok) {
+        return {
+          content: result.content.startsWith("未落库")
+            ? result.content
+            : `未落库：${result.content}`,
+          messages: [],
+        };
+      }
       return {
         content: result.content.startsWith(ANALYSIS_OK.finish)
           ? result.content

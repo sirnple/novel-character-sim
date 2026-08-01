@@ -4,7 +4,10 @@ import { Bot, Send, Loader2, Wrench, HelpCircle, Zap, Check } from "lucide-react
 import Markdown from "@/components/markdown";
 import { useNovel } from "@/lib/novel-context";
 import { notifyLibrariesRefresh } from "@/lib/library-events";
-import { isUserConfirmSave } from "@/lib/analysis-confirm";
+import {
+  isUserConfirmSave,
+  isUserForceFullReanalyze,
+} from "@/lib/analysis-confirm";
 import { toolLabel } from "@/lib/tool-labels";
 
 const WRITE_AGENT_TYPES = new Set([
@@ -1221,7 +1224,12 @@ export default function AgentPanel({
 
   const handleSend = async (
     overrideText?: string,
-    opts?: { autoPassCheckpoints?: boolean; forceRefresh?: boolean },
+    opts?: {
+      autoPassCheckpoints?: boolean;
+      forceRefresh?: boolean;
+      /** Skip programmatic commit (一键分析/续写指令绝不是用户点保存) */
+      skipCommit?: boolean;
+    },
   ) => {
     const text = (overrideText ?? input).trim();
     if (!text || status === "generating") return;
@@ -1244,8 +1252,11 @@ export default function AgentPanel({
     stickToBottomRef.current = true;
     setMessages([...history, userMsg]);
     if (!overrideText) setInput("");
-    // Free-text path must also commit (was only on option click before)
-    await commitIfUserSave(text);
+    // Free-text path may commit when user typed a short save request.
+    // Never commit on one-click / long orchestration prompts (see isUserConfirmSave).
+    if (!opts?.skipCommit) {
+      await commitIfUserSave(text);
+    }
     await runChat(history, userMsg, opts);
   };
 
@@ -1255,18 +1266,19 @@ export default function AgentPanel({
     const text =
       "请对本分支进行【一键续写】：按标准流程完成 大纲→大纲审核→写正文→六维审查→接受续写写入分支。" +
       "不要停下来等我确认；但审核/审查若有致命或重要问题，必须改写到通过后再往下，禁止「了解风险仍继续」。完成后简要汇报。";
-    await handleSend(text, { autoPassCheckpoints: true });
+    await handleSend(text, { autoPassCheckpoints: true, skipCommit: true });
   };
 
-  /** 一键全书分析：有已完成域时必须 ask_question，再按选择派工 */
+  /**
+   * 一键全书分析：仅 full 会话（API forceRefresh=true → AnalysisSession mode full）。
+   * 确认保存仍由用户点选；user 文案只表意图。
+   */
   const handleOneClickAnalyze = async () => {
     if (status === "generating" || !novelId) return;
     const text =
-      `请【续跑/完整分析】。` +
-      `先 get_current_novel + get_current_branch + get_analysis_status。` +
-      `范围不清时 ask_question：选项必须无歧义（禁止「全部重新分析」这种说不清范围的）；` +
-      `角色拆名单/详情/关系；中文写清将运行什么；各域已齐勿问确认保存。禁止自己写长文。`;
-    // forceRefresh: wipe staging so one-click can re-run domains cleanly
+      `【一键分析】从头分析当前小说，所有分析都要执行，不用询问是否执行。` +
+      `遇到审查问题，最多修复三轮。`;
+    // forceRefresh body flag starts AnalysisSession mode=full（wipe + 只认本轮草稿）
     await handleSend(text, { forceRefresh: true });
   };
 
@@ -1298,7 +1310,10 @@ export default function AgentPanel({
     // Program commit first (before runChat — chat must not wipe staging)
     await commitIfUserSave(ans);
 
-    await runChat(history, userMsg);
+    // 用户明确选「全书强制重跑」才 wipe；普通选项续跑
+    await runChat(history, userMsg, {
+      forceRefresh: isUserForceFullReanalyze(ans),
+    });
   };
 
   const handleStop = () => {
