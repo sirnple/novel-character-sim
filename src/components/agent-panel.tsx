@@ -1240,6 +1240,8 @@ export default function AgentPanel({
     opts?: {
       autoPassCheckpoints?: boolean;
       forceRefresh?: boolean;
+      /** 一键多轮：保持 full 会话且不 wipe */
+      preserveFull?: boolean;
       /** Skip programmatic commit (一键分析/续写指令绝不是用户点保存) */
       skipCommit?: boolean;
     },
