@@ -22,6 +22,11 @@ export interface ToolContext {
   userId: string;
   /** User-selected style library id (writer / style review fetch via get_style). */
   selectedStyleId?: string | null;
+  /**
+   * Request abort (client F5 / 停止). Long tools (窗扫) must check between units.
+   * Full resumable session modeling is separate work.
+   */
+  signal?: AbortSignal;
 }
 
 /** Sub-agent conversation trail for UI (chat-style, not raw API blocks). */
@@ -69,6 +74,8 @@ export interface AgentContext {
   selectedIdeaIds?: string[];
   /** Outline agent may auto-pick ideas if none selected. */
   autoPickIdeas?: boolean;
+  /** Same as ToolContext.signal — F5 / 停止. */
+  signal?: AbortSignal;
 }
 
 export type StreamEvent =

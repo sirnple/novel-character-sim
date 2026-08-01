@@ -38,6 +38,8 @@ export interface CharacterAnalysisPipelineOptions {
   stage4Concurrency?: number;
   maxWindows?: number | null;
   concurrency?: number;
+  /** Client F5 / 停止 — stop starting new stage① windows */
+  signal?: AbortSignal;
   onStage1Window?: Stage1ScanOptions["onWindowDone"];
   onStage3AgentPair?: Stage3Options["onAgentPair"];
   onProgress?: (msg: string) => void;
@@ -95,6 +97,7 @@ export async function runCharacterAnalysisPipeline(
     ...options.stage1,
     concurrency,
     maxWindows,
+    signal: options.signal ?? options.stage1?.signal,
     onWindowDone: (result, index, total) => {
       const done = ++stage1Completed;
       options.onStage1Window?.(result, index, total);
@@ -106,6 +109,8 @@ export async function runCharacterAnalysisPipeline(
       });
     },
   });
+
+  if (options.signal?.aborted) throw new Error("ABORTED");
 
   emitStage({
     stage: 2,
@@ -123,6 +128,8 @@ export async function runCharacterAnalysisPipeline(
     stageTotal: 1,
     detail: `${stage2.characters.length}人`,
   });
+
+  if (options.signal?.aborted) throw new Error("ABORTED");
 
   const agentOn = options.stage3Agent !== false;
   options.onProgress?.(
@@ -166,6 +173,8 @@ export async function runCharacterAnalysisPipeline(
       `[pipeline] stage3 uncertain pairs=${stage3.uncertainPairs.length} (outer agent may resolve)`,
     );
   }
+
+  if (options.signal?.aborted) throw new Error("ABORTED");
 
   emitStage({
     stage: 4,

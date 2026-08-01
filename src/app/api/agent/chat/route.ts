@@ -184,6 +184,7 @@ export async function POST(request: NextRequest) {
             selectedStyleId,
             selectedIdeaIds: Array.isArray(selectedIdeaIds) ? selectedIdeaIds.slice(0, 3) : [],
             autoPickIdeas: !!autoPickIdeas,
+            signal,
           },
           llm,
           onChunk,
@@ -438,7 +439,7 @@ export async function POST(request: NextRequest) {
         };
         const result = await toolDef.execute(
           { ...args, novelId, branchId },
-          { novelId, branchId, userId },
+          { novelId, branchId, userId, signal },
           llm,
           onChunk,
         );
@@ -494,6 +495,7 @@ export async function POST(request: NextRequest) {
           }, 2000);
 
           for await (const event of eventStream) {
+            checkAbort();
             if (event.type === "text_delta") {
               if (!hasTextOutput) {
                 hasTextOutput = true;
@@ -559,7 +561,12 @@ export async function POST(request: NextRequest) {
                 askUser: result.askUser,
               };
             } catch (e) {
-              const err = `子 Agent 失败: ${(e as Error).message}`;
+              const msg = (e as Error).message || String(e);
+              // F5 / 停止：向上抛，结束整条 chat 请求
+              if (msg === "ABORTED" || (e as Error).name === "AbortError") {
+                throw e;
+              }
+              const err = `子 Agent 失败: ${msg}`;
               sendTool(
                 String(item.args.agent_type || "agent"),
                 "done",
@@ -576,6 +583,7 @@ export async function POST(request: NextRequest) {
 
           for (const wave of execWaves) {
             if (stopForUser) break;
+            checkAbort();
 
             // Parallel agent wave (analysis only)
             if (
@@ -780,11 +788,13 @@ export async function POST(request: NextRequest) {
           logSession({ ts: new Date().toISOString(), type: "master_agent", status: "max_steps" });
         }
       } catch (e) {
-        if ((e as Error).message === "ABORTED") {
+        const msg = (e as Error).message || String(e);
+        if (msg === "ABORTED" || (e as Error).name === "AbortError") {
+          console.log("[agent/chat] aborted (client stop/F5)");
           send({ type: "stopped" });
         } else {
-          logSession({ ts: new Date().toISOString(), type: "error", error: (e as Error).message });
-          send({ type: "error", message: (e as Error).message });
+          logSession({ ts: new Date().toISOString(), type: "error", error: msg });
+          send({ type: "error", message: msg });
         }
       }
       controller.close();

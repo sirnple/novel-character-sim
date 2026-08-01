@@ -166,7 +166,17 @@ export const characterEntityResolveAgent: AgentDef = {
         content: "调用「角色列表流水线」scan_character_mentions",
       },
     ]);
-    const scanRes = await scanTool.execute({}, ctx, llm, onChunk);
+    const scanRes = await scanTool.execute(
+      {},
+      {
+        novelId: ctx.novelId,
+        branchId,
+        userId: ctx.userId,
+        signal: ctx.signal,
+      },
+      llm,
+      onChunk,
+    );
     pushTrail([
       {
         role: "tool_result",
@@ -175,6 +185,8 @@ export const characterEntityResolveAgent: AgentDef = {
       },
       ...scanRes.messages,
     ]);
+
+    if (ctx.signal?.aborted) throw new Error("ABORTED");
 
     let cws = getCharacterExtractWorkspace(
       ctx.userId,

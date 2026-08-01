@@ -16,6 +16,8 @@ export interface Stage1ScanOptions {
   temperature?: number;
   maxTokens?: number;
   cwd?: string;
+  /** Client disconnect / stop — do not start new windows. */
+  signal?: AbortSignal;
   onWindowDone?: (result: WindowExtractResult, index: number, total: number) => void;
 }
 
@@ -23,11 +25,13 @@ async function mapPool<T, R>(
   items: T[],
   concurrency: number,
   fn: (item: T, index: number) => Promise<R>,
+  signal?: AbortSignal,
 ): Promise<R[]> {
   const out = new Array<R>(items.length);
   let next = 0;
   async function worker() {
     while (next < items.length) {
+      if (signal?.aborted) throw new Error("ABORTED");
       const i = next++;
       out[i] = await fn(items[i]!, i);
     }
@@ -63,51 +67,61 @@ export async function runStage1WindowScan(
   }
   const concurrency = Math.max(1, Math.min(32, options.concurrency ?? 2));
 
-  const byWindow = await mapPool(windows, concurrency, async (window, idx) => {
-    // Neighbors from full list so overlap zones stay correct when maxWindows truncates
-    const prev = allWindows[window.index - 1] ?? null;
-    const next = allWindows[window.index + 1] ?? null;
-    try {
-      const characters = await extractCharactersInWindow(llm, window, {
-        temperature: options.temperature,
-        maxTokens: options.maxTokens,
-        cwd: options.cwd,
-        prev,
-        next,
-      });
-      const result: WindowExtractResult = {
-        window: {
-          index: window.index,
-          label: window.label,
-          start: window.start,
-          end: window.end,
-        },
-        characters,
-      };
-      options.onWindowDone?.(result, idx, windows.length);
-      return result;
-    } catch (e) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      // Log first few failures so production missing-prompt / API issues are visible
-      if (idx < 3 || /Missing extract-window prompt/i.test(errMsg)) {
-        console.error(
-          `[stage1] window ${window.index} extract failed: ${errMsg.slice(0, 240)}`,
-        );
+  const byWindow = await mapPool(
+    windows,
+    concurrency,
+    async (window, idx) => {
+      if (options.signal?.aborted) throw new Error("ABORTED");
+      // Neighbors from full list so overlap zones stay correct when maxWindows truncates
+      const prev = allWindows[window.index - 1] ?? null;
+      const next = allWindows[window.index + 1] ?? null;
+      try {
+        const characters = await extractCharactersInWindow(llm, window, {
+          temperature: options.temperature,
+          maxTokens: options.maxTokens,
+          cwd: options.cwd,
+          prev,
+          next,
+        });
+        if (options.signal?.aborted) throw new Error("ABORTED");
+        const result: WindowExtractResult = {
+          window: {
+            index: window.index,
+            label: window.label,
+            start: window.start,
+            end: window.end,
+          },
+          characters,
+        };
+        options.onWindowDone?.(result, idx, windows.length);
+        return result;
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        if (errMsg === "ABORTED" || options.signal?.aborted) {
+          throw new Error("ABORTED");
+        }
+        // Log first few failures so production missing-prompt / API issues are visible
+        if (idx < 3 || /Missing extract-window prompt/i.test(errMsg)) {
+          console.error(
+            `[stage1] window ${window.index} extract failed: ${errMsg.slice(0, 240)}`,
+          );
+        }
+        const result: WindowExtractResult = {
+          window: {
+            index: window.index,
+            label: window.label,
+            start: window.start,
+            end: window.end,
+          },
+          characters: [],
+          error: errMsg,
+        };
+        options.onWindowDone?.(result, idx, windows.length);
+        return result;
       }
-      const result: WindowExtractResult = {
-        window: {
-          index: window.index,
-          label: window.label,
-          start: window.start,
-          end: window.end,
-        },
-        characters: [],
-        error: errMsg,
-      };
-      options.onWindowDone?.(result, idx, windows.length);
-      return result;
-    }
-  });
+    },
+    options.signal,
+  );
 
   return { config, windows, byWindow };
 }

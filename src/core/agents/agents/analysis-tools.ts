@@ -160,6 +160,7 @@ async function seedCharacterCatalogViaPipeline(
    */
   onProgress?: (done: number, total: number, label: string) => void,
   onProgressLine?: (line: string) => void,
+  signal?: AbortSignal,
 ): Promise<{
   surfaceCount: number;
   unitCount: number;
@@ -176,6 +177,7 @@ async function seedCharacterCatalogViaPipeline(
     stage3Concurrency: conc,
     stage4Concurrency: conc,
     agentContextRadius: 220,
+    signal,
     onStageProgress: (ev) => {
       const line = formatCharacterPipelineProgress(ev);
       onProgressLine?.(line);
@@ -1277,6 +1279,7 @@ export const analysisDomainTools: ToolDefinition[] = [
           llm,
           undefined,
           emitLine,
+          ctx.signal,
         );
         const after = getCharacterExtractWorkspace(userId, novelId, branchId);
         // Stage draft for UI / later detail agent
@@ -1306,8 +1309,13 @@ export const analysisDomainTools: ToolDefinition[] = [
           messages: [],
         };
       } catch (e) {
+        const msg = (e as Error).message || String(e);
+        // Propagate client stop / F5 — do not mask as empty scan
+        if (msg === "ABORTED" || (e as Error).name === "AbortError") {
+          throw e;
+        }
         return {
-          content: `角色指称扫描失败: ${(e as Error).message}`,
+          content: `角色指称扫描失败: ${msg}`,
           messages: [],
         };
       }
