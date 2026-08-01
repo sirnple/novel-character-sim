@@ -588,35 +588,26 @@ export async function runAnalysisCommitTests(): Promise<void> {
             dummyLlm,
           );
           const st = JSON.parse(status.content);
-          assert.equal(st.forceRefresh, true, status.content);
-          assert.equal(st.form, false, "DB form must not count as done");
-          assert.equal(
-            st.character_list,
-            false,
-            "DB characters must not count as done",
-          );
-          assert.equal(st.story, false);
+          // done 客观反映已入库；一键意图只在 hint 里
+          assert.equal(st.userRequestedFullRerun, true, status.content);
+          assert.equal(st.published?.form, true);
+          assert.equal(st.published?.character_list, true);
+          assert.equal(st.form, true, "published form counts as done");
+          assert.equal(st.character_list, true, "published chars count as done");
+          assert.equal(st.session?.form, false);
+          assert.equal(st.session?.character_list, false);
           assert.ok(
-            st.pending.includes("form") && st.pending.includes("character_list"),
-            JSON.stringify(st.pending),
-          );
-          assert.ok(
-            st.nextActions.some((a: string) => a.includes("analyze_form")),
+            st.nextActions.some((a: string) => a.includes("全量") || a.includes("一键")),
             JSON.stringify(st.nextActions),
           );
 
+          // 空会话提交：无新草稿可写 → 不宣称全书完成
           const blocked = commitAnalysisWorkspace({
             userId,
             novelId,
             branchId,
           });
           assert.equal(blocked.ok, false, blocked.content);
-          assert.ok(
-            blocked.content.includes("未落库") ||
-              blocked.content.includes("会话") ||
-              blocked.content.includes("session"),
-            blocked.content,
-          );
           assert.ok(
             !blocked.content.includes("全书分析已完成"),
             "must not claim full success: " + blocked.content,
@@ -629,12 +620,8 @@ export async function runAnalysisCommitTests(): Promise<void> {
             dummyLlm,
           );
           assert.ok(
-            fin.content.includes("未落库") || fin.content.includes("会话"),
-            fin.content,
-          );
-          assert.ok(
             !fin.content.includes(ANALYSIS_OK.finish),
-            "finish marker forbidden on empty forceRefresh: " + fin.content,
+            "finish marker forbidden on empty commit: " + fin.content,
           );
           // DB left intact
           assert.equal(getCharacters(userId, novelId).length, 1);

@@ -7,9 +7,6 @@ import {
   clearNovelAnalysisWorkspace,
 } from "@/core/extractor/novel-analysis-workspace";
 import { getCharacterExtractWorkspace } from "@/core/character-analysis/runtime/character-extract-workspace";
-import {
-  fullSessionCommitGaps,
-} from "@/core/extractor/analysis-session";
 import { buildFormDraftFromText } from "@/core/form/form-analyzer";
 import { entitiesToProfiles } from "./agents/character-extract-tools";
 import { collapseTechnicalFarSameNameKeys } from "@/core/character-analysis/runtime/character-local-entities";
@@ -60,7 +57,7 @@ function loadText(userId: string, novelId: string, branchId: string): string {
 }
 
 export { isUserConfirmSave } from "@/lib/analysis-confirm";
-/** @deprecated use fullSessionCommitGaps */
+/** @deprecated gaps no longer gate commit; kept for old imports */
 export { fullSessionCommitGaps as forceRefreshStagingGaps } from "@/core/extractor/analysis-session";
 
 export function commitAnalysisWorkspace(input: {
@@ -83,31 +80,7 @@ export function commitAnalysisWorkspace(input: {
   const committed: string[] = [];
   const skipped: string[] = [];
 
-  // full 会话：禁止未跑完关键域就确认保存（勿用 DB 旧数据冒充本轮结果）
-  const forceGaps = fullSessionCommitGaps({ userId, novelId, branchId });
-  if (forceGaps.length) {
-    const nChars = getCharacters(userId, novelId).length;
-    return {
-      ok: false,
-      content:
-        `未落库：本轮全文分析会话仍缺【${forceGaps.join("、")}】。` +
-        `请先 get_analysis_status 按 parallelReady/nextActions 派工（本轮只认会话草稿），` +
-        `各域 submit 后再确认保存。` +
-        ` ${JSON.stringify({
-          committed: [],
-          skipped: forceGaps.map((g) => `${g}(session staging empty)`),
-          story: !!getStoryInfo(userId, novelId),
-          form: !!getNovelForm(userId, novelId),
-          characters: nChars,
-          timeline: !!getTimeline(userId, novelId, branchId),
-          sessionMode: "full",
-          bookTitle: resolveBookTitle(userId, novelId),
-        })}`,
-      committed: [],
-      skipped: forceGaps.map((g) => `${g}(session staging empty)`),
-      characters: nChars,
-    };
-  }
+  // 不再因 force 标记拦截：是否全量由 agent 判断；空提交在下方 committed 为空时自然失败
 
   const form = ws?.form || ws?.formDraft || null;
   let catalog = ws?.formCatalog || [];

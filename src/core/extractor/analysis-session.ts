@@ -90,12 +90,18 @@ function seedFormIntoSession(
  * Ensure analysis session exists for this novel/branch.
  *
  * - mode "full": wipe staging + character extract, mark full, seed form.
- * - mode "continue": keep staging; **preserve** full-mode flag if already full.
+ * - mode "continue": keep staging; by default **exit full** so status uses DB again.
+ * - preserveFull: true keeps full semantics without wipe (一键多轮续聊).
  */
 export function ensureAnalysisSession(
   input: AnalysisSessionIds & {
     mode: AnalysisSessionMode;
     fullText?: string;
+    /**
+     * Only for mode=continue: keep full-session flag (status ignores DB).
+     * Default false — ordinary chat must see published domains as done.
+     */
+    preserveFull?: boolean;
   },
 ): {
   mode: AnalysisSessionMode;
@@ -135,18 +141,26 @@ export function ensureAnalysisSession(
     };
   }
 
-  // continue: create if missing; never wipe; never clear full flag mid-run
+  // continue: create if missing; never wipe
   const existing = getNovelAnalysisWorkspace(userId, novelId, branchId);
   if (!existing) {
     beginNovelAnalysisWorkspace(userId, novelId, branchId, {
       fullText,
       forceRefresh: false,
     });
-  } else if (fullText) {
-    // Refresh text only — patch without begin(..., forceRefresh:false) which used to clear full
-    patchNovelAnalysisWorkspace(userId, novelId, branchId, {
-      fullText,
-    });
+  } else {
+    const patch: { fullText?: string; forceRefresh?: boolean } = {};
+    if (fullText) patch.fullText = fullText;
+    // 非一键续聊：退出 full，status 重新认已入库结果
+    if (!input.preserveFull && existing.forceRefresh) {
+      patch.forceRefresh = false;
+      console.log(
+        `[analysis-session] exit full → continue user=${userId} novel=${novelId}`,
+      );
+    }
+    if (Object.keys(patch).length) {
+      patchNovelAnalysisWorkspace(userId, novelId, branchId, patch);
+    }
   }
 
   const full = isFullAnalysisSession({ userId, novelId, branchId });

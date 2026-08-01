@@ -2035,9 +2035,10 @@ export const analysisMasterTools: ToolDefinition[] = [
   {
     name: "get_analysis_status",
     description:
-      "查看各分析域完成状态、依赖图、建议下一步。" +
-      "用户点名单域时传 for_agent（如 extract_character_detail）→ 返回 launchPlan（缺依赖则 sequence 先依赖后目标）。" +
-      "done 中的域：用户再要求分析时须 ask 是否重新分析，禁止静默重跑；单域按 launchPlan.sequence 调度。",
+      "查看各分析域完成状态（已入库 published + 本轮会话 session）、依赖图、建议下一步。" +
+      "done = 会话或已入库有结果（客观事实）；是否全量重跑由你根据**用户本轮意图**判断，不是由 force 开关决定。" +
+      "用户点名单域时传 for_agent → launchPlan。" +
+      "普通补缺：pending 直接派；用户明确一键/从头/全部重跑：即使 done 也按波次全派且不必再 ask。",
     parameters: {
       type: "object",
       properties: {
@@ -2054,66 +2055,66 @@ export const analysisMasterTools: ToolDefinition[] = [
       const { userId, novelId, branchId } = ids(ctx);
       const ws = getNovelAnalysisWorkspace(userId, novelId, branchId);
       const cws = getCharacterExtractWorkspace(userId, novelId, branchId);
-      /**
-       * full 会话（一键从头）：只认本轮会话草稿，禁止把已入库结果当 done。
-       * 内部仍用 workspace.forceRefresh 标记；对外 status 见 sessionMode。
-       */
-      const force = !!ws?.forceRefresh;
-      const form = force
-        ? !!(ws?.form || ws?.formDraft)
-        : !!(ws?.form || getNovelForm(userId, novelId));
-      const story = force
-        ? !!ws?.storyInfo?.plotSummary
-        : !!(
-            ws?.storyInfo?.plotSummary ||
-            getStoryInfo(userId, novelId)?.plotSummary
-          );
+
+      // ── 会话草稿（未确认保存）──
+      const sessionForm = !!(ws?.form || ws?.formDraft);
+      const sessionStory = !!ws?.storyInfo?.plotSummary;
       const entitiesResolved = cws?.entities?.length || 0;
       const draftChars = ws?.charactersDraft?.length || 0;
-      const dbChars = getCharacters(userId, novelId);
-      const charactersInDb = dbChars.length;
-      const characterList = force
-        ? entitiesResolved > 0 || draftChars > 0
-        : entitiesResolved > 0 || draftChars > 0 || charactersInDb > 0;
-      // Multi-dimension detail, not roster brief stubs
+      const sessionCharacterList = entitiesResolved > 0 || draftChars > 0;
       const detailInDraft = (ws?.charactersDraft || []).filter(profileHasDetail).length;
-      const detailInDb = dbChars.filter(profileHasDetail).length;
-      const characterDetail = force
-        ? detailInDraft > 0
-        : detailInDraft > 0 || detailInDb > 0;
+      const sessionCharacterDetail = detailInDraft > 0;
       const relEdges = ws?.relationshipEdges?.length || 0;
       const relOnDraft = (ws?.charactersDraft || []).reduce(
         (n, c) => n + (c.relationships?.length || 0),
         0,
       );
+      const sessionCharacterRelationships = relEdges > 0 || relOnDraft > 0;
+      const sessionTimeline = !!ws?.timeline;
+      const sessionStyle = !!ws?.style;
+      const ideaCountWs = ws?.ideas?.length || 0;
+      const sessionIdeas = ideaCountWs > 0;
+
+      // ── 已入库（确认保存后）──
+      const dbForm = !!getNovelForm(userId, novelId);
+      const dbStory = !!getStoryInfo(userId, novelId)?.plotSummary;
+      const dbChars = getCharacters(userId, novelId);
+      const charactersInDb = dbChars.length;
+      const dbCharacterList = charactersInDb > 0;
+      const detailInDb = dbChars.filter(profileHasDetail).length;
+      const dbCharacterDetail = detailInDb > 0;
       const relOnDb = dbChars.reduce(
         (n, c) => n + (c.relationships?.length || 0),
         0,
       );
-      const characterRelationships = force
-        ? relEdges > 0 || relOnDraft > 0
-        : relEdges > 0 || relOnDraft > 0 || relOnDb > 0;
-      /** Saved timeline snapshots (complete or partial) */
-      const timelineData = force
-        ? !!ws?.timeline
-        : !!(ws?.timeline || getTimeline(userId, novelId, branchId));
+      const dbCharacterRelationships = relOnDb > 0;
+      const dbTimeline = !!getTimeline(userId, novelId, branchId);
+      const dbStyle = listStyles(userId).some((s) => s.sourceNovelId === novelId);
+      const ideaCountDb = listIdeas(userId).filter((i) => i.sourceNovelId === novelId).length;
+      const dbIdeas = ideaCountDb > 0;
+
+      // ── 编排用 ready：会话 OR 已入库（客观「有结果」）──
+      // 是否重跑由主编根据用户意图判断，禁止用 force 把 DB 抹成「未分析」
+      const form = sessionForm || dbForm;
+      const story = sessionStory || dbStory;
+      const characterList = sessionCharacterList || dbCharacterList;
+      const characterDetail = sessionCharacterDetail || dbCharacterDetail;
+      const characterRelationships =
+        sessionCharacterRelationships || dbCharacterRelationships;
+      const timelineData = sessionTimeline || dbTimeline;
       const tlJobs = listTimelineJobRows(userId, novelId, branchId);
       const latestTlJob = tlJobs[0] || null;
       const timelineJobStatus = latestTlJob?.status || null;
-      /** Job kicked or finished — enough for orchestration (async background) */
       const timelineJobStarted = !!(
         latestTlJob &&
         ["queued", "running", "done"].includes(String(latestTlJob.status))
       );
-      /** Domain "ready" for agent dispatch: data OR background job already started */
       const timeline = timelineData || timelineJobStarted;
-      const style = force
-        ? !!ws?.style
-        : !!ws?.style ||
-          listStyles(userId).some((s) => s.sourceNovelId === novelId);
-      const ideaCountWs = ws?.ideas?.length || 0;
-      const ideaCountDb = listIdeas(userId).filter((i) => i.sourceNovelId === novelId).length;
-      const ideas = force ? ideaCountWs > 0 : ideaCountWs > 0 || ideaCountDb > 0;
+      const style = sessionStyle || dbStyle;
+      const ideas = sessionIdeas || dbIdeas;
+
+      // 一键 wipe 后可能带 hint（仅提示意图，不改变 done 算法）
+      const userRequestedFullRerun = !!ws?.forceRefresh;
 
       const domainReady: Record<string, boolean> = {
         form,
@@ -2136,7 +2137,7 @@ export const analysisMasterTools: ToolDefinition[] = [
         partitionAnalysisPending(pending);
       const writeReady = isWriteReadyFromDomainMap(domainReady);
 
-      // agent_type → ready (for launch plan)
+      // agent_type → ready (for launch plan / fill-missing)
       const readyByAgent: Record<string, boolean> = {
         analyze_form: form,
         analyze_character_list: characterList,
@@ -2150,6 +2151,12 @@ export const analysisMasterTools: ToolDefinition[] = [
 
       const parallelReady = listParallelReadyAgents(readyByAgent);
       const nextActions: string[] = [];
+      if (userRequestedFullRerun) {
+        nextActions.push(
+          "用户要求全书/一键从头：即使 done 也按波次全量派工（章法→名单∥故事∥时间线∥文风∥点子→详情→关系），" +
+            "禁止因 done 跳过，禁止再 ask 是否重跑。",
+        );
+      }
       if (!form) {
         nextActions.push('agent(agent_type="analyze_form")');
       } else if (parallelReady.length > 1) {
@@ -2174,7 +2181,7 @@ export const analysisMasterTools: ToolDefinition[] = [
         }
       }
       // Wrap-up when required domains done — timeline optional/background never blocks
-      if (pendingRequired.length === 0 && done.length > 0) {
+      if (pendingRequired.length === 0 && done.length > 0 && !userRequestedFullRerun) {
         const optNote =
           pendingOptional.length > 0
             ? `（可选后台仍缺：${pendingOptional.join("、")}；不阻塞写作与保存）`
@@ -2202,10 +2209,34 @@ export const analysisMasterTools: ToolDefinition[] = [
       const status = {
         novelId,
         branchId,
-        /** @deprecated use sessionMode; true when full 一键会话 */
-        forceRefresh: force,
-        /** full = 只认会话草稿；continue = 可认已入库 */
-        sessionMode: force ? "full" : "continue",
+        /**
+         * 客观事实：会话或已入库有结果。
+         * 是否重跑看用户意图 + userRequestedFullRerun，不要把 force 当成「全未分析」。
+         */
+        published: {
+          form: dbForm,
+          story: dbStory,
+          character_list: dbCharacterList,
+          character_detail: dbCharacterDetail,
+          character_relationships: dbCharacterRelationships,
+          timeline: dbTimeline,
+          style: dbStyle,
+          ideas: dbIdeas,
+        },
+        session: {
+          form: sessionForm,
+          story: sessionStory,
+          character_list: sessionCharacterList,
+          character_detail: sessionCharacterDetail,
+          character_relationships: sessionCharacterRelationships,
+          timeline: sessionTimeline,
+          style: sessionStyle,
+          ideas: sessionIdeas,
+        },
+        /** 一键 wipe 后的意图提示；主编应全量派工，但仍如实反映 published */
+        userRequestedFullRerun,
+        forceRefresh: userRequestedFullRerun,
+        sessionMode: userRequestedFullRerun ? "full_intent" : "normal",
         form,
         story,
         character_list: characterList,
@@ -2326,7 +2357,8 @@ export const analysisMasterTools: ToolDefinition[] = [
             "本轮分析告一段落时：options 必须包含「确认保存到本书」或「保存分析结果」",
             "用户点了保存类选项，或文字要求保存 → finish_novel_analysis(userConfirmed=true)，不要再追问",
             "用户要求分析已在 done 中的域：必须 ask 是否重新分析（覆盖）还是保留；禁止静默重跑",
-            "sessionMode=full（一键从头）时：已入库不算 done；必须本轮各域 submit 后再请用户确认保存；禁止直接 finish",
+            "done=会话或已入库有结果；用户明确一键/从头/全部重跑时即使 done 也全量派工且不必再 ask",
+            "userRequestedFullRerun 仅为意图提示，不要把 published 假装成未分析",
             "parallelReady 有多项时：同轮多个 agent() 并行，禁止无谓串行",
             "时间线为后台异步可选：不阻塞写作；勿等待时间线跑完再保存；pending 仅剩 timeline 时仍可 finish",
             "写作就绪 = 章法目录 + 故事 + 角色名单（status.writeReady）；detail/rels/文风/点子/时间线非写作硬门槛",

@@ -43,21 +43,32 @@ export async function runAnalysisForceRefreshFlagTests(): Promise<void> {
           "full start seeds form",
         );
 
-        // Next chat turn (same session, not another one-click)
-        const cont = ensureAnalysisSession({
+        // 一键多轮：preserveFull
+        const contFull = ensureAnalysisSession({
           userId,
           novelId,
           branchId,
           mode: "continue",
+          preserveFull: true,
         });
-        assert.equal(cont.full, true, "continue must keep full mode");
-        assert.equal(
-          isFullAnalysisSession({ userId, novelId, branchId }),
-          true,
-        );
+        assert.equal(contFull.full, true, "preserveFull keeps full mode");
         assert.ok(
           getNovelAnalysisWorkspace(userId, novelId, branchId)?.form,
           "staging kept across continue",
+        );
+
+        // 普通非 full 对话：退出 full，status 可认 DB
+        const contNormal = ensureAnalysisSession({
+          userId,
+          novelId,
+          branchId,
+          mode: "continue",
+          preserveFull: false,
+        });
+        assert.equal(contNormal.full, false, "plain continue exits full");
+        assert.equal(
+          isFullAnalysisSession({ userId, novelId, branchId }),
+          false,
         );
       } finally {
         deleteNovel(userId, novelId);

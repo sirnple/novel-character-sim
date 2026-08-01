@@ -632,6 +632,8 @@ export default function AgentPanel({
   /** When false, user scrolled up to read history — do not yank to bottom on stream. */
   const stickToBottomRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
+  /** 一键 full 进行中：后续消息 preserveFull，勿清 full 标记；确认保存后关掉 */
+  const fullAnalysisActiveRef = useRef(false);
   const messagesRef = useRef<AgentMessage[]>([]);
   const {
     setNovel,
@@ -747,15 +749,24 @@ export default function AgentPanel({
   const runChat = useCallback(async (
     history: AgentMessage[],
     userMsg: AgentMessage,
-    opts?: { autoPassCheckpoints?: boolean; forceRefresh?: boolean },
+    opts?: {
+      autoPassCheckpoints?: boolean;
+      forceRefresh?: boolean;
+      /** 一键多轮：保持 full 会话且不 wipe */
+      preserveFull?: boolean;
+    },
   ) => {
     setStatus("generating");
     const abort = new AbortController();
     abortRef.current = abort;
     const autoPassCheckpoints = !!opts?.autoPassCheckpoints;
-    // Only wipe staging when explicitly requested (one-click full re-analyze).
-    // Default false: multi-turn + "确认保存" must keep charactersDraft/entities.
+    // wipe only on one-click start; multi-turn full uses preserveFull
     const forceRefresh = isAnalysis && !!opts?.forceRefresh;
+    if (forceRefresh) fullAnalysisActiveRef.current = true;
+    const preserveFull =
+      isAnalysis &&
+      !forceRefresh &&
+      (opts?.preserveFull === true || fullAnalysisActiveRef.current);
 
     try {
       const res = await fetch("/api/agent/chat", {
@@ -771,6 +782,7 @@ export default function AgentPanel({
           autoPassCheckpoints: isAnalysis ? false : autoPassCheckpoints,
           mode: isAnalysis ? "analysis" : "write",
           forceRefresh,
+          preserveFull,
         }),
         signal: abort.signal,
       });
@@ -1179,6 +1191,7 @@ export default function AgentPanel({
       const committed = Array.isArray(data.committed) ? data.committed : [];
       const skipped = Array.isArray(data.skipped) ? data.skipped : [];
       const ok = res.ok && (data.ok === true || committed.length > 0);
+      if (ok) fullAnalysisActiveRef.current = false;
       const charLine = committed.find((c: string) =>
         String(c).startsWith("characters"),
       );
@@ -1255,7 +1268,16 @@ export default function AgentPanel({
     // Free-text path may commit when user typed a short save request.
     // Never commit on one-click / long orchestration prompts (see isUserConfirmSave).
     if (!opts?.skipCommit) {
-      await commitIfUserSave(text);
+      const saved = await commitIfUserSave(text);
+      if (saved) fullAnalysisActiveRef.current = false;
+    }
+    // 普通输入（非一键 wipe、非显式 preserve）：退出 full，status 认已入库
+    if (
+      isAnalysis &&
+      !opts?.forceRefresh &&
+      opts?.preserveFull !== true
+    ) {
+      fullAnalysisActiveRef.current = false;
     }
     await runChat(history, userMsg, opts);
   };
@@ -1278,7 +1300,8 @@ export default function AgentPanel({
     const text =
       `【一键分析】从头分析当前小说，所有分析都要执行，不用询问是否执行。` +
       `遇到审查问题，最多修复三轮。`;
-    // forceRefresh body flag starts AnalysisSession mode=full（wipe + 只认本轮草稿）
+    fullAnalysisActiveRef.current = true;
+    // forceRefresh：wipe 并开 full；后续消息靠 preserveFull 保持
     await handleSend(text, { forceRefresh: true });
   };
 
@@ -1308,11 +1331,15 @@ export default function AgentPanel({
     setMessages([...history, userMsg]);
 
     // Program commit first (before runChat — chat must not wipe staging)
-    await commitIfUserSave(ans);
+    const saved = await commitIfUserSave(ans);
+    if (saved) fullAnalysisActiveRef.current = false;
 
-    // 用户明确选「全书强制重跑」才 wipe；普通选项续跑
+    // 明确全书强制重跑 → wipe；一键 full 进行中 → preserveFull；否则 exit full 认 DB
+    const forceFull = isUserForceFullReanalyze(ans);
+    if (forceFull) fullAnalysisActiveRef.current = true;
     await runChat(history, userMsg, {
-      forceRefresh: isUserForceFullReanalyze(ans),
+      forceRefresh: forceFull,
+      preserveFull: !forceFull && fullAnalysisActiveRef.current,
     });
   };
 

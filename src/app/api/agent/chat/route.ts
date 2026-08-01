@@ -51,16 +51,21 @@ export async function POST(request: NextRequest) {
     /** write = 续写主编；analysis = 全书分析主编 */
     mode = "write",
     /**
-     * Analysis only: wipe staging workspaces. Default false so multi-turn
-     * (confirm-save after roster) keeps charactersDraft / extract entities.
-     * Pass true for explicit full re-run (e.g. one-click analyze).
+     * Analysis only: wipe staging and start full session.
+     * Pass true for one-click analyze only (not every multi-turn message).
      */
     forceRefresh: forceRefreshBody = false,
+    /**
+     * Analysis only: keep full-session semantics without wipe (一键后的多轮).
+     * Ordinary chat must omit this so status uses published DB again.
+     */
+    preserveFull: preserveFullBody = false,
   } = await request.json();
   if (!branchId || !novelId) return new Response(JSON.stringify({ error: "branchId and novelId required" }), { status: 400, headers: { "Content-Type": "application/json" } });
 
   const isAnalysis = mode === "analysis";
   const forceRefresh = isAnalysis && !!forceRefreshBody;
+  const preserveFull = isAnalysis && !forceRefresh && !!preserveFullBody;
   const autoPass = !!autoPassCheckpoints && !isAnalysis;
   const llm = createLLMProvider(isAnalysis ? "analysis" : "write");
   const encoder = new TextEncoder();
@@ -87,7 +92,7 @@ export async function POST(request: NextRequest) {
     ? `${baseSys}\n\n${ONE_CLICK_CONTINUE_SYSTEM_APPEND}`
     : baseSys;
 
-  // Analysis session: one-click full wipe; multi-turn continue keeps full flag until commit.
+  // Analysis session: full=wipe once; continue+preserveFull=一键多轮; plain continue=认 DB
   if (isAnalysis) {
     try {
       const { ensureAnalysisSession } = await import(
@@ -98,6 +103,7 @@ export async function POST(request: NextRequest) {
         novelId,
         branchId,
         mode: forceRefresh ? "full" : "continue",
+        preserveFull,
       });
     } catch (e) {
       console.warn("[agent/chat] analysis session init:", (e as Error).message);
