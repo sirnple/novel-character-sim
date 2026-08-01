@@ -29,8 +29,11 @@ COPY --from=builder /app/.next/static ./.next/static
 # Native module (ensure present even if standalone trace misses it)
 COPY --from=builder /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
 
-# Agent prompts loaded at runtime via fs from process.cwd()/src/core/prompts
+# Runtime fs prompts (Next standalone does not bundle these)
+# - agent systems: src/core/prompts/**
+# - stage① window extract: src/core/character-analysis/prompts/**
 COPY --from=builder /app/src/core/prompts ./src/core/prompts
+COPY --from=builder /app/src/core/character-analysis/prompts ./src/core/character-analysis/prompts
 
 # Create public dir if not exists (Next.js standalone needs it)
 RUN mkdir -p /app/public

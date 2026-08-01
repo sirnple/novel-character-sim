@@ -87,6 +87,13 @@ export async function runStage1WindowScan(
       options.onWindowDone?.(result, idx, windows.length);
       return result;
     } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      // Log first few failures so production missing-prompt / API issues are visible
+      if (idx < 3 || /Missing extract-window prompt/i.test(errMsg)) {
+        console.error(
+          `[stage1] window ${window.index} extract failed: ${errMsg.slice(0, 240)}`,
+        );
+      }
       const result: WindowExtractResult = {
         window: {
           index: window.index,
@@ -95,7 +102,7 @@ export async function runStage1WindowScan(
           end: window.end,
         },
         characters: [],
-        error: e instanceof Error ? e.message : String(e),
+        error: errMsg,
       };
       options.onWindowDone?.(result, idx, windows.length);
       return result;
