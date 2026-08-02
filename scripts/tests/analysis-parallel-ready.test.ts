@@ -33,37 +33,37 @@ function agent(type: string, id: string): PendingToolCall {
 
 export function runAnalysisParallelReadyTests(): void {
   suite("listParallelReadyAgents", () => {
-    test("before form: only analyze_form is ready to launch", () => {
+    test("before form: only form is ready to launch", () => {
       const ready: Record<string, boolean> = {};
       const wave = listParallelReadyAgents(ready);
-      assert.deepEqual(wave, ["analyze_form"]);
+      assert.deepEqual(wave, ["form"]);
     });
 
     test("after form: five domains that only need form", () => {
-      const ready: Record<string, boolean> = { analyze_form: true };
+      const ready: Record<string, boolean> = { form: true };
       const wave = listParallelReadyAgents(ready);
-      assert.ok(wave.includes("analyze_character_list"));
-      assert.ok(wave.includes("analyze_story_world"));
-      assert.ok(wave.includes("analyze_timeline"));
-      assert.ok(wave.includes("extract_style"));
-      assert.ok(wave.includes("extract_ideas"));
-      assert.equal(wave.includes("extract_character_detail"), false);
-      assert.equal(wave.includes("extract_character_relationships"), false);
+      assert.ok(wave.includes("character_list"));
+      assert.ok(wave.includes("story_world"));
+      assert.ok(wave.includes("timeline"));
+      assert.ok(wave.includes("style"));
+      assert.ok(wave.includes("ideas"));
+      assert.equal(wave.includes("character_detail"), false);
+      assert.equal(wave.includes("character_relationships"), false);
       assert.ok(wave.length >= 5);
     });
 
     test("after list: detail becomes ready, not relationships", () => {
       const ready: Record<string, boolean> = {
-        analyze_form: true,
-        analyze_character_list: true,
-        analyze_story_world: true,
-        analyze_timeline: true,
-        extract_style: true,
-        extract_ideas: true,
+        form: true,
+        character_list: true,
+        story_world: true,
+        timeline: true,
+        style: true,
+        ideas: true,
       };
       const wave = listParallelReadyAgents(ready);
-      assert.ok(wave.includes("extract_character_detail"));
-      assert.equal(wave.includes("extract_character_relationships"), false);
+      assert.ok(wave.includes("character_detail"));
+      assert.equal(wave.includes("character_relationships"), false);
     });
 
     test("all done: parallelReady empty", () => {
@@ -72,17 +72,17 @@ export function runAnalysisParallelReadyTests(): void {
       assert.equal(listParallelReadyAgents(ready).length, 0);
     });
 
-    test("wave-2 deps are only analyze_form", () => {
+    test("wave-2 deps are only form", () => {
       for (const id of [
-        "analyze_character_list",
-        "analyze_story_world",
-        "analyze_timeline",
-        "extract_style",
-        "extract_ideas",
+        "character_list",
+        "story_world",
+        "timeline",
+        "style",
+        "ideas",
       ] as const) {
         assert.deepEqual(
           [...(ANALYSIS_AGENT_DEPENDENCIES[id] || [])],
-          ["analyze_form"],
+          ["form"],
         );
       }
     });
@@ -102,28 +102,28 @@ export function runAnalysisParallelReadyTests(): void {
 
     test("analysis: consecutive agents merge into one parallel wave", () => {
       const pending = [
-        agent("analyze_character_list", "a"),
-        agent("analyze_story_world", "b"),
-        agent("analyze_timeline", "c"),
-        agent("extract_style", "d"),
-        agent("extract_ideas", "e"),
+        agent("character_list", "a"),
+        agent("story_world", "b"),
+        agent("timeline", "c"),
+        agent("style", "d"),
+        agent("ideas", "e"),
       ];
       const waves = groupPendingToolsForExecution(pending, true);
       assert.equal(waves.length, 1);
       assert.equal(waves[0].parallel, true);
       assert.equal(waves[0].tools.length, 5);
       assert.deepEqual(waveAgentTypes(waves[0]).sort(), [
-        "analyze_character_list",
-        "analyze_story_world",
-        "analyze_timeline",
-        "extract_ideas",
-        "extract_style",
+        "character_list",
+        "story_world",
+        "timeline",
+        "ideas",
+        "style",
       ].sort());
     });
 
     test("analysis: single agent wave is not marked parallel", () => {
       const waves = groupPendingToolsForExecution(
-        [agent("analyze_form", "1")],
+        [agent("form", "1")],
         true,
       );
       assert.equal(waves.length, 1);
@@ -133,10 +133,10 @@ export function runAnalysisParallelReadyTests(): void {
 
     test("analysis: agent wave then ask_question then agent — three waves", () => {
       const pending = [
-        agent("analyze_story_world", "1"),
-        agent("extract_style", "2"),
+        agent("story_world", "1"),
+        agent("style", "2"),
         tool("ask_question", "3", { question: "save?" }),
-        agent("extract_character_detail", "4"),
+        agent("character_detail", "4"),
       ];
       const waves = groupPendingToolsForExecution(pending, true);
       assert.equal(waves.length, 3);
@@ -145,7 +145,7 @@ export function runAnalysisParallelReadyTests(): void {
       assert.equal(waves[1].parallel, false);
       assert.equal(waves[1].tools[0].toolName, "ask_question");
       assert.equal(waves[2].parallel, false);
-      assert.equal(waves[2].tools[0].args.agent_type, "extract_character_detail");
+      assert.equal(waves[2].tools[0].args.agent_type, "character_detail");
     });
 
     test("analysis: non-agent tools stay serial even when adjacent", () => {

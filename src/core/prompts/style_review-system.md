@@ -1,5 +1,5 @@
 ---
-name: style_review
+name: style_reviewer
 description: "对照文风检查句式、AI 味、对话比例"
 tools:
   - get_branch_text

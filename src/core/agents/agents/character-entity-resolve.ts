@@ -1,5 +1,5 @@
 /**
- * analyze_character_list: 角色列表子 Agent。
+ * character_list: 角色列表子 Agent。
  *
  * 1) scan_character_mentions → 内部 pipeline ①窗扫 → ②overlap → ③oneshot → ④canonicalName
  *    （pipeline 到此结束；oneshot 标 uncertain 的对保持未合并）
@@ -7,8 +7,9 @@
  * 3) submit_character_entities
  */
 
-import type { AgentDef, TrailMessage, ToolDefinition } from "../types";
+import type { Agent, TrailMessage, ToolDefinition } from "../types";
 import type { ToolSchema } from "@/types";
+import { defineAgent } from "../agent-registry";
 import { getTool } from "../registry";
 import {
   getCharacterExtractWorkspace,
@@ -62,12 +63,13 @@ function toSchemas(tools: ToolDefinition[]): ToolSchema[] {
  * excerpts and call resolve_coref_uncertain_pair. Remaining pairs stay separate.
  */
 async function resolveUncertainPairsWithAgent(
-  ctx: Parameters<AgentDef["execute"]>[0],
-  llm: Parameters<AgentDef["execute"]>[1],
-  onChunk: Parameters<AgentDef["execute"]>[2],
-  onTrail: Parameters<AgentDef["execute"]>[3],
+  ctx: Parameters<Agent["execute"]>[0],
+  llm: Parameters<Agent["execute"]>[1],
+  onChunk: Parameters<Agent["execute"]>[2],
+  onTrail: Parameters<Agent["execute"]>[3],
   trail: TrailMessage[],
   pairCount: number,
+  agentName: string,
 ): Promise<void> {
   const tools = pickTools(UNCERTAIN_TOOL_NAMES);
   if (!tools.length) {
@@ -76,19 +78,35 @@ async function resolveUncertainPairsWithAgent(
     );
     return;
   }
-  const system = [
-    "你是角色名单消歧助手。程序流水线 ①–④ 已完成；Stage③ oneshot 留下若干 uncertain 对（可能是同一人、也可能不是）。",
-    "用工具辅助判断后调用 resolve_coref_uncertain_pair：",
-    "- list_coref_uncertain_pairs：查看待判对",
-    "- list_cooccur_neighbors(id, hops=1|2)：查共现网络（勿因邻居相似直接合并）",
-    "- lookup_offset / get_text_slice：必要时读原文",
-    "- resolve_coref_uncertain_pair(idA,idB,verdict=merge|distinct,reason)",
-    "有把握才 merge；吃不准可 keep distinct 或跳过（分列提交即可）。",
-    "不要调用 scan_character_mentions。不要 submit。全部处理完或无法再判时停止。",
-  ].join("\n");
+  // System/user from this agent md (1:1 with config.name)
+  const { resolveAgentPrompt, resolveAgentToolSchemas } = await import(
+    "@/core/prompts/resolve-agent-prompt"
+  );
+  const { system: baseSys, user: baseUser } = resolveAgentPrompt(
+    agentName,
+    "zh",
+    {
+      novelId: ctx.novelId,
+      branchId: ctx.branchId || "main",
+      prompt: "",
+      surfaceCount: 0,
+      unitCount: 0,
+    },
+  );
+  const system =
+    baseSys +
+    "\n\n## 本阶段（程序已完成 ①–④）\n" +
+    "Stage③ oneshot 留下 uncertain 对。用工具 resolve_coref_uncertain_pair（merge|distinct）。\n" +
+    "禁止 scan_character_mentions / submit。\n";
   const user =
-    `novelId=${ctx.novelId}\nbranchId=${ctx.branchId || "main"}\n` +
+    (baseUser?.trim() || "") +
+    `\n\nnovelId=${ctx.novelId}\nbranchId=${ctx.branchId || "main"}\n` +
     `当前 uncertain 约 ${pairCount} 对。请 list_coref_uncertain_pairs 后逐对处理。`;
+
+  // Prefer tool schemas from agent frontmatter when present
+  const schemaFromMd = resolveAgentToolSchemas(agentName);
+  const toolSchemas =
+    schemaFromMd.length > 0 ? schemaFromMd : toSchemas(tools);
 
   onChunk?.(
     `【进度】角色列表 · agent 消歧 uncertain ${pairCount} 对`,
@@ -98,7 +116,7 @@ async function resolveUncertainPairsWithAgent(
     llm,
     system,
     user,
-    toSchemas(tools),
+    toolSchemas,
     ctx,
     onChunk,
     (msgs) => {
@@ -119,8 +137,11 @@ async function resolveUncertainPairsWithAgent(
 }
 
 /** 子 Agent：scan → (uncertain 工具消歧) → submit */
-export const characterEntityResolveAgent: AgentDef = {
-  execute: async (ctx, llm, onChunk, onTrail) => {
+export const characterEntityResolveAgent = defineAgent(
+  "analyze_character_list-system.md",
+  (config) => {
+    const agentName = config.name;
+    return async (ctx, llm, onChunk, onTrail) => {
     const branchId = ctx.branchId || "main";
     const trail: TrailMessage[] = [];
 
@@ -136,7 +157,7 @@ export const characterEntityResolveAgent: AgentDef = {
     if (!scanTool || !submitTool) {
       return {
         content:
-          "analyze_character_list 失败：未注册 scan_character_mentions / submit_character_entities。",
+          "character_list 失败：未注册 scan_character_mentions / submit_character_entities。",
         messages: trail,
       };
     }
@@ -197,7 +218,7 @@ export const characterEntityResolveAgent: AgentDef = {
     if (!entities.length) {
       return {
         content:
-          `analyze_character_list 失败：scan 未产生 entities。\n` +
+          `character_list 失败：scan 未产生 entities。\n` +
           `${scanRes.content.slice(0, 500)}`,
         messages: trail,
       };
@@ -220,6 +241,7 @@ export const characterEntityResolveAgent: AgentDef = {
         onTrail,
         trail,
         uncertainN,
+        agentName,
       );
       cws = getCharacterExtractWorkspace(ctx.userId, ctx.novelId, branchId);
       entities = cws?.entities || entities;
@@ -351,7 +373,7 @@ export const characterEntityResolveAgent: AgentDef = {
     if (!submitOk) {
       return {
         content:
-          `analyze_character_list 未完成：submit 未通过。\n` +
+          `character_list 未完成：submit 未通过。\n` +
           `${submitRes.content.slice(0, 1200)}`,
         messages: trail,
       };
@@ -378,6 +400,7 @@ export const characterEntityResolveAgent: AgentDef = {
         `${submitNote.slice(0, 400)}`,
       messages: trail,
     };
+  };
   },
-};
+);
 

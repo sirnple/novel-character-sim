@@ -92,52 +92,37 @@ export const TOOL_LABELS: Record<string, string> = {
   submit_style: "提交文风",
   submit_ideas: "提交点子",
 
-  // Write sub-agents
-  generate_outline: "大纲 Agent",
-  write_prose: "写手 Agent",
-  review_outline: "大纲审核",
-  review_character: "角色审查",
-  review_continuity: "连贯与逻辑审查",
-  review_foreshadowing: "伏笔审查",
-  review_style: "风格审查",
-  review_world: "世界观审查",
-  review_pacing: "节奏审查",
-
-  // Analysis sub-agents (verb-object)
-  novel_analysis: "全书分析主编",
-  analyze_form: "分析章法",
-  analyze_story_world: "分析故事世界",
-  analyze_character_list: "分析角色列表",
-  extract_character_detail: "抽取角色详情",
-  extract_character_relationships: "抽取角色关系",
-  analyze_timeline: "分析时间线",
-  extract_style: "抽取文风",
-  extract_ideas: "抽取点子",
-
-  // Legacy aliases
-  story_world: "分析故事世界",
-  form_analysis: "分析章法",
-  resolve_character_roster: "分析角色列表",
-  character_roster: "分析角色列表",
-  character_entity_resolve: "分析角色列表",
-  character_detail: "抽取角色详情",
-  character_detail_agent: "抽取角色详情",
-  character_relationships: "抽取角色关系",
-  timeline_analysis: "分析时间线",
-  style_extract: "抽取文风",
-  style_extract_agent: "抽取文风",
-  idea_extract: "抽取点子",
-  idea_extract_agent: "抽取点子",
-  outline_writer: "大纲 Agent",
-  writer_create: "写手 Agent",
-  writer_rewrite: "写手·改写",
-  style_review: "风格审查",
-  character_consistency_review: "角色审查",
-  continuity_review: "连贯与逻辑审查",
-  foreshadowing_review: "伏笔审查",
-  world_review: "世界观审查",
-  pacing_review: "节奏审查",
 };
+
+/**
+ * Agent display names — keys must match system md frontmatter `name:`.
+ * Client-safe (no fs); server source of truth is AgentConfig / frontmatter.
+ */
+export const AGENT_LABELS: Record<string, string> = {
+  outline: "大纲 Agent",
+  writer: "写手 Agent",
+  rewriter: "写手·改写",
+  outline_reviewer: "大纲审核",
+  character_reviewer: "角色审查",
+  continuity_reviewer: "连贯与逻辑审查",
+  foreshadow_reviewer: "伏笔审查",
+  style_reviewer: "风格审查",
+  world_reviewer: "世界观审查",
+  pacing_reviewer: "节奏审查",
+  analyst: "全书分析主编",
+  form: "分析章法",
+  story_world: "分析故事世界",
+  character_list: "分析角色列表",
+  character_detail: "抽取角色详情",
+  character_relationships: "抽取角色关系",
+  timeline: "分析时间线",
+  style: "抽取文风",
+  ideas: "抽取点子",
+};
+
+export function isAgentLabelKey(name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(AGENT_LABELS, name);
+}
 
 /**
  * Chinese label for a tool or agent id.
@@ -147,6 +132,7 @@ export function toolLabel(name?: string | null): string {
   if (!name) return "工具";
   const key = String(name).trim();
   if (TOOL_LABELS[key]) return TOOL_LABELS[key];
+  if (AGENT_LABELS[key]) return AGENT_LABELS[key];
   // snake_case → rough Chinese prefix so UI never looks bilingual-random
   return `工具·${key}`;
 }

@@ -1,5 +1,5 @@
 ---
-name: analyze_character_list
+name: character_list
 description: "角色列表：scan →（uncertain 工具消歧）→ submit"
 tools:
   - scan_character_mentions

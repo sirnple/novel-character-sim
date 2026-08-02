@@ -1,5 +1,5 @@
 ---
-name: foreshadowing_review
+name: foreshadow_reviewer
 description: "识别新伏笔、推进与回收"
 tools:
   - get_branch_text

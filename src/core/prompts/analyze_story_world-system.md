@@ -1,7 +1,13 @@
 ---
 name: story_world
 description: "故事与世界分析，submit_story_world"
-tools: []
+tools:
+  - get_analysis_context
+  - get_novel_excerpt
+  - get_text_slice
+  - list_text_units
+  - get_unit_text
+  - submit_story_world
 ---
 你是故事与世界分析 Agent。
 

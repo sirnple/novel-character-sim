@@ -2,7 +2,8 @@
  * Novel analysis agents: master + domain sub-agents.
  * Order (master): form → characters → (story ∥ timeline ∥ style ∥ ideas)
  */
-import type { AgentDef, ToolDefinition } from "../types";
+import type { Agent, ToolDefinition } from "../types";
+import { defineAgent } from "../agent-registry";
 import { makeLoopAgent } from "./make-loop-agent";
 import { characterEntityResolveAgent } from "./character-entity-resolve";
 import {
@@ -37,12 +38,12 @@ const domainWithLookup: ToolDefinition[] = (() => {
 // ---- Domain sub-agents ----
 
 /**
- * 章法：主编只派 agent(analyze_form)。
+ * 章法：主编只派 agent(form)。
  * 分步工具：scan → build → list_form_catalog(分页) → apply_catalog_tracks → set_form_narrative → submit_form
  * 禁止一次 LLM 吐全书 trackLabels；禁止 run_form_analysis 黑盒。
  */
-export const formAnalysisAgent: AgentDef = makeLoopAgent({
-  agentId: "analyze_form",
+export const formAnalysisAgent: Agent = makeLoopAgent({
+  system: "analyze_form-system.md",
   tools: pick(
     [
       "get_analysis_context",
@@ -63,8 +64,8 @@ export const formAnalysisAgent: AgentDef = makeLoopAgent({
   temperature: 0.2,
 });
 
-export const storyWorldAgent: AgentDef = makeLoopAgent({
-  agentId: "analyze_story_world",
+export const storyWorldAgent: Agent = makeLoopAgent({
+  system: "analyze_story_world-system.md",
   tools: pick(
     ["get_analysis_context", "get_novel_excerpt", "get_text_slice", "list_text_units", "get_unit_text", "submit_story_world"],
     domain,
@@ -75,10 +76,10 @@ export const storyWorldAgent: AgentDef = makeLoopAgent({
 });
 
 /** Roster — user prompt only novel/branch; system + toolSaveSucceeded like save_prose */
-export const characterRosterAgent: AgentDef = characterEntityResolveAgent;
+export const characterRosterAgent: Agent = characterEntityResolveAgent;
 
 const characterDetailLoop = makeLoopAgent({
-  agentId: "extract_character_detail",
+  system: "extract_character_detail-system.md",
   tools: pick(
     [
       "get_analysis_context",
@@ -100,7 +101,8 @@ const characterDetailLoop = makeLoopAgent({
 });
 
 /** After loop: require real detail content in workspace (not empty stubs). */
-export const characterDetailAgent: AgentDef = {
+export const characterDetailAgent: Agent = {
+  config: characterDetailLoop.config,
   execute: async (ctx, llm, onChunk, onTrail) => {
     const result = await characterDetailLoop.execute(ctx, llm, onChunk, onTrail);
     const { getNovelAnalysisWorkspace } = await import(
@@ -118,21 +120,21 @@ export const characterDetailAgent: AgentDef = {
     if (rich.length === 0) {
       return {
         content:
-          `extract_character_detail 失败：工作区无多维度详情（仅名单空壳、只填性格、或未 submit）。` +
+          `character_detail 失败：工作区无多维度详情（仅名单空壳、只填性格、或未 submit）。` +
           `每人须 submit_character_detail：appearance+personality，并至少两项 drive/behavior/worldview|values/speakingStyle/background。` +
           ` 当前 draft=${draft.length}`,
         messages: result.messages,
       };
     }
     return {
-      content: `extract_character_detail 完成：多维度详情 ${rich.length}/${draft.length} 人`,
+      content: `character_detail 完成：多维度详情 ${rich.length}/${draft.length} 人`,
       messages: result.messages,
     };
   },
 };
 
 const characterRelationshipsLoop = makeLoopAgent({
-  agentId: "extract_character_relationships",
+  system: "extract_character_relationships-system.md",
   tools: pick(
     [
       "get_analysis_context",
@@ -150,7 +152,8 @@ const characterRelationshipsLoop = makeLoopAgent({
   maxSteps: 20,
 });
 
-export const characterRelationshipsAgent: AgentDef = {
+export const characterRelationshipsAgent: Agent = {
+  config: characterRelationshipsLoop.config,
   execute: async (ctx, llm, onChunk, onTrail) => {
     const result = await characterRelationshipsLoop.execute(ctx, llm, onChunk, onTrail);
     const { getNovelAnalysisWorkspace } = await import(
@@ -175,24 +178,27 @@ export const characterRelationshipsAgent: AgentDef = {
       content:
         result.content.includes("失败")
           ? result.content
-          : `extract_character_relationships 完成：edges=${edges} 挂接=${relOnChars}`,
+          : `character_relationships 完成：edges=${edges} 挂接=${relOnChars}`,
       messages: result.messages,
     };
   },
 };
 
 /**
- * Timeline is an async background job (same as modular extract).
- * Master must not wait for full chapter-by-chapter extract before save/write.
+ * Timeline launcher — predetermined path (workflow-like), not an LLM loop.
+ * Still exposed via agent() for master UX (jobOnly AgentConfig).
  */
-export const timelineAnalysisAgent: AgentDef = {
-  execute: async (ctx, _llm, onChunk) => {
+export const timelineAnalysisAgent = defineAgent(
+  "analyze_timeline-system.md",
+  (config) => {
+    const name = config.name;
+    return async (ctx, _llm, onChunk) => {
     const userId = String(ctx.userId || "");
     const novelId = String(ctx.novelId || "");
     const branchId = String(ctx.branchId || "main");
     if (!userId || !novelId) {
       return {
-        content: "analyze_timeline 失败：缺少 userId/novelId",
+        content: `${name} 失败：缺少 userId/novelId`,
         messages: [],
       };
     }
@@ -228,15 +234,19 @@ export const timelineAnalysisAgent: AgentDef = {
       return { content: msg, messages: [] };
     } catch (e) {
       return {
-        content: `analyze_timeline 启动失败: ${(e as Error).message}`,
+        content: `${name} 启动失败: ${(e as Error).message}`,
         messages: [],
       };
     }
+  };
   },
-};
+);
 
-export const styleExtractAgent: AgentDef = makeLoopAgent({
-  agentId: "extract_style",
+/** @deprecated use timelineAnalysisAgent */
+export const timelineAnalysisWorkflow = timelineAnalysisAgent;
+
+export const styleExtractAgent: Agent = makeLoopAgent({
+  system: "extract_style-system.md",
   tools: pick(
     ["get_analysis_context", "get_novel_excerpt", "get_text_slice", "submit_style"],
     domain,
@@ -246,8 +256,8 @@ export const styleExtractAgent: AgentDef = makeLoopAgent({
   maxSteps: 12,
 });
 
-export const ideaExtractAgent: AgentDef = makeLoopAgent({
-  agentId: "extract_ideas",
+export const ideaExtractAgent: Agent = makeLoopAgent({
+  system: "extract_ideas-system.md",
   tools: pick(
     ["get_analysis_context", "get_novel_excerpt", "get_text_slice", "submit_ideas"],
     domain,
@@ -259,10 +269,13 @@ export const ideaExtractAgent: AgentDef = makeLoopAgent({
 
 // ---- Master: orchestration only ----
 
-export const novelAnalysisAgent: AgentDef = {
-  execute: async (ctx, llm, onChunk, onTrail) => {
+export const novelAnalysisAgent = defineAgent(
+  "novel_analysis-system.md",
+  (config) => {
+    const name = config.name;
+    return async (ctx, llm, onChunk, onTrail) => {
     // System from md only; user is rendered in code (no novel-analysis-master-user.md).
-    const sys = resolveAgentSystem("novel_analysis", "zh");
+    const sys = resolveAgentSystem(name, "zh");
 
     const toolBlock = `
 
@@ -270,13 +283,13 @@ export const novelAnalysisAgent: AgentDef = {
 - 先 get_current_* + **get_analysis_status**（看 parallelReady / nextActions / writeReady / pendingRequired）
 - **波次**：章法 → 同轮并行（名单∥故事∥时间线∥文风∥点子）→ 详情 → 关系
 - 依赖已齐的兄弟域：同一回复里多个 agent()，系统并行执行；禁止无谓串行
-- **时间线 analyze_timeline**：只启动后台 job，立刻返回；**不阻塞**写作与 finish
+- **时间线 timeline**：只启动后台 job，立刻返回；**不阻塞**写作与 finish
 - **写作就绪 writeReady**：章法 + 故事 + 角色名单即可；勿等时间线跑完
 - pending 仅剩 timeline 或 pendingRequired 为空时：可收尾保存，勿干等时间线
 - **用户点名单域**：get_analysis_status(for_agent=目标) → launchPlan
 - 范围不清 → ask_question（收尾须含保存选项）
 - **已 done 的域**：用户再要求分析 → 必须 ask 是否重新分析/覆盖，禁止静默重跑
-- 章法：agent(analyze_form)（禁止主编直接 run_form_analysis）
+- 章法：agent(form)（禁止主编直接 run_form_analysis）
 - 用户要求保存或点选保存 → finish_novel_analysis(userConfirmed=true)
 `;
 
@@ -341,35 +354,28 @@ export const novelAnalysisAgent: AgentDef = {
         : `全书分析未 finish：${fin.detail || loop.finalText || "未知"}`,
       messages: trail,
     };
+  };
   },
-};
+);
 
 /**
- * Agents to register: id → def.
- * Canonical ids are verb-object; noun-style aliases kept so old history/prompts still resolve.
+ * Analysis agents to register — each already carries `config` from frontmatter.
+ * No alias registrations; master must call agent_type by frontmatter name.
  */
-export const ANALYSIS_AGENT_REGISTRATIONS: { id: string; def: AgentDef }[] = [
-  { id: "novel_analysis", def: novelAnalysisAgent },
-  // canonical 动宾
-  { id: "analyze_form", def: formAnalysisAgent },
-  { id: "analyze_story_world", def: storyWorldAgent },
-  { id: "analyze_character_list", def: characterRosterAgent },
-  { id: "extract_character_detail", def: characterDetailAgent },
-  { id: "extract_character_relationships", def: characterRelationshipsAgent },
-  { id: "analyze_timeline", def: timelineAnalysisAgent },
-  { id: "extract_style", def: styleExtractAgent },
-  { id: "extract_ideas", def: ideaExtractAgent },
-  // legacy aliases
-  { id: "story_world", def: storyWorldAgent },
-  { id: "resolve_character_roster", def: characterRosterAgent },
-  { id: "character_roster", def: characterRosterAgent },
-  { id: "character_entity_resolve", def: characterRosterAgent },
-  { id: "character_detail", def: characterDetailAgent },
-  { id: "character_detail_agent", def: characterDetailAgent },
-  { id: "character_relationships", def: characterRelationshipsAgent },
-  { id: "timeline_analysis", def: timelineAnalysisAgent },
-  { id: "style_extract", def: styleExtractAgent },
-  { id: "style_extract_agent", def: styleExtractAgent },
-  { id: "idea_extract", def: ideaExtractAgent },
-  { id: "idea_extract_agent", def: ideaExtractAgent },
+export const ANALYSIS_AGENTS: Agent[] = [
+  novelAnalysisAgent,
+  formAnalysisAgent,
+  storyWorldAgent,
+  characterRosterAgent,
+  characterDetailAgent,
+  characterRelationshipsAgent,
+  timelineAnalysisAgent,
+  styleExtractAgent,
+  ideaExtractAgent,
 ];
+
+/** @deprecated use ANALYSIS_AGENTS */
+export const ANALYSIS_AGENT_IMPLEMENTATIONS = ANALYSIS_AGENTS.map((agent) => ({
+  name: agent.config.name,
+  agent,
+}));

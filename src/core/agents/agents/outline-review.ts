@@ -1,4 +1,5 @@
-import type { AgentDef, TrailMessage } from "../types";
+import type { Agent, TrailMessage } from "../types";
+import { defineAgent } from "../agent-registry";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { getFindings, getOutline } from "../intermediate-store";
 import {
@@ -22,13 +23,16 @@ export interface OutlineReviewResult {
 }
 
 /**
- * Run outline review via agent tools (save_findings). Used as agent review_outline.
+ * Run outline review via agent tools (save_findings).
+ * @param agentName frontmatter name — pass from Agent.config.name
  */
 export async function runOutlineReview(
   ctx: { prompt?: string; novelId: string; branchId: string; userId: string },
-  llm: Parameters<AgentDef["execute"]>[1],
-  onTrail?: Parameters<AgentDef["execute"]>[3],
+  llm: Parameters<Agent["execute"]>[1],
+  onTrail?: Parameters<Agent["execute"]>[3],
+  agentName?: string,
 ): Promise<OutlineReviewResult> {
+  const name = agentName || outlineReviewAgent.config.name;
   const outline = getOutline(ctx.novelId, ctx.branchId);
   if (!outline || String(outline).length < 30) {
     return { pass: true, findings: [], summary: "无大纲可审（请先 generate_outline / save_outline）" };
@@ -36,7 +40,7 @@ export async function runOutlineReview(
 
   const info = getStoryInfo(ctx.userId, ctx.novelId);
   const genre = info?.writingStyle?.genre || "";
-  const { system: sys, user: baseUser } = resolveAgentPrompt("outline_review", "zh", {
+  const { system: sys, user: baseUser } = resolveAgentPrompt(name, "zh", {
     prompt: ctx.prompt || "请审核本轮续写大纲。",
     novelId: ctx.novelId,
     branchId: ctx.branchId,
@@ -45,12 +49,12 @@ export async function runOutlineReview(
     baseUser +
     `\n\n## 本书类型\ngenre: ${genre || "（未知）"}\nthemes: ${(info?.themes || []).join("、") || "—"}\n` +
     `\n## 落盘（必须）\n` +
-    `取证后调用 save_findings：dimension="outline"（或 agent_type=outline_review），` +
+    `取证后调用 save_findings：dimension="outline"（或 agent_type=${name}），` +
     `overwrite=true，findings=JSON 数组字符串（无问题 "[]" 仅清大纲维）。\n` +
     `不要在聊天贴完整 JSON。程序只认 save_findings。\n`;
 
-  // tools allowlist from review-outline-system.md frontmatter
-  const TOOLS = resolveAgentToolSchemas("outline_review");
+  // tools allowlist from system md frontmatter
+  const TOOLS = resolveAgentToolSchemas(name);
   const run = (user: string) =>
     runSubAgentToolLoop(llm, sys, user, TOOLS, ctx as any, undefined, onTrail, {
       maxTokens: 4096,
@@ -122,18 +126,22 @@ export async function runOutlineReview(
   return { pass, findings, summary };
 }
 
-export const outlineReviewAgent: AgentDef = {
-  execute: async (ctx, llm, _onChunk, onTrail) => {
-    const result = await runOutlineReview(ctx, llm, onTrail);
-    return {
-      content:
-        result.summary +
-        "（主 agent 可用 get_findings 查看 outline 维；未通过时先改大纲再写正文）",
-      messages: [],
-      askUser: result.askUser,
+export const outlineReviewAgent = defineAgent(
+  "outline_review-system.md",
+  (config) => {
+    const name = config.name;
+    return async (ctx, llm, _onChunk, onTrail) => {
+      const result = await runOutlineReview(ctx, llm, onTrail, name);
+      return {
+        content:
+          result.summary +
+          "（主 agent 可用 get_findings 查看 outline 维；未通过时先改大纲再写正文）",
+        messages: [],
+        askUser: result.askUser,
+      };
     };
   },
-};
+);
 
 /** True when outline findings include critical/major (or review failed to save). */
 export function outlineReviewFailedFromFindings(

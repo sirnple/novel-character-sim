@@ -1,7 +1,11 @@
 ---
-name: extract_style
+name: style
 description: "风格提取 Agent"
-tools: []
+tools:
+  - get_analysis_context
+  - get_novel_excerpt
+  - get_text_slice
+  - submit_style
 ---
 你是文风提取 Agent。
 

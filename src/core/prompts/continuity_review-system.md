@@ -1,5 +1,5 @@
 ---
-name: continuity_review
+name: continuity_reviewer
 description: "前文衔接与自然度 + 事实/时间线 + 本体逻辑；按小说类型调节松紧"
 tools:
   - get_branch_text

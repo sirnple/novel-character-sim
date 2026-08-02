@@ -1,5 +1,5 @@
 ---
-name: world_review
+name: world_reviewer
 description: "检查力量体系、势力、地点是否越界"
 tools:
   - get_branch_text

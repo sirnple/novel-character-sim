@@ -2,7 +2,7 @@ import type { CharacterProfile, SceneDefinition, SceneOutline } from "@/types";
 import type { ChapterSummary, ForeshadowingEntry } from "@/core/codex/types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { isChinese } from "@/lib/utils";
-import { renderPrompt } from "@/core/prompts/renderer";
+import { renderOneshot } from "@/core/prompts/oneshot";
 import { formatRelationshipsForPrompt } from "@/core/character/format-relationships-for-prompt";
 
 // ============================================================
@@ -184,8 +184,8 @@ ${relBlock ? `${relBlock}\n` : "  （与在场角色无已抽取的有向关系�
       : ""
     : "";
 
-  const systemPrompt = renderPrompt("outline-system.md", { selectionInstruction });
-  const userPrompt = renderPrompt("outline-user.md", {
+  const systemPrompt = renderOneshot("outline-system", { selectionInstruction });
+  const userPrompt = renderOneshot("outline-user", {
     continueFromLabel,
     previousProse: previousProse ? previousProse.slice(-500) : "",
     summaryText,

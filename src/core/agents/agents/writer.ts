@@ -1,4 +1,5 @@
-import type { AgentDef, TrailMessage } from "../types";
+import type { Agent, TrailMessage } from "../types";
+import { defineAgent } from "../agent-registry";
 import { runSubAgentToolLoop } from "../tool-loop";
 import {
   formatFindingsReadable,
@@ -90,9 +91,14 @@ function tryRecoverProseFromTrail(
   return { ok: false, len: 0, note: "" };
 }
 
-export const writerAgent: AgentDef = {
-  execute: async (ctx, llm, onChunk, onTrail) => {
-    const isRewrite = ctx.prompt.includes("[MODE:rewrite]");
+/** Shared write loop; one Agent per system md (create vs rewrite). */
+function makeWriterAgent(systemFile: string): Agent {
+  return defineAgent(systemFile, (config) => {
+    const name = config.name;
+    const isRewriteAgent = config.name === "rewriter";
+    return async (ctx, llm, onChunk, onTrail) => {
+    const isRewrite =
+      isRewriteAgent || ctx.prompt.includes("[MODE:rewrite]");
     const existingProse = getProse(ctx.novelId, ctx.branchId) || "";
 
     // Preflight store (agent still loads via tools for a visible trail)
@@ -125,13 +131,12 @@ export const writerAgent: AgentDef = {
       }
     }
 
-    const agentId = isRewrite ? "writer_rewrite" : "writer_create";
-    const { system: sys, user: baseUser } = resolveAgentPrompt(agentId, "zh", {
+    const { system: sys, user: baseUser } = resolveAgentPrompt(name, "zh", {
       prompt: ctx.prompt,
       novelId: ctx.novelId,
       branchId: ctx.branchId,
     });
-    const tools = resolveAgentToolSchemas(agentId);
+    const tools = resolveAgentToolSchemas(name);
 
     // Style is fetched via get_style tool — only pass the id hint, not full profile
     const styleHint = ctx.selectedStyleId
@@ -267,5 +272,11 @@ ${why}。
         : `正文已创建（agent 已 save_prose，${saved.length} 字）。主 agent 勿取正文。`,
       messages: trail,
     };
-  },
-};
+  };
+  });
+}
+
+export const writerCreateAgent = makeWriterAgent("writer_create-system.md");
+export const writerRewriteAgent = makeWriterAgent("writer_rewrite-system.md");
+/** @deprecated use writerCreateAgent / writerRewriteAgent */
+export const writerAgent = writerCreateAgent;

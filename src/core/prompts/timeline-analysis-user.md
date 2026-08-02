@@ -1,2 +1,0 @@
-novelId={{novelId}}
-branchId={{branchId}}

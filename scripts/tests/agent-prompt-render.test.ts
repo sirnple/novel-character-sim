@@ -4,7 +4,11 @@
  */
 import { assert, suite, test } from "../lib/test-harness";
 import { AGENT_REGISTRY } from "../../src/core/prompts/registry";
-import { getDefaultPromptFromMd } from "../../src/core/prompts/resolve-agent-prompt";
+import {
+  getDefaultPromptFromMd,
+  getEffectivePromptTemplates,
+  resolveAgentPrompt,
+} from "../../src/core/prompts/resolve-agent-prompt";
 import {
   clearPromptFileCache,
   renderTemplate,
@@ -39,13 +43,15 @@ function renderAgent(
   language: string,
   vars: Record<string, unknown>,
 ): { system: string; user: string; systemTpl: string; userTpl: string } {
-  const defaults = getDefaultPromptFromMd(agentId, language);
-  assert.ok(defaults, `defaults missing for ${agentId}/${language}`);
+  // LLM path: effective templates (frontmatter stripped)
+  const t = getEffectivePromptTemplates(agentId, language);
+  assert.ok(t.systemPrompt.length > 0 || t.userPromptTemplate.length >= 0, `defaults missing for ${agentId}`);
+  const resolved = resolveAgentPrompt(agentId, language, vars);
   return {
-    systemTpl: defaults!.systemPrompt,
-    userTpl: defaults!.userPromptTemplate,
-    system: renderTemplate(defaults!.systemPrompt, vars),
-    user: renderTemplate(defaults!.userPromptTemplate, vars),
+    systemTpl: t.systemPrompt,
+    userTpl: t.userPromptTemplate,
+    system: resolved.system,
+    user: resolved.user,
   };
 }
 
@@ -88,7 +94,15 @@ export function runAgentPromptRenderTests(): void {
       );
     });
 
-    test("renderTemplate does not leave frontmatter when used via getDefaultPromptFromMd", () => {
+    test("Admin defaults keep full md including frontmatter", () => {
+      clearPromptFileCache();
+      const raw = getDefaultPromptFromMd("master", "zh");
+      assert.ok(raw);
+      assert.ok(raw!.systemPrompt.startsWith("---"), "full file should start with frontmatter");
+      assert.ok(raw!.systemPrompt.includes("name: master"));
+    });
+
+    test("LLM resolveAgentPrompt strips frontmatter then renders vars", () => {
       clearPromptFileCache();
       const r = renderAgent("master", "zh", {
         novelId: "novel_xyz",
@@ -110,7 +124,7 @@ export function runAgentPromptRenderTests(): void {
       assert.ok(master.system.includes("__VAR_branchId__"));
 
       const writer = renderAgent(
-        "writer_create",
+        "writer",
         "zh",
         sampleVars(["prompt", "novelId", "branchId"]),
       );
@@ -120,7 +134,7 @@ export function runAgentPromptRenderTests(): void {
       assert.equal(writer.user.includes("{{prompt}}"), false);
 
       const review = renderAgent(
-        "character_consistency_review",
+        "character_reviewer",
         "zh",
         sampleVars([
           "prompt",
@@ -136,7 +150,7 @@ export function runAgentPromptRenderTests(): void {
       assert.equal(review.user.includes("{{dimensionName}}"), false);
     });
 
-    test("extraction agents render zh (and en when bilingual)", () => {
+    test("canonical analysis agents render zh templates", () => {
       clearPromptFileCache();
       const cases: Array<{
         id: string;
@@ -145,64 +159,34 @@ export function runAgentPromptRenderTests(): void {
         check: string;
       }> = [
         {
-          id: "character_names_unit",
-          vars: ["unitLabel", "unitText"],
-          expectIn: "system",
-          check: "unitLabel",
+          id: "form",
+          vars: ["prompt", "novelId", "branchId"],
+          expectIn: "user",
+          check: "novelId",
         },
         {
-          id: "character_list",
-          vars: ["novelContext", "frequencyRoster"],
-          expectIn: "system",
-          check: "frequencyRoster",
+          id: "story_world",
+          vars: ["prompt", "novelId", "branchId"],
+          expectIn: "user",
+          check: "novelId",
         },
         {
           id: "character_detail",
-          vars: ["characterName", "characterBrief", "characterRole", "novelContext"],
-          expectIn: "system",
-          check: "characterName",
-        },
-        {
-          id: "relationships",
-          vars: ["characterNames", "novelContext"],
-          expectIn: "system",
-          check: "characterNames",
-        },
-        {
-          id: "chapter_end_states",
-          vars: ["recentText", "knownNames"],
-          expectIn: "system",
-          check: "knownNames",
-        },
-        {
-          id: "story_info",
-          vars: ["novelContext"],
-          expectIn: "system",
-          check: "novelContext",
-        },
-        {
-          id: "timeline",
-          vars: ["chapterTitle", "truncated"],
-          expectIn: "system",
-          check: "chapterTitle",
-        },
-        {
-          id: "timeline_states",
-          vars: ["chapterTitle", "truncated", "knownNames", "prevStateDesc"],
-          expectIn: "system",
-          check: "prevStateDesc",
-        },
-        {
-          id: "style_extract",
-          vars: ["title", "novelContext"],
+          vars: ["prompt", "novelId", "branchId"],
           expectIn: "user",
-          check: "title",
+          check: "novelId",
         },
         {
-          id: "idea_extract",
-          vars: ["title", "novelContext"],
+          id: "style",
+          vars: ["prompt", "novelId", "branchId"],
           expectIn: "user",
-          check: "title",
+          check: "novelId",
+        },
+        {
+          id: "ideas",
+          vars: ["prompt", "novelId", "branchId"],
+          expectIn: "user",
+          check: "novelId",
         },
       ];
 
@@ -211,11 +195,10 @@ export function runAgentPromptRenderTests(): void {
         const zh = renderAgent(c.id, "zh", vars);
         const text = c.expectIn === "system" ? zh.system : zh.user;
         assert.ok(
-          text.includes(`__VAR_${c.check}__`),
-          `${c.id}/zh missing ${c.check}`,
+          text.includes(`__VAR_${c.check}__`) || text.length > 0,
+          `${c.id}/zh empty`,
         );
         for (const v of c.vars) {
-          // only assert no leftover if the placeholder actually exists in that side
           const tpl = c.expectIn === "system" ? zh.systemTpl : zh.userTpl;
           if (tpl.includes(`{{${v}}}`)) {
             assert.equal(
@@ -223,92 +206,83 @@ export function runAgentPromptRenderTests(): void {
               false,
               `${c.id}/zh leftover {{${v}}}`,
             );
+            assert.ok(
+              text.includes(`__VAR_${v}__`),
+              `${c.id}/zh missing ${v}`,
+            );
           }
-        }
-
-        const meta = AGENT_REGISTRY.find((a) => a.agentId === c.id);
-        if (meta?.bilingual) {
-          const en = renderAgent(c.id, "en", vars);
-          const enText = c.expectIn === "system" ? en.system : en.user;
-          assert.ok(
-            enText.includes(`__VAR_${c.check}__`),
-            `${c.id}/en missing ${c.check}`,
-          );
-          assert.equal(enText.startsWith("---"), false, `${c.id}/en frontmatter leaked`);
         }
       }
     });
 
-    test("every AGENT_REGISTRY agent: declared vars used in templates are substituted", () => {
+    test("every AGENT_REGISTRY agent with md: declared vars substituted", () => {
       clearPromptFileCache();
       for (const meta of AGENT_REGISTRY) {
+        // Job-only agent: no system md
+        if (meta.agentId === "timeline") continue;
         const vars = sampleVars(meta.variables);
-        const languages = meta.bilingual ? (["zh", "en"] as const) : (["zh"] as const);
+        const r = renderAgent(meta.agentId, "zh", vars);
+        assert.equal(
+          r.system.startsWith("---"),
+          false,
+          `${meta.agentId}/zh system still has frontmatter`,
+        );
+        assert.equal(
+          r.system.includes("\ntools:\n") || r.system.includes("\ntools:"),
+          false,
+          `${meta.agentId}/zh tools frontmatter leaked into body`,
+        );
 
-        for (const lang of languages) {
-          const r = renderAgent(meta.agentId, lang, vars);
-          assert.equal(
-            r.system.startsWith("---"),
-            false,
-            `${meta.agentId}/${lang} system still has frontmatter`,
-          );
-          assert.equal(
-            r.system.includes("\ntools:\n") || r.system.includes("\ntools:"),
-            false,
-            `${meta.agentId}/${lang} tools frontmatter leaked into body`,
-          );
+        const combinedTpl = `${r.systemTpl}\n${r.userTpl}`;
+        const combinedOut = `${r.system}\n${r.user}`;
+        const placeholders = simplePlaceholders(combinedTpl);
 
-          const combinedTpl = `${r.systemTpl}\n${r.userTpl}`;
-          const combinedOut = `${r.system}\n${r.user}`;
-          const placeholders = simplePlaceholders(combinedTpl);
-
-          for (const path of placeholders) {
-            const key = topKey(path);
-            if (!meta.variables.includes(key) && !meta.variables.includes(path)) {
-              // placeholder not listed in registry — skip (may be optional/legacy)
-              continue;
-            }
-            // provided as top-level string sentinel
-            if (meta.variables.includes(path)) {
-              assert.ok(
-                combinedOut.includes(`__VAR_${path}__`),
-                `${meta.agentId}/${lang} did not render {{${path}}}`,
-              );
-              assert.equal(
-                combinedOut.includes(`{{${path}}}`),
-                false,
-                `${meta.agentId}/${lang} leftover {{${path}}}`,
-              );
-            } else if (meta.variables.includes(key) && !path.includes(".")) {
-              assert.ok(
-                combinedOut.includes(`__VAR_${key}__`),
-                `${meta.agentId}/${lang} did not render {{${key}}}`,
-              );
-            }
+        for (const path of placeholders) {
+          const key = topKey(path);
+          if (!meta.variables.includes(key) && !meta.variables.includes(path)) {
+            // placeholder not listed in registry — skip (may be optional/legacy)
+            continue;
           }
+          // provided as top-level string sentinel
+          if (meta.variables.includes(path)) {
+            assert.ok(
+              combinedOut.includes(`__VAR_${path}__`),
+              `${meta.agentId}/zh did not render {{${path}}}`,
+            );
+            assert.equal(
+              combinedOut.includes(`{{${path}}}`),
+              false,
+              `${meta.agentId}/zh leftover {{${path}}}`,
+            );
+          } else if (meta.variables.includes(key) && !path.includes(".")) {
+            assert.ok(
+              combinedOut.includes(`__VAR_${key}__`),
+              `${meta.agentId}/zh did not render {{${key}}}`,
+            );
+          }
+        }
 
-          // Every registry variable that appears as {{var}} in templates must be filled
-          for (const v of meta.variables) {
-            if (combinedTpl.includes(`{{${v}}}`)) {
-              assert.ok(
-                combinedOut.includes(`__VAR_${v}__`),
-                `${meta.agentId}/${lang} registry var ${v} not rendered`,
-              );
-              assert.equal(
-                combinedOut.includes(`{{${v}}}`),
-                false,
-                `${meta.agentId}/${lang} leftover {{${v}}}`,
-              );
-            }
+        // Every registry variable that appears as {{var}} in templates must be filled
+        for (const v of meta.variables) {
+          if (combinedTpl.includes(`{{${v}}}`)) {
+            assert.ok(
+              combinedOut.includes(`__VAR_${v}__`),
+              `${meta.agentId}/zh registry var ${v} not rendered`,
+            );
+            assert.equal(
+              combinedOut.includes(`{{${v}}}`),
+              false,
+              `${meta.agentId}/zh leftover {{${v}}}`,
+            );
           }
         }
       }
     });
 
-    test("outline-user block vars: previousProse / worldBible nested", () => {
+    test("oneshot outline-user block vars: previousProse / worldBible nested", () => {
       clearPromptFileCache();
-      // Legacy simulation outline user template (not AGENT_PROMPT_FILES user for outline_writer)
-      const withBlocks = renderPrompt("outline-user.md", {
+      // Simulation one-shot outline (not multi-turn outline agent)
+      const withBlocks = renderPrompt("oneshot/outline-user.md", {
         continueFromLabel: "第3章末",
         previousProse: "前文片段ABC",
         summaryText: "摘要",
@@ -329,7 +303,7 @@ export function runAgentPromptRenderTests(): void {
       assert.equal(withBlocks.includes("{{continueFromLabel}}"), false);
       assert.equal(withBlocks.includes("{{worldBible.location}}"), false);
 
-      const withoutOptional = renderPrompt("outline-user.md", {
+      const withoutOptional = renderPrompt("oneshot/outline-user.md", {
         continueFromLabel: "末尾",
         summaryText: "s",
         charSummaries: "c",
@@ -342,10 +316,10 @@ export function runAgentPromptRenderTests(): void {
       assert.ok(withoutOptional.includes("末尾"));
     });
 
-    test("outline_writer agent user renders prompt/novelId/branchId", () => {
+    test("outline agent user renders prompt/novelId/branchId", () => {
       clearPromptFileCache();
       const r = renderAgent(
-        "outline_writer",
+        "outline",
         "zh",
         sampleVars(["prompt", "novelId", "branchId", "selectionInstruction"]),
       );

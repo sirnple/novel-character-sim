@@ -1,5 +1,5 @@
 ---
-name: outline_review
+name: outline_reviewer
 description: "写正文前审核大纲：承接、章名风格、出场合法性、类型逻辑、伏笔"
 tools:
   - get_branch_text

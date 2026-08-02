@@ -1,7 +1,15 @@
 ---
-name: analyze_form
+name: form
 description: "章法分析子 Agent"
-tools: []
+tools:
+  - get_analysis_context
+  - scan_chapter_catalog
+  - build_form_draft
+  - list_form_catalog
+  - apply_catalog_tracks
+  - set_form_narrative
+  - submit_form
+  - list_text_units
 ---
 你是章法分析 Agent。
 

@@ -6,7 +6,7 @@
 import { createLLMProvider } from "@/core/llm/factory";
 import { buildNovelContext } from "@/core/parser/novel-parser";
 import { isChinese, extractJSON, generateId } from "@/lib/utils";
-import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
+import { renderOneshot } from "@/core/prompts/oneshot";
 import { normalizeIdeaEntries } from "@/lib/db";
 import type { ParsedNovel, IdeaLibraryEntry } from "@/types";
 
@@ -61,7 +61,8 @@ export async function extractIdeas(
     },
   };
 
-  const { system, user } = resolveAgentPrompt("idea_extract", lang, {
+  const system = renderOneshot("idea-extract-system", {});
+  const user = renderOneshot("idea-extract-user", {
     title: parsed.title || "",
     novelContext,
   });

@@ -6,6 +6,9 @@ import { getTool, buildToolSchemas } from "@/core/agents/registry";
 import { getAgent } from "@/core/agents/agent-registry";
 import { initRegistry } from "@/core/agents/init";
 import { runReviewsParallel } from "@/core/agents/agents/run-reviews";
+import { outlineAgent } from "@/core/agents/agents/outline";
+import { outlineReviewAgent } from "@/core/agents/agents/outline-review";
+import { agentNameFromSystem } from "@/core/agents/agent-config";
 import {
   resolveAgentSystem,
   getAgentAllowedTools,
@@ -93,9 +96,13 @@ export async function POST(request: NextRequest) {
       (t) => MASTER_TOOL_ALLOW.has(t.name) && t.name !== "agent",
     ),
   ];
-  const baseSys = isAnalysis
-    ? resolveAgentSystem("novel_analysis", "zh")
-    : resolveAgentSystem("master", "zh", { novelId, branchId });
+  const masterAgentName = isAnalysis
+    ? agentNameFromSystem("novel_analysis-system.md")
+    : agentNameFromSystem("master-system.md");
+  const baseSys = resolveAgentSystem(masterAgentName, "zh", {
+    novelId,
+    branchId,
+  });
   const sysPrompt = autoPass
     ? `${baseSys}\n\n${ONE_CLICK_CONTINUE_SYSTEM_APPEND}`
     : baseSys;
@@ -140,7 +147,7 @@ export async function POST(request: NextRequest) {
           userId,
           novelId,
           branchId,
-          agentId: isAnalysis ? "novel_analysis" : "master",
+          agentId: masterAgentName,
           category: "agent",
         },
         async () => {
@@ -191,7 +198,7 @@ export async function POST(request: NextRequest) {
 
       /** Sub-agent dispatch (same path as write master) — UI card = agentType + trail, not a flat data tool. */
       const runAgent = async (agentTypeRaw: string, prompt: string, toolCallId: string) => {
-        // Always try analysis aliases (analyze_story → analyze_story_world); write ids unchanged
+        // Always try analysis aliases (analyze_story → story_world); write ids unchanged
         const agentType = resolveAnalysisAgentType(String(agentTypeRaw || "").trim());
         sendTool(agentType, "running", toolCallId);
         const agentDef = getAgent(agentType) || getAgent(String(agentTypeRaw || "").trim());
@@ -232,19 +239,25 @@ export async function POST(request: NextRequest) {
         }
 
         // After outline: visible review card; on fail auto-rewrite outline once then re-review
-        if (agentType === "generate_outline") {
+        const outlineName = outlineAgent.config.name;
+        const outlineReviewName = outlineReviewAgent.config.name;
+        if (agentType === outlineName) {
           const { getFindings } = await import("@/core/agents/intermediate-store");
           const { outlineReviewFailedFromFindings } = await import(
             "@/core/agents/agents/outline-review"
           );
 
           const runOutlineReviewCard = async (parentId: string, attempt: number) => {
-            const reviewId = `${parentId}__outline_review${attempt > 1 ? `_r${attempt}` : ""}`;
-            const reviewDef = getAgent("review_outline");
+            const reviewId = `${parentId}__${outlineReviewName}${attempt > 1 ? `_r${attempt}` : ""}`;
+            const reviewDef = getAgent(outlineReviewName);
             if (!reviewDef) {
-              return { content: "（无 review_outline agent）", messages: [] as any[], askUser: undefined as any };
+              return {
+                content: `（无 ${outlineReviewName} agent）`,
+                messages: [] as any[],
+                askUser: undefined as any,
+              };
             }
-            sendTool("review_outline", "running", reviewId);
+            sendTool(outlineReviewName, "running", reviewId);
             const t1 = Date.now();
             try {
               const rev = await reviewDef.execute(
@@ -263,25 +276,25 @@ export async function POST(request: NextRequest) {
                     type: "tool_chunk",
                     toolCallId: reviewId,
                     content: text,
-                    tool: "review_outline",
+                    tool: outlineReviewName,
                   }),
                 (messages) =>
                   send({
                     type: "tool_trail",
                     toolCallId: reviewId,
                     messages,
-                    tool: "review_outline",
+                    tool: outlineReviewName,
                   }),
               );
               logSession({
                 ts: new Date().toISOString(),
                 type: "tool_exec",
-                tool: "review_outline",
+                tool: outlineReviewName,
                 elapsed: Date.now() - t1,
                 resultPreview: rev.content.slice(0, 300),
               });
               sendTool(
-                "review_outline",
+                outlineReviewName,
                 "done",
                 reviewId,
                 rev.content.slice(0, 5000),
@@ -290,7 +303,7 @@ export async function POST(request: NextRequest) {
               return rev;
             } catch (e) {
               const err = "大纲审核失败: " + (e as Error).message;
-              sendTool("review_outline", "done", reviewId, err);
+              sendTool(outlineReviewName, "done", reviewId, err);
               return { content: err, messages: [], askUser: undefined };
             }
           };
@@ -328,9 +341,9 @@ export async function POST(request: NextRequest) {
               )
               .join("\n");
             const fixId = `${toolCallId}__outline_fix`;
-            const outlineDef = getAgent("generate_outline");
+            const outlineDef = getAgent(outlineName);
             if (outlineDef) {
-              sendTool("generate_outline", "running", fixId);
+              sendTool(outlineName, "running", fixId);
               const tFix = Date.now();
               try {
                 const fixed = await outlineDef.execute(
@@ -357,25 +370,25 @@ export async function POST(request: NextRequest) {
                       type: "tool_chunk",
                       toolCallId: fixId,
                       content: text,
-                      tool: "generate_outline",
+                      tool: outlineName,
                     }),
                   (messages) =>
                     send({
                       type: "tool_trail",
                       toolCallId: fixId,
                       messages,
-                      tool: "generate_outline",
+                      tool: outlineName,
                     }),
                 );
                 logSession({
                   ts: new Date().toISOString(),
                   type: "tool_exec",
-                  tool: "generate_outline",
+                  tool: outlineName,
                   elapsed: Date.now() - tFix,
                   resultPreview: fixed.content.slice(0, 300),
                 });
                 sendTool(
-                  "generate_outline",
+                  outlineName,
                   "done",
                   fixId,
                   fixed.content.slice(0, 5000),
@@ -424,15 +437,15 @@ export async function POST(request: NextRequest) {
                   );
               } catch (e) {
                 const err = "自动改写大纲失败: " + (e as Error).message;
-                sendTool("generate_outline", "done", fixId, err);
+                sendTool(outlineName, "done", fixId, err);
                 outlineContent += "\n\n" + err;
               }
             }
           }
 
           const wrapHint = failed
-            ? "\n主 agent：复审仍未通过 → 再 generate_outline 按 findings 改写（一键续写也必须改到通过，禁止带病写正文）。"
-            : "\n主 agent：审核已通过 → 可写正文 / 一键模式直接 write_prose。";
+            ? "\n主 agent：复审仍未通过 → 再 outline 按 findings 改写（一键续写也必须改到通过，禁止带病写正文）。"
+            : "\n主 agent：审核已通过 → 可写正文 / 一键模式直接 writer。";
 
           return {
             content:
@@ -457,7 +470,7 @@ export async function POST(request: NextRequest) {
           const denied = isAnalysis
             ? name === "agent"
               ? `请用 agent(agent_type, prompt) 调度分析子 Agent（系统会打开子 Agent 卡片）。`
-              : `分析主编不可调用 ${name}。可用：agent / ask_question / get_current_* / get_analysis_* / finish_novel_analysis。章法用 agent(analyze_form)，其它域同样 agent(agent_type)。`
+              : `分析主编不可调用 ${name}。可用：agent / ask_question / get_current_* / get_analysis_* / finish_novel_analysis。章法用 agent(form)，其它域同样 agent(agent_type)。`
             : name === "agent"
               ? `请用 agent(agent_type, prompt) 调度子 Agent。`
               : `主 agent 不可调用 ${name}。正文由子 agent 自行 get_prose，你只需调度。`;

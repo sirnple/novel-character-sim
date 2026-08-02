@@ -19,16 +19,8 @@ function ensureSeed() {
     description: a.description,
     category: a.category,
   }));
+  // Chinese-only prompts — no bilingual md / en seed rows
   seedAgentPrompts(meta, "zh");
-  seedAgentPrompts(
-    AGENT_REGISTRY.filter((a) => a.bilingual).map((a) => ({
-      agentId: a.agentId,
-      name: a.name,
-      description: a.description,
-      category: a.category,
-    })),
-    "en",
-  );
   // Drop obsolete agent rows no longer in registry (e.g. old "writer")
   pruneAgentPrompts(AGENT_REGISTRY.map((a) => a.agentId));
 }

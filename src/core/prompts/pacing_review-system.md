@@ -1,5 +1,5 @@
 ---
-name: pacing_review
+name: pacing_reviewer
 description: "检查节奏与冲突强度是否匹配"
 tools:
   - get_branch_text

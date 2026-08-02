@@ -6,7 +6,7 @@
 import { createLLMProvider } from "@/core/llm/factory";
 import { buildNovelContext } from "@/core/parser/novel-parser";
 import { isChinese, extractJSON } from "@/lib/utils";
-import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
+import { renderOneshot } from "@/core/prompts/oneshot";
 import type { ParsedNovel, WritingStyle } from "@/types";
 
 const EMPTY: WritingStyle = {
@@ -71,7 +71,8 @@ export async function extractWritingStyle(parsed: ParsedNovel): Promise<WritingS
   const lang = zh ? "zh" : "en";
   const novelContext = buildNovelContext(parsed, 5).slice(0, 14000);
 
-  const { system, user } = resolveAgentPrompt("style_extract", lang, {
+  const system = renderOneshot("style-extract-system", {});
+  const user = renderOneshot("style-extract-user", {
     title: parsed.title || "",
     novelContext,
   });

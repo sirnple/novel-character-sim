@@ -1,4 +1,5 @@
-import type { AgentDef, TrailMessage } from "../types";
+import type { TrailMessage } from "../types";
+import { defineAgent } from "../agent-registry";
 import {
   resolveAgentPrompt,
   resolveAgentToolSchemas,
@@ -71,8 +72,9 @@ function tryRecoverOutlineFromText(
   return true;
 }
 
-export const outlineAgent: AgentDef = {
-  execute: async (ctx, llm, onChunk, onTrail) => {
+export const outlineAgent = defineAgent("outline_writer-system.md", (config) => {
+  const name = config.name;
+  return async (ctx, llm, onChunk, onTrail) => {
     const isRewrite = isOutlineRewritePrompt(ctx.prompt);
     // Snapshot before round start (rewrite must see previous draft)
     const prevOutline = getOutline(ctx.novelId, ctx.branchId);
@@ -84,7 +86,7 @@ export const outlineAgent: AgentDef = {
     });
 
     // Create: strip get_outline so the model cannot "probe" empty store
-    const allTools = resolveAgentToolSchemas("outline_writer");
+    const allTools = resolveAgentToolSchemas(name);
     const TOOLS = isRewrite
       ? allTools
       : allTools.filter((t) => t.name !== "get_outline");
@@ -110,10 +112,7 @@ export const outlineAgent: AgentDef = {
       }
     }
 
-    const { system: sys, user: baseUser } = resolveAgentPrompt(
-      "outline_writer",
-      "zh",
-      {
+    const { system: sys, user: baseUser } = resolveAgentPrompt(name, "zh", {
         prompt: ctx.prompt,
         novelId: ctx.novelId,
         branchId: ctx.branchId,
@@ -304,5 +303,5 @@ ${draftHint}
         `。主 agent 用 get_outline 取可读全文。系统将自动 review_outline。`,
       messages: trail,
     };
-  },
-};
+  };
+});

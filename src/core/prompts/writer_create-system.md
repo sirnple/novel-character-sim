@@ -1,5 +1,5 @@
 ---
-name: writer_create
+name: writer
 description: "MODE:create — 根据大纲写正文并 save_prose"
 tools:
   - get_outline

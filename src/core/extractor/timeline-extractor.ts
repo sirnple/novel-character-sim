@@ -1,7 +1,7 @@
 import type { ChapterTimeline, TimelineEvent, CharacterChapterState, ParsedNovel } from "@/types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { isChinese, generateId } from "@/lib/utils";
-import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
+import { renderOneshot } from "@/core/prompts/oneshot";
 
 // === Timeline Extractor ===
 // Recursively builds a chapter-by-chapter timeline from the novel.
@@ -193,7 +193,7 @@ export class TimelineExtractor {
       ? chapterText.slice(0, maxLen) + "\n...(后续省略)"
       : chapterText;
 
-    const prompt = resolveAgentSystem("timeline", this.useChinese ? "zh" : "en", {
+    const prompt = renderOneshot("timeline", {
       chapterTitle,
       truncated,
     });
@@ -240,7 +240,7 @@ export class TimelineExtractor {
       }
     }
 
-    const prompt = resolveAgentSystem("timeline_states", this.useChinese ? "zh" : "en", {
+    const prompt = renderOneshot("timeline-states", {
       chapterTitle,
       truncated,
       knownNames: knownNames.join(", ") || (this.useChinese ? "未提供" : "none"),

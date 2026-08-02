@@ -11,6 +11,12 @@
  * Domain work (including form) is NEVER a master tool — only via agent(agent_type).
  * run_form_analysis / scan_character_mentions / submit_* belong to sub-agents only.
  */
+import {
+  agentNameFromSystem,
+  listAnalysisSubagentNames,
+  listWriteSubagentNames,
+} from "./agent-config";
+
 export const ANALYSIS_MASTER_TOOL_NAMES = [
   "agent",
   "ask_question",
@@ -23,71 +29,64 @@ export const ANALYSIS_MASTER_TOOL_NAMES = [
 
 export type AnalysisMasterToolName = (typeof ANALYSIS_MASTER_TOOL_NAMES)[number];
 
-/** Write-mode sub-agents (verb-object), for mode-scoped agent() enum */
-export const WRITE_SUBAGENT_TYPES = [
-  "generate_outline",
-  "write_prose",
-  "review_outline",
-  "review_character",
-  "review_continuity",
-  "review_foreshadowing",
-  "review_style",
-  "review_world",
-  "review_pacing",
-] as const;
+/**
+ * Write-mode sub-agents — names from system md frontmatter (via AGENT_FILE_SPECS).
+ * Not a hand-maintained string table.
+ */
+export const WRITE_SUBAGENT_TYPES: readonly string[] = listWriteSubagentNames();
 
 /**
  * Analysis sub-agents via agent(agent_type=...).
- * Verb-object names, same style as write_prose / review_character.
+ * Names from frontmatter (extraction category, excluding analyst master).
  */
-export const ANALYSIS_SUBAGENT_TYPES = [
-  /** 章法：子 Agent 内调 run_form_analysis，主编不直接调该工具 */
-  "analyze_form",
-  "analyze_story_world",
-  /** 角色列表分析（扫名/指代等均在子 Agent 内决策，主编只派此名） */
-  "analyze_character_list",
-  "extract_character_detail",
-  "extract_character_relationships",
-  "analyze_timeline",
-  "extract_style",
-  "extract_ideas",
-] as const;
+export const ANALYSIS_SUBAGENT_TYPES: readonly string[] =
+  listAnalysisSubagentNames();
 
-export type AnalysisSubagentType = (typeof ANALYSIS_SUBAGENT_TYPES)[number];
+export type AnalysisSubagentType = string;
 
 /**
- * Direct dependencies: must be ready before launching this agent.
- * Master must run missing deps first when user asks for a single domain.
+ * Status domain key → agent frontmatter name.
+ * Names loaded from system md (not hardcoded name strings).
  */
-export const ANALYSIS_AGENT_DEPENDENCIES: Record<
-  AnalysisSubagentType,
-  readonly AnalysisSubagentType[]
-> = {
-  analyze_form: [],
-  /** 名单依赖章法（分章/units） */
-  analyze_character_list: ["analyze_form"],
-  extract_character_detail: ["analyze_character_list"],
-  extract_character_relationships: [
-    "analyze_character_list",
-    "extract_character_detail",
-  ],
-  analyze_story_world: ["analyze_form"],
-  analyze_timeline: ["analyze_form"],
-  extract_style: ["analyze_form"],
-  extract_ideas: ["analyze_form"],
+export const ANALYSIS_DOMAIN_TO_AGENT: Record<string, string> = {
+  form: agentNameFromSystem("analyze_form-system.md"),
+  character_list: agentNameFromSystem("analyze_character_list-system.md"),
+  character_detail: agentNameFromSystem("extract_character_detail-system.md"),
+  character_relationships: agentNameFromSystem(
+    "extract_character_relationships-system.md",
+  ),
+  story: agentNameFromSystem("analyze_story_world-system.md"),
+  timeline: agentNameFromSystem("analyze_timeline-system.md"),
+  style: agentNameFromSystem("extract_style-system.md"),
+  ideas: agentNameFromSystem("extract_ideas-system.md"),
 };
 
-/** Status domain key → agent_type that produces it */
-export const ANALYSIS_DOMAIN_TO_AGENT: Record<string, AnalysisSubagentType> = {
-  form: "analyze_form",
-  character_list: "analyze_character_list",
-  character_detail: "extract_character_detail",
-  character_relationships: "extract_character_relationships",
-  story: "analyze_story_world",
-  timeline: "analyze_timeline",
-  style: "extract_style",
-  ideas: "extract_ideas",
+/** Domain readiness graph (status keys, not agent names). */
+const DOMAIN_DEPENDENCIES: Record<string, readonly string[]> = {
+  form: [],
+  character_list: ["form"],
+  character_detail: ["character_list"],
+  character_relationships: ["character_list", "character_detail"],
+  story: ["form"],
+  timeline: ["form"],
+  style: ["form"],
+  ideas: ["form"],
 };
+
+/**
+ * Direct dependencies by agent_type (frontmatter name).
+ * Built from domain graph + ANALYSIS_DOMAIN_TO_AGENT.
+ */
+export const ANALYSIS_AGENT_DEPENDENCIES: Record<string, readonly string[]> =
+  Object.fromEntries(
+    Object.entries(DOMAIN_DEPENDENCIES).map(([domain, depDomains]) => {
+      const agent = ANALYSIS_DOMAIN_TO_AGENT[domain];
+      const deps = depDomains
+        .map((d) => ANALYSIS_DOMAIN_TO_AGENT[d])
+        .filter(Boolean);
+      return [agent, deps];
+    }),
+  );
 
 /**
  * Status domain keys that do **not** block writing or analysis wrap-up/save.
@@ -226,57 +225,6 @@ export function buildLaunchPlan(
           : `依赖已齐，直接派 ${target}`,
   };
 }
-
-/** Old noun-style / wrapper / truncated names → canonical verb-object agent_type */
-export const ANALYSIS_AGENT_ALIASES: Record<string, AnalysisSubagentType> = {
-  form_analysis: "analyze_form",
-  run_form_analysis: "analyze_form",
-  analyze_form_analysis: "analyze_form",
-  form: "analyze_form",
-  // story world — models often drop "_world"
-  story_world: "analyze_story_world",
-  analyze_story: "analyze_story_world",
-  analyze_storyworld: "analyze_story_world",
-  story: "analyze_story_world",
-  story_info: "analyze_story_world",
-  analyze_story_info: "analyze_story_world",
-  // character list — canonical analyze_character_list; legacy names map here
-  resolve_character_roster: "analyze_character_list",
-  character_roster: "analyze_character_list",
-  character_entity_resolve: "analyze_character_list",
-  analyze_character: "analyze_character_list",
-  analyze_characters: "analyze_character_list",
-  character_list: "analyze_character_list",
-  run_character_roster_agent: "analyze_character_list",
-  character_detail: "extract_character_detail",
-  character_detail_agent: "extract_character_detail",
-  extract_character: "extract_character_detail",
-  extract_characters: "extract_character_detail",
-  character_relationships: "extract_character_relationships",
-  extract_relationships: "extract_character_relationships",
-  analyze_relationships: "extract_character_relationships",
-  relationships: "extract_character_relationships",
-  timeline_analysis: "analyze_timeline",
-  timeline: "analyze_timeline",
-  extract_timeline: "analyze_timeline",
-  style_extract: "extract_style",
-  style_extract_agent: "extract_style",
-  analyze_style: "extract_style",
-  style: "extract_style",
-  idea_extract: "extract_ideas",
-  idea_extract_agent: "extract_ideas",
-  analyze_ideas: "extract_ideas",
-  ideas: "extract_ideas",
-  run_story_world_agent: "analyze_story_world",
-  run_character_detail_agent: "extract_character_detail",
-  run_character_relationships_agent: "extract_character_relationships",
-  run_timeline_analysis_agent: "analyze_timeline",
-  run_style_extract_agent: "extract_style",
-  run_idea_extract_agent: "extract_ideas",
-};
-
-/** @deprecated use ANALYSIS_AGENT_ALIASES */
-export const ANALYSIS_RUN_AGENT_MAP = ANALYSIS_AGENT_ALIASES;
 
 /**
  * Normalize tool JSON schema for OpenAI-compatible gateways (OpenCode Go).
@@ -417,25 +365,9 @@ export function buildMasterAgentToolSchema(mode: "write" | "analysis"): {
 }
 
 /**
- * Resolve legacy / truncated agent_type → canonical id.
- * Exact alias first; then unique prefix of a canonical id
- * (e.g. analyze_story → analyze_story_world when unambiguous).
+ * Normalize agent_type from the model — trim only.
+ * Must equal a registered frontmatter `name` exactly (no soft aliases / prefix guess).
  */
 export function resolveAnalysisAgentType(raw: string): string {
-  const t = String(raw || "").trim();
-  if (!t) return t;
-  if (ANALYSIS_AGENT_ALIASES[t]) return ANALYSIS_AGENT_ALIASES[t];
-  if ((ANALYSIS_SUBAGENT_TYPES as readonly string[]).includes(t)) return t;
-
-  const lower = t.toLowerCase();
-  if (ANALYSIS_AGENT_ALIASES[lower]) return ANALYSIS_AGENT_ALIASES[lower];
-
-  // Unique prefix of canonical id only (min length avoids "s" → style)
-  if (t.length >= 8) {
-    const hits = (ANALYSIS_SUBAGENT_TYPES as readonly string[]).filter(
-      (id) => id.startsWith(t) || id.startsWith(lower),
-    );
-    if (hits.length === 1) return hits[0];
-  }
-  return t;
+  return String(raw || "").trim();
 }

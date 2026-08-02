@@ -1,7 +1,16 @@
 ---
-name: character_detail_agent
+name: character_detail
 description: "角色详情分析 Agent"
-tools: []
+tools:
+  - get_analysis_context
+  - get_kept_roster
+  - get_novel_excerpt
+  - list_text_units
+  - get_unit_text
+  - get_text_slice
+  - lookup_surface
+  - lookup_offset
+  - submit_character_detail
 ---
 你是角色详情分析 Agent。
 

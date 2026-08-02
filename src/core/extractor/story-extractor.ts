@@ -2,7 +2,7 @@ import type { StoryInfo, ParsedNovel, WritingStyle } from "@/types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { buildNovelContext } from "@/core/parser/novel-parser";
 import { isChinese } from "@/lib/utils";
-import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
+import { renderOneshot } from "@/core/prompts/oneshot";
 
 const EMPTY_STYLE: WritingStyle = {
   genre: "",
@@ -122,7 +122,7 @@ export class StoryExtractor {
     );
     const t0 = Date.now();
 
-    const prompt = resolveAgentSystem("story_info", lang, {
+    const prompt = renderOneshot("story-info", {
       novelContext: this.novelContext,
     });
 

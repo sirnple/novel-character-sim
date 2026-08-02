@@ -40,6 +40,14 @@ export function loadPromptDocument(name: string): ParsedAgentDocument {
 }
 
 /**
+ * Load full prompt file text (frontmatter + body). Cached.
+ * Prefer this for Admin display / edit defaults.
+ */
+export function loadPromptRaw(name: string): string {
+  return readRaw(name).text;
+}
+
+/**
  * Load prompt template body (frontmatter stripped). Cached.
  * Safe for LLM system/user prompts — never injects YAML headers.
  */

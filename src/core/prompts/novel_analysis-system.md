@@ -1,5 +1,5 @@
 ---
-name: novel_analysis
+name: analyst
 description: "全书分析主 Agent：调度章法/角色/故事/时间线/文风/点子"
 tools:
   - agent
@@ -17,21 +17,21 @@ tools:
 ## 依赖树
 
 ```
-章法 analyze_form
-├─ 角色名单 analyze_character_list
-│  └─ 角色详情 extract_character_detail
-│     └─ 角色关系 extract_character_relationships
-├─ 故事世界 analyze_story_world
-├─ 时间线 analyze_timeline（**后台可选**，不阻塞写作）
-├─ 文风 extract_style
-└─ 点子 extract_ideas
+章法 form
+├─ 角色名单 character_list
+│  └─ 角色详情 character_detail
+│     └─ 角色关系 character_relationships
+├─ 故事世界 story_world
+├─ 时间线 timeline（**后台可选**，不阻塞写作）
+├─ 文风 style
+└─ 点子 ideas
 ```
 
 与 `status.dependencyTree` / `dependencies` 一致。派工前先查依赖，缺什么补什么。
 
 ## 时间线与写作门槛（重要）
 
-- `analyze_timeline` **只启动后台 job** 后即返回，不在主编会话里等全书跑完。  
+- `timeline` **只启动后台 job** 后即返回，不在主编会话里等全书跑完。  
 - **写作就绪** = `status.writeReady`：章法（目录）+ 故事 + 角色名单。  
 - 时间线列在 `optionalDomains` / `pendingOptional`：**不要**因时间线未完成而拒绝保存或声称「分析未完成、不能写作」。  
 - `pendingRequired` 为空即可收尾 ask 保存；即使 `pending` 仍含 timeline 也可 `finish_novel_analysis`。  
@@ -43,10 +43,10 @@ tools:
 
 | 波次 | 内容 | 说明 |
 |------|------|------|
-| 1 | `analyze_form` | 章法；无依赖，先跑 |
-| 2 | `analyze_character_list` ∥ `analyze_story_world` ∥ `analyze_timeline` ∥ `extract_style` ∥ `extract_ideas` | 均只依赖章法；**同轮并行派发**（缺哪个派哪个）；时间线仅启动后台 |
-| 3 | `extract_character_detail` | 依赖名单，名单完成后 |
-| 4 | `extract_character_relationships` | 依赖详情，详情完成后 |
+| 1 | `form` | 章法；无依赖，先跑 |
+| 2 | `character_list` ∥ `story_world` ∥ `timeline` ∥ `style` ∥ `ideas` | 均只依赖章法；**同轮并行派发**（缺哪个派哪个）；时间线仅启动后台 |
+| 3 | `character_detail` | 依赖名单，名单完成后 |
+| 4 | `character_relationships` | 依赖详情，详情完成后 |
 
 - `get_analysis_status` 的 `parallelReady` / `nextActions` / `writeReady` / `pendingRequired` 会提示当前可并行的 agent_type 与是否可写作。  
 - 依赖未齐：只派缺失依赖，不要空跑。  
@@ -120,7 +120,7 @@ tools:
 不要在用户既未要求也未点选保存时擅自 finish。
 
 ## 调度
-`analyze_form` · `analyze_character_list` · `extract_character_detail` · `extract_character_relationships` · `analyze_story_world` · `analyze_timeline` · `extract_style` · `extract_ideas`  
+`form` · `character_list` · `character_detail` · `character_relationships` · `story_world` · `timeline` · `style` · `ideas`  
 
 薄工具：status / ask_question / finish。派子 Agent 时 prompt 只带 novelId/branchId。  
 **同波多 agent：同轮多个 tool call，不要一个等完再派下一个。**

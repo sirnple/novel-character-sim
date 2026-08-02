@@ -743,7 +743,7 @@ function TokenStatsPanel({ adminToken }: { adminToken: string }) {
           <input
             value={agentId}
             onChange={(e) => setAgentId(e.target.value)}
-            placeholder="master / write_prose"
+            placeholder="master / writer / outline"
             className="w-40 px-2 py-1.5 bg-[#1a1a1a] border border-border rounded text-xs text-foreground font-mono"
           />
         </label>
@@ -1312,9 +1312,12 @@ export default function AdminPage() {
                   <h2 className="text-sm font-semibold text-foreground/90 font-[family-name:var(--font-geist-mono)]">
                     {selectedMeta.name}
                   </h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {selectedMeta.description}
-                  </p>
+                  {selectedMeta.description &&
+                  selectedMeta.description !== selectedMeta.name ? (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {selectedMeta.description}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="flex rounded border border-border overflow-hidden text-xs font-[family-name:var(--font-geist-mono)]">

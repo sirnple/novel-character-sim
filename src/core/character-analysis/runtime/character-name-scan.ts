@@ -9,7 +9,7 @@
 
 import type { LLMProvider } from "@/types";
 import { extractJSON } from "@/lib/utils";
-import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
+import { renderOneshot } from "@/core/prompts/oneshot";
 import {
   buildNameScanUnits,
   packUnitsForMentionScan,
@@ -180,7 +180,7 @@ async function extractNamesInBatch(
   maxBodyChars: number,
 ): Promise<UnitNameHit[]> {
   const { label, text } = formatMentionScanBatchText(batch, maxBodyChars);
-  const prompt = resolveAgentSystem("character_names_unit", zh ? "zh" : "en", {
+  const prompt = renderOneshot("character-names-unit", {
     unitLabel: label,
     unitText: text,
   });

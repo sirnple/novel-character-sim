@@ -71,7 +71,7 @@ import {
 /**
  * Stage roster entities as profiles in analysis workspace (master commits later).
  * Roster brief is NOT personality/appearance detail — leave those empty so
- * profileHasDetail stays false until extract_character_detail submits full dims.
+ * profileHasDetail stays false until character_detail submits full dims.
  */
 export function entitiesToProfiles(entities: ResolvedEntity[]): CharacterProfile[] {
   // Web path must match char-job: fold seed `名@uN` before any UI/DB profile.

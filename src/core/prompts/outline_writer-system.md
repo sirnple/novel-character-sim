@@ -1,5 +1,5 @@
 ---
-name: outline_writer
+name: outline
 description: "为续写设计大纲；可选用点子库；最终输出大纲正文"
 tools:
   - get_branch_text

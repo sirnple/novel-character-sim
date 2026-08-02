@@ -127,10 +127,10 @@ export async function runAnalysisWiringTests(): Promise<void> {
       }
       assert.ok(getTool("run_form_analysis"), "form program tool still registered for sub-agent");
       assert.ok(getTool("finish_novel_analysis"));
-      // Master must not expose run_form_analysis — only agent(analyze_form)
+      // Master must not expose run_form_analysis — only agent(form)
       assert.ok(!(ANALYSIS_MASTER_TOOL_NAMES as readonly string[]).includes("run_form_analysis"));
-      assert.ok((ANALYSIS_SUBAGENT_TYPES as readonly string[]).includes("analyze_form"));
-      assert.ok(getAgent("analyze_form"), "analyze_form agent registered");
+      assert.ok((ANALYSIS_SUBAGENT_TYPES as readonly string[]).includes("form"));
+      assert.ok(getAgent("form"), "form agent registered");
       // Domain work is not master tools
       assert.ok(!getTool("run_story_world_agent"), "run_*_agent wrappers must not exist");
       assert.ok(!ANALYSIS_MASTER_TOOL_NAMES.includes("scan_character_mentions" as any));
@@ -151,7 +151,7 @@ export async function runAnalysisWiringTests(): Promise<void> {
         assert.ok(wEnum.includes(id), `write enum missing ${id}`);
       }
       assert.ok(!aEnum.includes("write_prose"), "analysis master must not see write_prose");
-      assert.ok(!wEnum.includes("analyze_story_world"), "write master must not see analysis agents");
+      assert.ok(!wEnum.includes("story_world"), "write master must not see analysis agents");
       assert.ok(
         String(a.description).includes("子 Agent") || String(a.description).includes("调度"),
         "agent description must mark sub-agent dispatch",
@@ -165,42 +165,38 @@ export async function runAnalysisWiringTests(): Promise<void> {
       }
     });
 
-    test("resolveAnalysisAgentType maps truncated analyze_story → analyze_story_world", () => {
-      assert.equal(resolveAnalysisAgentType("analyze_story"), "analyze_story_world");
-      assert.equal(resolveAnalysisAgentType("analyze_story_world"), "analyze_story_world");
-      assert.equal(resolveAnalysisAgentType("story_world"), "analyze_story_world");
-      assert.equal(resolveAnalysisAgentType("analyze_character"), "analyze_character_list");
-      assert.equal(resolveAnalysisAgentType("extract_character"), "extract_character_detail");
-      // write agents pass through unchanged
+    test("resolveAnalysisAgentType is exact frontmatter name only (trim, no soft aliases)", () => {
+      assert.equal(resolveAnalysisAgentType(" story_world "), "story_world");
+      assert.equal(resolveAnalysisAgentType("analyze_story"), "analyze_story"); // no rewrite
       assert.equal(resolveAnalysisAgentType("write_prose"), "write_prose");
     });
 
     test("launch plan runs missing deps before target", () => {
-      assert.deepEqual(listDependencyChain("extract_character_relationships"), [
-        "analyze_form",
-        "analyze_character_list",
-        "extract_character_detail",
+      assert.deepEqual(listDependencyChain("character_relationships"), [
+        "form",
+        "character_list",
+        "character_detail",
       ]);
-      const empty = buildLaunchPlan("extract_character_detail", {
-        analyze_form: false,
-        analyze_character_list: false,
-        extract_character_detail: false,
+      const empty = buildLaunchPlan("character_detail", {
+        form: false,
+        character_list: false,
+        character_detail: false,
       });
       assert.deepEqual(empty.sequence, [
-        "analyze_form",
-        "analyze_character_list",
-        "extract_character_detail",
+        "form",
+        "character_list",
+        "character_detail",
       ]);
-      const mid = buildLaunchPlan("extract_character_detail", {
-        analyze_form: true,
-        analyze_character_list: true,
-        extract_character_detail: false,
+      const mid = buildLaunchPlan("character_detail", {
+        form: true,
+        character_list: true,
+        character_detail: false,
       });
-      assert.deepEqual(mid.sequence, ["extract_character_detail"]);
+      assert.deepEqual(mid.sequence, ["character_detail"]);
       assert.ok(mid.note.includes("直接派") || mid.missingDeps.length === 0, mid.note);
-      const ready = buildLaunchPlan("analyze_story_world", {
-        analyze_form: true,
-        analyze_story_world: true,
+      const ready = buildLaunchPlan("story_world", {
+        form: true,
+        story_world: true,
       });
       assert.equal(ready.sequence.length, 0);
       assert.ok(ready.ready);

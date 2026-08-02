@@ -4,16 +4,20 @@
  * user prompt = only novelId / branchId (no how-to);
  * after loop, require submit tool success (same idea as writer save_prose).
  */
-import type { AgentDef, TrailMessage, ToolDefinition } from "../types";
+import type { Agent, TrailMessage, ToolDefinition } from "../types";
 import type { ToolSchema } from "@/types";
 import { resolveAgentPrompt } from "@/core/prompts/resolve-agent-prompt";
+import { requireAgentConfigBySystem } from "../agent-config";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { toolSaveSucceeded } from "../save-verify";
 import { agentLabel, toolLabel } from "@/lib/tool-labels";
 
 export interface LoopAgentOptions {
-  /** resolveAgentPrompt agentId */
-  agentId: string;
+  /**
+   * System md filename (e.g. `form-system.md`).
+   * Config + `name` are loaded from that file's frontmatter.
+   */
+  system: string;
   tools: ToolDefinition[];
   /** Tool name that must succeed (like save_prose) */
   submitTool: string;
@@ -38,14 +42,20 @@ export function analysisTargetUserPrompt(novelId: string, branchId: string): str
   return `novelId=${novelId}\nbranchId=${branchId || "main"}`;
 }
 
-export function makeLoopAgent(opts: LoopAgentOptions): AgentDef {
+/** Build an Agent from system md path + tool list. */
+export function makeLoopAgent(opts: LoopAgentOptions): Agent {
+  const config = requireAgentConfigBySystem(opts.system);
   const tools = toSchemas(opts.tools);
+  const agentName = config.name;
+
   return {
+    config,
     execute: async (ctx, llm, onChunk, onTrail) => {
       const lang = opts.language || "zh";
       const branchId = ctx.branchId || "main";
+
       const { system: sys, user: templateUser } = resolveAgentPrompt(
-        opts.agentId,
+        agentName,
         lang,
         {
           novelId: ctx.novelId,
@@ -60,7 +70,9 @@ export function makeLoopAgent(opts: LoopAgentOptions): AgentDef {
         (templateUser && templateUser.trim()) ||
         analysisTargetUserPrompt(ctx.novelId, branchId);
 
-      const zhName = agentLabel(opts.agentId);
+      const zhName =
+        (config.description && config.description.trim()) ||
+        agentLabel(agentName);
       const zhTool = toolLabel(opts.submitTool);
       const system =
         sys ||

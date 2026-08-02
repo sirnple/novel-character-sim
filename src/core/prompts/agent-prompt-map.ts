@@ -1,222 +1,55 @@
 /**
- * Maps admin/runtime agentId → markdown files under src/core/prompts/.
- * System defaults always come from these files (unless Admin overrides in DB).
- *
- * Primary `system` files use standard agent frontmatter:
- *   ---
- *   name: agent_id
- *   description: "..."
- *   tools:           # allowlist (omit or [] for no tools)
- *     - tool_a
- *   ---
- * Body is the system prompt. loadPromptFile() strips the header for LLM use;
- * getAgentAllowedTools() / resolveAgentToolSchemas() read `tools`.
+ * Agent prompt files — resolved via AgentConfig (name from frontmatter).
  */
+import {
+  getAgentFiles,
+  loadAgentConfig,
+  listAgentConfigs,
+  type AgentFiles,
+} from "@/core/agents/agent-config";
 
-export interface AgentPromptFiles {
-  /** Primary system prompt md (zh, or only language) */
-  system: string;
-  /** Optional second system fragment concatenated after system */
-  systemExtra?: string;
-  /** English system md when bilingual */
-  systemEn?: string;
-  systemExtraEn?: string;
-  /** Optional user message template */
-  user?: string;
-  userEn?: string;
+export type AgentPromptFiles = AgentFiles;
+
+/** Snapshot of files by frontmatter name (built on first access). */
+export function getAgentPromptFilesMap(): Record<string, AgentPromptFiles> {
+  const out: Record<string, AgentPromptFiles> = {};
+  for (const c of listAgentConfigs()) {
+    if (c.files) out[c.name] = c.files;
+  }
+  return out;
 }
 
-export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> = {
-  // ---- Master ----
-  master: {
-    system: "master-system.md",
-  },
+/** @deprecated use getAgentPromptFiles / listAgentConfigs */
+export const AGENT_PROMPT_FILES: Record<string, AgentPromptFiles> =
+  new Proxy({} as Record<string, AgentPromptFiles>, {
+    get(_t, prop: string | symbol) {
+      if (typeof prop !== "string") return undefined;
+      return getAgentFiles(prop);
+    },
+    ownKeys() {
+      return listAgentConfigs().map((c) => c.name);
+    },
+    getOwnPropertyDescriptor(_t, prop: string | symbol) {
+      if (typeof prop !== "string") return undefined;
+      const f = getAgentFiles(prop);
+      if (!f) return undefined;
+      return { configurable: true, enumerable: true, value: f };
+    },
+  });
 
-  // ---- Extraction / novel analysis ----
-  // User message is program-built (chat history / ctx.prompt) — no user md.
-  novel_analysis: {
-    system: "novel-analysis-master-system.md",
-    systemEn: "novel-analysis-master-system.en.md",
-  },
-  // Domain agents — canonical verb-object ids (+ noun aliases for Admin/history)
-  analyze_form: {
-    system: "form-analysis-system.md",
-    user: "form-analysis-user.md",
-  },
-  analyze_story_world: {
-    system: "story-world-system.md",
-    user: "story-world-user.md",
-  },
-  story_world: {
-    system: "story-world-system.md",
-    user: "story-world-user.md",
-  },
-  character_names_unit: {
-    system: "character-names-unit-system.md",
-    systemEn: "character-names-unit-system.en.md",
-  },
-  character_roster_gate: {
-    system: "character-roster-gate-system.md",
-  },
-  /** Legacy Pass-1 chatWithTool path (CharacterExtractor); keep md for registry tests / fallback */
-  character_list: {
-    system: "character-list-system.md",
-    systemEn: "character-list-system.en.md",
-  },
-  analyze_character_list: {
-    system: "character-entity-resolve-system.md",
-    systemEn: "character-entity-resolve-system.en.md",
-    user: "character-entity-resolve-user.md",
-    userEn: "character-entity-resolve-user.en.md",
-  },
-  resolve_character_roster: {
-    system: "character-entity-resolve-system.md",
-    systemEn: "character-entity-resolve-system.en.md",
-    user: "character-entity-resolve-user.md",
-    userEn: "character-entity-resolve-user.en.md",
-  },
-  character_roster: {
-    system: "character-entity-resolve-system.md",
-    systemEn: "character-entity-resolve-system.en.md",
-    user: "character-entity-resolve-user.md",
-    userEn: "character-entity-resolve-user.en.md",
-  },
-  character_entity_resolve: {
-    system: "character-entity-resolve-system.md",
-    systemEn: "character-entity-resolve-system.en.md",
-    user: "character-entity-resolve-user.md",
-    userEn: "character-entity-resolve-user.en.md",
-  },
-  extract_character_detail: {
-    system: "character-detail-agent-system.md",
-    user: "character-detail-agent-user.md",
-  },
-  // Legacy chatWithTool detail pass (CharacterExtractor)
-  character_detail: {
-    system: "character-detail-system.md",
-    systemEn: "character-detail-system.en.md",
-  },
-  character_detail_agent: {
-    system: "character-detail-agent-system.md",
-    user: "character-detail-agent-user.md",
-  },
-  extract_character_relationships: {
-    system: "character-relationships-system.md",
-    user: "character-relationships-user.md",
-  },
-  character_relationships: {
-    system: "character-relationships-system.md",
-    user: "character-relationships-user.md",
-  },
-  /** Legacy chatWithTool relationship pass (non-agent) */
-  relationships: {
-    system: "relationships-system.md",
-    systemEn: "relationships-system.en.md",
-  },
-  chapter_end_states: {
-    system: "chapter-end-states-system.md",
-    systemEn: "chapter-end-states-system.en.md",
-  },
-  story_info: {
-    system: "story-info-system.md",
-    systemEn: "story-info-system.en.md",
-  },
-  timeline: {
-    system: "timeline-system.md",
-    systemEn: "timeline-system.en.md",
-  },
-  timeline_states: {
-    system: "timeline-states-system.md",
-    systemEn: "timeline-states-system.en.md",
-  },
-  analyze_timeline: {
-    system: "timeline-analysis-system.md",
-    user: "timeline-analysis-user.md",
-  },
-  timeline_analysis: {
-    system: "timeline-analysis-system.md",
-    user: "timeline-analysis-user.md",
-  },
-  extract_style: {
-    system: "style-extract-agent-system.md",
-    user: "style-extract-agent-user.md",
-  },
-  /** Legacy chatWithTool style extract */
-  style_extract: {
-    system: "style-extract-system.md",
-    systemEn: "style-extract-system.en.md",
-    user: "style-extract-user.md",
-    userEn: "style-extract-user.en.md",
-  },
-  style_extract_agent: {
-    system: "style-extract-agent-system.md",
-    user: "style-extract-agent-user.md",
-  },
-  extract_ideas: {
-    system: "idea-extract-agent-system.md",
-    user: "idea-extract-agent-user.md",
-  },
-  /** Legacy chatWithTool idea extract */
-  idea_extract: {
-    system: "idea-extract-system.md",
-    systemEn: "idea-extract-system.en.md",
-    user: "idea-extract-user.md",
-    userEn: "idea-extract-user.en.md",
-  },
-  idea_extract_agent: {
-    system: "idea-extract-agent-system.md",
-    user: "idea-extract-agent-user.md",
-  },
+/** Identity is frontmatter name — no alias rewrite. */
+export function resolvePromptAgentId(agentId: string): string {
+  return String(agentId || "").trim();
+}
 
-  // ---- Outline (agent framework) ----
-  outline_writer: {
-    system: "outline-system.md",
-    systemExtra: "outline-agent-contract.md",
-    user: "outline-agent-user.md",
-  },
+export function getAgentPromptFiles(
+  agentId: string,
+): AgentPromptFiles | undefined {
+  return getAgentFiles(agentId);
+}
 
-  // ---- Writer modes ----
-  writer_create: {
-    system: "writer-create-system.md",
-    user: "writer-create-user.md",
-  },
-  writer_rewrite: {
-    system: "writer-rewrite-system.md",
-    user: "writer-rewrite-user.md",
-  },
-
-  outline_review: {
-    system: "review-outline-system.md",
-    user: "review-user.md",
-  },
-
-  // ---- Review (one system md per dimension) ----
-  character_consistency_review: {
-    system: "review-character-system.md",
-    user: "review-user.md",
-  },
-  continuity_review: {
-    system: "review-continuity-system.md",
-    user: "review-user.md",
-  },
-  foreshadowing_review: {
-    system: "review-foreshadowing-system.md",
-    user: "review-user.md",
-  },
-  style_review: {
-    system: "review-style-system.md",
-    user: "review-user.md",
-  },
-  world_review: {
-    system: "review-world-system.md",
-    user: "review-user.md",
-  },
-  pacing_review: {
-    system: "review-pacing-system.md",
-    user: "review-user.md",
-  },
-};
-
-export function getAgentPromptFiles(agentId: string): AgentPromptFiles | undefined {
-  return AGENT_PROMPT_FILES[agentId];
+export function requireAgentConfig(agentId: string) {
+  const c = loadAgentConfig(agentId);
+  if (!c) throw new Error(`Unknown agent: ${agentId}`);
+  return c;
 }

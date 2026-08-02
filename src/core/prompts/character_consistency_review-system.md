@@ -1,5 +1,5 @@
 ---
-name: character_consistency_review
+name: character_reviewer
 description: "对照角色设定检查说话风格、性格行为、关系动态"
 tools:
   - get_branch_text

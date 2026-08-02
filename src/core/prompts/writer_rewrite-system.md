@@ -1,5 +1,5 @@
 ---
-name: writer_rewrite
+name: rewriter
 description: "MODE:rewrite — 按 findings 改正文并 save_prose"
 tools:
   - get_prose

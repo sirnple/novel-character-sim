@@ -246,7 +246,7 @@ export function commitAnalysisWorkspace(input: {
       }
     } else {
       skipped.push(
-        "ideas(invalid — all empty content after normalize; re-run extract_ideas)",
+        "ideas(invalid — all empty content after normalize; re-run ideas)",
       );
       console.warn(
         "[commit-analysis] ideas all empty content; count=",

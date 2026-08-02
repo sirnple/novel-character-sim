@@ -65,7 +65,11 @@ Legacy `DEEPSEEK_*` / `OPENCODE_API_KEY` still fall back if `LLM_*` unset.
 - All LLM calls must go through `createLLMProvider()` from `llm/factory.ts` — never call the Anthropic/OpenAI SDK directly.
 - JSON from LLM responses must use `extractJSON()` from `lib/utils.ts`, not raw `JSON.parse()`. It handles bracket-depth matching, missing commas, markdown fences.
 - Keep total extraction under 300s (Node.js HTTP server timeout). Limit context chunks, cap per-pass character count, use `forceRefresh` for re-extraction.
-- Match prompts to novel language: use `isChinese()` from `lib/utils.ts` and provide bilingual (zh/en) prompts.
+- **Agent vs Workflow** (industry, e.g. [LangGraph](https://docs.langchain.com/oss/python/langgraph/workflows-agents)):
+  - **Agent** = LLM + tools **loop**. Identity is frontmatter `name:` only (no separate id). Code binds via **system md path** (`defineAgent("foo-system.md", …)` / `makeLoopAgent({ system })`); `name` is loaded from that file. Register with `registerAgent(agent)`; dispatch key = `agent.config.name`.
+  - **Workflow** = predetermined program path (may *call* agents); e.g. timeline job launcher.
+  - **One-shot** LLM → `src/core/prompts/oneshot/` + `renderOneshot()`.
+  - Chinese-only prompts; no `.en.md`.
 - `novelFingerprint()` serves as the novel's primary key for caching — same content = same ID. Don't use random IDs.
 - Frontend is a single-page state machine in `page.tsx`. All shared state (novel, characters, story, scene) lives in `Home`; pass it down as props.
 - DB at `data/novels.db` via `better-sqlite3`. Don't delete the `data/` directory.

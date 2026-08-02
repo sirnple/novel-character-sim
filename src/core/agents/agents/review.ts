@@ -1,4 +1,5 @@
-import type { AgentDef, TrailMessage } from "../types";
+import type { Agent, TrailMessage } from "../types";
+import { defineAgent } from "../agent-registry";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { getFindings, getForeshadowRealization } from "../intermediate-store";
 import {
@@ -10,19 +11,22 @@ import { SAVE_FS_REALIZATION_OK } from "./foreshadow-tools";
 import { getStoryInfo } from "@/lib/db";
 import { toolSaveSucceeded } from "../save-verify";
 
-const REVIEW_AGENT_IDS: Record<string, string> = {
-  character: "character_consistency_review",
-  continuity: "continuity_review",
-  foreshadowing: "foreshadowing_review",
-  style: "style_review",
-  world: "world_review",
-  pacing: "pacing_review",
+/** findings dimension code → system md (name comes from that file's frontmatter). */
+const REVIEW_SYSTEM_FILES: Record<string, string> = {
+  character: "character_consistency_review-system.md",
+  continuity: "continuity_review-system.md",
+  foreshadowing: "foreshadowing_review-system.md",
+  style: "style_review-system.md",
+  world: "world_review-system.md",
+  pacing: "pacing_review-system.md",
 };
 
-function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef {
-  return {
-    execute: async (ctx, llm, _onChunk, onTrail) => {
-      const agentId = REVIEW_AGENT_IDS[dimensionCode] || "character_consistency_review";
+function makeReviewAgent(dimensionName: string, dimensionCode: string): Agent {
+  const systemFile =
+    REVIEW_SYSTEM_FILES[dimensionCode] || REVIEW_SYSTEM_FILES.character;
+  return defineAgent(systemFile, (config) => {
+    const name = config.name;
+    return async (ctx, llm, _onChunk, onTrail) => {
       let genreHint = "";
       if (dimensionCode === "continuity" || dimensionCode === "world") {
         const info = getStoryInfo(ctx.userId, ctx.novelId);
@@ -55,7 +59,7 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
           `- findings: JSON 数组字符串，无问题用 "[]"（overwrite 下即清空本维）\n` +
           `不要在聊天里贴 JSON；程序只认 save_findings 成功。\n`;
 
-      const { system: sys, user: baseUc } = resolveAgentPrompt(agentId, "zh", {
+      const { system: sys, user: baseUc } = resolveAgentPrompt(name, "zh", {
         prompt: ctx.prompt,
         novelId: ctx.novelId,
         branchId: ctx.branchId,
@@ -64,7 +68,7 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
       });
       const uc = baseUc + genreHint + styleHint + saveHint;
       // tools allowlist from review-*-system.md frontmatter
-      const tools = resolveAgentToolSchemas(agentId);
+      const tools = resolveAgentToolSchemas(name);
 
       const run = (user: string) =>
         runSubAgentToolLoop(llm, sys, user, tools, ctx, undefined, onTrail, {
@@ -128,8 +132,8 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): AgentDef
         content: `${dimensionName}: ${all.length} findings（已 save_findings）。主 agent 可用 get_findings。`,
         messages: trail,
       };
-    },
-  };
+    };
+  });
 }
 
 export const reviewCharacterAgent = makeReviewAgent("角色一致性", "character");

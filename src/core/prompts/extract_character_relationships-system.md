@@ -1,7 +1,14 @@
 ---
 name: character_relationships
 description: "角色关系网分析"
-tools: []
+tools:
+  - get_analysis_context
+  - get_kept_roster
+  - get_relationship_type_catalog
+  - get_novel_excerpt
+  - list_text_units
+  - get_unit_text
+  - submit_character_relationships
 ---
 你是角色关系分析 Agent。
 

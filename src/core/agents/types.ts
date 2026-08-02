@@ -1,4 +1,5 @@
 import type { LLMProvider } from "@/types";
+import type { AgentConfig } from "./agent-config";
 
 export interface ToolDefinition {
   name: string;
@@ -53,8 +54,23 @@ export interface ToolResult {
   askUser?: AskUserRequest;
 }
 
-export interface AgentDef {
-  /** onChunk: streaming text of current step; onTrail: live conversation turns for UI */
+/**
+ * **Agent** (industry term): LLM + tools **loop**.
+ * The model chooses tools; runtime runs LLM ↔ tools until the model stops.
+ *
+ * Carries its own {@link AgentConfig} (`name` from system md frontmatter only —
+ * no separate id). Define via system md path; register with `registerAgent(agent)`.
+ *
+ * @see LangGraph docs — “Workflows have predetermined code paths… Agents are
+ * dynamic and define their own processes and tool usage.”
+ * @see OpenAI Agents SDK / pi-agent-core — agent owns the tool loop.
+ *
+ * Not an Agent: fixed program pipelines / background jobs → {@link Workflow}.
+ */
+export interface Agent {
+  /** Identity from system md frontmatter (`name`, tools, …). */
+  config: AgentConfig;
+  /** Run the agent loop. onChunk / onTrail are UI streams. */
   execute(
     ctx: AgentContext,
     llm: LLMProvider,
@@ -62,6 +78,25 @@ export interface AgentDef {
     onTrail?: (messages: TrailMessage[]) => void,
   ): Promise<ToolResult>;
 }
+
+/**
+ * **Workflow** (industry): predetermined code path.
+ * May invoke agents as steps; the path itself is not model-chosen tool use.
+ */
+export interface Workflow {
+  execute(
+    ctx: AgentContext,
+    llm: LLMProvider,
+    onChunk?: (text: string) => void,
+    onTrail?: (messages: TrailMessage[]) => void,
+  ): Promise<ToolResult>;
+}
+
+/** @deprecated use {@link Agent} */
+export type AgentDef = Agent;
+
+/** Re-export AgentConfig for callers (canonical definition in agent-config.ts). */
+export type { AgentConfig, AgentCategory } from "./agent-config";
 
 export interface AgentContext {
   prompt: string;

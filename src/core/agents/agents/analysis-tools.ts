@@ -146,7 +146,7 @@ function ensureWs(userId: string, novelId: string, branchId: string) {
 
 /**
  * New character analysis pipeline (stage①–④)
- * → seed character-extract workspace for analyze_character_list.
+ * → seed character-extract workspace for character_list.
  */
 async function seedCharacterCatalogViaPipeline(
   userId: string,
@@ -603,7 +603,7 @@ export const analysisDomainTools: ToolDefinition[] = [
       };
     },
   },
-  // ── analyze_form agent tools (step-by-step; not a single black-box run) ──
+  // ── form agent tools (step-by-step; not a single black-box run) ──
   {
     name: "scan_chapter_catalog",
     description:
@@ -1011,7 +1011,7 @@ export const analysisDomainTools: ToolDefinition[] = [
   {
     name: "run_form_analysis",
     description:
-      "【兼容/批处理】一键串行：scan→draft→enrich→submit。analyze_form 子 Agent 应分步调用，不要用此黑盒。",
+      "【兼容/批处理】一键串行：scan→draft→enrich→submit。form 子 Agent 应分步调用，不要用此黑盒。",
     parameters: {
       type: "object",
       properties: {
@@ -1879,7 +1879,7 @@ export const analysisDomainTools: ToolDefinition[] = [
         if (!chars.length) {
           return {
             content:
-              "无角色名单，无法挂关系。请先 analyze_character_list / 有 charactersDraft。",
+              "无角色名单，无法挂关系。请先 character_list / 有 charactersDraft。",
             messages: [],
           };
         }
@@ -2053,7 +2053,7 @@ export const analysisMasterTools: ToolDefinition[] = [
         for_agent: {
           type: "string",
           description:
-            "可选。用户要单独拉起的子 Agent id（如 extract_character_detail、analyze_story_world）。" +
+            "可选。用户要单独拉起的子 Agent id（如 character_detail、story_world）。" +
             "传入后 status.launchPlan 给出依赖检查与派工顺序。",
         },
       },
@@ -2145,16 +2145,17 @@ export const analysisMasterTools: ToolDefinition[] = [
         partitionAnalysisPending(pending);
       const writeReady = isWriteReadyFromDomainMap(domainReady);
 
-      // agent_type → ready (for launch plan / fill-missing)
+      // agent_type → ready (for launch plan / fill-missing); keys = frontmatter names
+      const A = ANALYSIS_DOMAIN_TO_AGENT;
       const readyByAgent: Record<string, boolean> = {
-        analyze_form: form,
-        analyze_character_list: characterList,
-        extract_character_detail: characterDetail,
-        extract_character_relationships: characterRelationships,
-        analyze_story_world: story,
-        analyze_timeline: timeline,
-        extract_style: style,
-        extract_ideas: ideas,
+        [A.form]: form,
+        [A.character_list]: characterList,
+        [A.character_detail]: characterDetail,
+        [A.character_relationships]: characterRelationships,
+        [A.story]: story,
+        [A.timeline]: timeline,
+        [A.style]: style,
+        [A.ideas]: ideas,
       };
 
       const parallelReady = listParallelReadyAgents(readyByAgent);
@@ -2166,7 +2167,7 @@ export const analysisMasterTools: ToolDefinition[] = [
         );
       }
       if (!form) {
-        nextActions.push('agent(agent_type="analyze_form")');
+        nextActions.push(`agent(agent_type="${A.form}")`);
       } else if (parallelReady.length > 1) {
         nextActions.push(
           `同轮并行派发（勿串行）：${parallelReady
@@ -2178,13 +2179,13 @@ export const analysisMasterTools: ToolDefinition[] = [
       }
       // Character chain after list exists (detail/rels not always in parallelReady alone)
       if (form && characterList && !characterDetail) {
-        if (!parallelReady.includes("extract_character_detail")) {
-          nextActions.push('agent(agent_type="extract_character_detail")');
+        if (!parallelReady.includes(A.character_detail)) {
+          nextActions.push(`agent(agent_type="${A.character_detail}")`);
         }
       } else if (form && characterDetail && !characterRelationships) {
-        if (!parallelReady.includes("extract_character_relationships")) {
+        if (!parallelReady.includes(A.character_relationships)) {
           nextActions.push(
-            'agent(agent_type="extract_character_relationships")',
+            `agent(agent_type="${A.character_relationships}")`,
           );
         }
       }
@@ -2288,15 +2289,15 @@ export const analysisMasterTools: ToolDefinition[] = [
         /** Human-readable dependency tree for master to show users */
         dependencyTree: {
           ascii: [
-            "analyze_form（章法）",
-            "├─ analyze_character_list（角色名单）",
-            "│  ├─ extract_character_detail（角色详情）",
-            "│  │  └─ extract_character_relationships（角色关系）",
+            "form（章法）",
+            "├─ character_list（角色名单）",
+            "│  ├─ character_detail（角色详情）",
+            "│  │  └─ character_relationships（角色关系）",
             "│  └─ （详情是关系的依赖）",
-            "├─ analyze_story_world（故事世界）",
-            "├─ analyze_timeline（时间线 · 后台可选，不阻塞写作）",
-            "├─ extract_style（文风）",
-            "└─ extract_ideas（点子）",
+            "├─ story_world（故事世界）",
+            "├─ timeline（时间线 · 后台可选，不阻塞写作）",
+            "├─ style（文风）",
+            "└─ ideas（点子）",
           ].join("\n"),
           edges: ANALYSIS_AGENT_DEPENDENCIES,
         },
@@ -2344,14 +2345,14 @@ export const analysisMasterTools: ToolDefinition[] = [
             d === "timeline" ? "时间线（后台可选）" : d,
           ),
           agentZh: {
-            analyze_form: "章法",
-            analyze_character_list: "角色名单",
-            extract_character_detail: "角色详情",
-            extract_character_relationships: "角色关系",
-            analyze_story_world: "故事世界",
-            analyze_timeline: "时间线（后台）",
-            extract_style: "文风",
-            extract_ideas: "点子",
+            form: "章法",
+            character_list: "角色名单",
+            character_detail: "角色详情",
+            character_relationships: "角色关系",
+            story_world: "故事世界",
+            timeline: "时间线（后台）",
+            style: "文风",
+            ideas: "点子",
           },
           /** Rules the master must follow when writing options (not a fixed list) */
           optionRules: [

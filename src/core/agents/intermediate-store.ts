@@ -230,7 +230,7 @@ export function getOutline(novelId: string, branchId: string): Outline | undefin
 
 /**
  * Map tool/agent ids → store dimension codes.
- * Accepts review_continuity / continuity_review / continuity → "continuity".
+ * Accepts review_continuity / continuity_reviewer / continuity → "continuity".
  */
 export function normalizeFindingDimension(raw: string | undefined | null): string {
   const s = String(raw || "").trim();
@@ -238,29 +238,29 @@ export function normalizeFindingDimension(raw: string | undefined | null): strin
   const lower = s.toLowerCase().replace(/-/g, "_");
   const aliases: Record<string, string> = {
     outline: "outline",
-    outline_review: "outline",
+    outline_reviewer: "outline",
     review_outline: "outline",
     character: "character",
     char: "character",
     character_consistency: "character",
-    character_consistency_review: "character",
+    character_reviewer: "character",
     review_character: "character",
     continuity: "continuity",
     cont: "continuity",
-    continuity_review: "continuity",
+    continuity_reviewer: "continuity",
     review_continuity: "continuity",
     foreshadowing: "foreshadowing",
     foreshadow: "foreshadowing",
-    foreshadowing_review: "foreshadowing",
+    foreshadow_reviewer: "foreshadowing",
     review_foreshadowing: "foreshadowing",
     style: "style",
-    style_review: "style",
+    style_reviewer: "style",
     review_style: "style",
     world: "world",
-    world_review: "world",
+    world_reviewer: "world",
     review_world: "world",
     pacing: "pacing",
-    pacing_review: "pacing",
+    pacing_reviewer: "pacing",
     review_pacing: "pacing",
   };
   if (aliases[lower]) return aliases[lower];

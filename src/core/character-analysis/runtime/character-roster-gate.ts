@@ -5,7 +5,7 @@
 
 import type { LLMProvider } from "@/types";
 import { extractJSON } from "@/lib/utils";
-import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
+import { renderOneshot } from "@/core/prompts/oneshot";
 import type { NameAggregate } from "./character-name-aggregate";
 import type { ResolvedEntity } from "./character-entity-types";
 
@@ -125,7 +125,7 @@ export async function gateRosterWithLlm(
   const countBy = new Map(counted.map((c) => [norm(c.name), c]));
   const cardByNorm = new Map(cards.map((c) => [norm(c.name), c]));
 
-  const system = resolveAgentSystem("character_roster_gate", "zh", {
+  const system = renderOneshot("character-roster-gate", {
     candidatesJson: JSON.stringify(cards, null, 2),
     textLength: String(opts.textLength),
     unitCount: String(opts.unitCount),

@@ -45,7 +45,7 @@ import { sanitizeUnitNameHit } from "./character-unit-hit-sanitize";
 import { resolveResidualCooccur } from "./character-cooccur-resolve";
 
 import { extractJSON, isChinese, novelFingerprint } from "@/lib/utils";
-import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
+import { renderOneshot } from "@/core/prompts/oneshot";
 import { runWithTokenContext } from "@/lib/token-usage-context";
 import { resolveMentionScanOptions } from "@/lib/runtime-settings";
 
@@ -345,7 +345,7 @@ async function extractUnitNames(
   unit: TextUnit,
   zh: boolean,
 ): Promise<UnitNameHit[]> {
-  const prompt = resolveAgentSystem("character_names_unit", zh ? "zh" : "en", {
+  const prompt = renderOneshot("character-names-unit", {
     unitLabel: unit.label,
     unitText: unit.text.slice(0, 14_000),
   });

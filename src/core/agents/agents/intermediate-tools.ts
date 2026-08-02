@@ -195,7 +195,7 @@ export const intermediateTools: ToolDefinition[] = [
           type: "string",
           description:
             "审查维度或 agent 类型：outline / character / continuity / foreshadowing / style / world / pacing，" +
-            "或 review_continuity / continuity_review 等别名",
+            "或 review_continuity / continuity_reviewer 等别名",
         },
         agent_type: {
           type: "string",

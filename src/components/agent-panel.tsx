@@ -8,43 +8,11 @@ import {
   isUserConfirmSave,
   isUserForceFullReanalyze,
 } from "@/lib/analysis-confirm";
-import { toolLabel } from "@/lib/tool-labels";
+import { isAgentLabelKey, toolLabel } from "@/lib/tool-labels";
 
-const WRITE_AGENT_TYPES = new Set([
-  "generate_outline", "write_prose", "review_outline",
-  "review_character", "review_continuity", "review_foreshadowing",
-  "review_style", "review_world", "review_pacing",
-]);
-
-/** Analysis sub-agents via agent(agent_type=...) — verb-object ids + legacy aliases */
-const ANALYSIS_AGENT_TYPES = new Set([
-  "novel_analysis",
-  "analyze_form",
-  "analyze_story_world",
-  "analyze_character_list",
-  "extract_character_detail",
-  "extract_character_relationships",
-  "analyze_timeline",
-  "extract_style",
-  "extract_ideas",
-  // legacy aliases
-  "story_world",
-  "form_analysis",
-  "resolve_character_roster",
-  "character_roster",
-  "character_entity_resolve",
-  "character_detail",
-  "character_detail_agent",
-  "character_relationships",
-  "timeline_analysis",
-  "style_extract",
-  "style_extract_agent",
-  "idea_extract",
-  "idea_extract_agent",
-]);
-
+/** Sub-agent cards: names listed under AGENT_LABELS (UI mirror of frontmatter names). */
 function isSubAgentToolName(name: string) {
-  return WRITE_AGENT_TYPES.has(name) || ANALYSIS_AGENT_TYPES.has(name);
+  return isAgentLabelKey(name);
 }
 
 /** Floating chip strip: jump to sub-agent cards without reordering chat history. */

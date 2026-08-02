@@ -10,15 +10,12 @@ import { getTool } from "@/core/agents/registry";
  * Tool allowlist declared on the agent's primary system markdown.
  * Returns [] when file missing or tools not declared.
  */
-export function getAgentAllowedTools(agentId: string, language: string = "zh"): string[] {
+export function getAgentAllowedTools(agentId: string, _language: string = "zh"): string[] {
   const files = getAgentPromptFiles(agentId);
   if (!files) return [];
 
-  const useEn = language === "en";
-  const systemFile = useEn && files.systemEn ? files.systemEn : files.system;
-
   try {
-    const fm = loadPromptFrontmatter(systemFile);
+    const fm = loadPromptFrontmatter(files.system);
     const tools = fm.tools;
     if (!Array.isArray(tools)) return [];
     return tools.map((t) => String(t).trim()).filter(Boolean);
@@ -34,14 +31,12 @@ export function getAgentAllowedTools(agentId: string, language: string = "zh"): 
 /** Frontmatter name/description for admin or diagnostics. */
 export function getAgentFrontmatterMeta(
   agentId: string,
-  language: string = "zh",
+  _language: string = "zh",
 ): { name?: string; description?: string; tools: string[] } {
   const files = getAgentPromptFiles(agentId);
   if (!files) return { tools: [] };
-  const useEn = language === "en";
-  const systemFile = useEn && files.systemEn ? files.systemEn : files.system;
   try {
-    const fm = loadPromptFrontmatter(systemFile);
+    const fm = loadPromptFrontmatter(files.system);
     return {
       name: typeof fm.name === "string" ? fm.name : undefined,
       description: typeof fm.description === "string" ? fm.description : undefined,

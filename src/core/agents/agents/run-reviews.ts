@@ -1,18 +1,17 @@
-import type { AgentDef, AskUserRequest } from "../types";
+import type { Agent, AskUserRequest } from "../types";
 import { getAgent } from "../agent-registry";
+import { listProseReviewAgentNames } from "../agent-config";
 import { getFindings } from "../intermediate-store";
 
-/** All review dimensions — run in parallel by run_reviews. */
-export const REVIEW_AGENT_TYPES = [
-  "review_character",
-  "review_continuity",
-  "review_foreshadowing",
-  "review_style",
-  "review_world",
-  "review_pacing",
-] as const;
+/** Prose review agents — names from frontmatter (category review, excl. outline). */
+export function getReviewAgentTypes(): string[] {
+  return listProseReviewAgentNames();
+}
 
-export type ReviewAgentType = (typeof REVIEW_AGENT_TYPES)[number];
+/** @deprecated use getReviewAgentTypes() */
+export const REVIEW_AGENT_TYPES = listProseReviewAgentNames();
+
+export type ReviewAgentType = string;
 
 export type ReviewProgressEvent =
   | { phase: "start"; agentType: ReviewAgentType }
@@ -35,7 +34,7 @@ export async function runReviewsParallel(
     userId: string;
     selectedStyleId?: string | null;
   },
-  llm: Parameters<AgentDef["execute"]>[1],
+  llm: Parameters<Agent["execute"]>[1],
   onProgress?: (ev: ReviewProgressEvent) => void,
 ): Promise<{
   content: string;
@@ -44,9 +43,10 @@ export async function runReviewsParallel(
   askUser?: AskUserRequest;
 }> {
   const prompt = ctx.prompt?.trim() || "正文已写完，请自行 get_prose 后按你的维度审查。";
+  const reviewTypes = getReviewAgentTypes();
 
   const results = await Promise.all(
-    REVIEW_AGENT_TYPES.map(async (agentType) => {
+    reviewTypes.map(async (agentType) => {
       onProgress?.({ phase: "start", agentType });
       const agentDef = getAgent(agentType);
       if (!agentDef) {

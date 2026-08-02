@@ -15,35 +15,39 @@ import {
   getAgentAllowedTools,
   resolveAgentToolSchemas,
 } from "../../src/core/prompts/agent-tools";
-import { AGENT_PROMPT_FILES } from "../../src/core/prompts/agent-prompt-map";
+import { AGENT_FILE_SPECS, loadAgentConfig, clearAgentConfigCache, listAgentConfigs } from "../../src/core/agents/agent-config";
 import { initRegistry } from "../../src/core/agents/init";
 
 export function runAgentFrontmatterTests(): void {
   suite("agent-frontmatter", () => {
-    test("every AGENT_PROMPT_FILES primary system has name/description/tools", () => {
+    test("every agent system md: frontmatter name is source of AgentConfig.name", () => {
       clearPromptFileCache();
-      for (const [agentId, files] of Object.entries(AGENT_PROMPT_FILES)) {
-        const systemFiles = [files.system, files.systemEn].filter(Boolean) as string[];
-        for (const file of systemFiles) {
-          const fm = loadPromptFrontmatter(file);
-          assert.equal(typeof fm.name, "string", `${agentId}/${file} name`);
-          assert.ok(String(fm.name).length > 0, `${agentId}/${file} name non-empty`);
-          assert.equal(typeof fm.description, "string", `${agentId}/${file} description`);
-          assert.ok(Array.isArray(fm.tools), `${agentId}/${file} tools array`);
-          // extraction agents: empty tools; writing agents: non-empty
-          if (
-            agentId === "master" ||
-            agentId.startsWith("writer_") ||
-            agentId === "outline_writer" ||
-            agentId.includes("review")
-          ) {
-            assert.ok(
-              (fm.tools as string[]).length > 0,
-              `${agentId}/${file} should declare tools`,
-            );
-          }
+      clearAgentConfigCache();
+      for (const spec of AGENT_FILE_SPECS) {
+        const fm = loadPromptFrontmatter(spec.system);
+        assert.equal(typeof fm.name, "string", `${spec.system} name`);
+        assert.ok(String(fm.name).trim().length > 0, `${spec.system} name non-empty`);
+        assert.equal(typeof fm.description, "string", `${spec.system} description`);
+        assert.ok(Array.isArray(fm.tools), `${spec.system} tools array`);
+
+        const cfg = loadAgentConfig(String(fm.name));
+        assert.ok(cfg, `AgentConfig for ${fm.name}`);
+        assert.equal(cfg!.name, String(fm.name).trim(), "config.name === frontmatter name");
+        assert.equal(cfg!.description, String(fm.description));
+
+        if (
+          cfg!.name === "master" ||
+          cfg!.name.startsWith("writer_") ||
+          cfg!.name === "outline" ||
+          cfg!.name.includes("review")
+        ) {
+          assert.ok(
+            (fm.tools as string[]).length > 0,
+            `${cfg!.name} should declare tools`,
+          );
         }
       }
+      assert.ok(listAgentConfigs().length === AGENT_FILE_SPECS.length);
     });
     test("parseAgentFrontmatter extracts name/description/tools list", () => {
       const raw = `---
@@ -99,21 +103,24 @@ Body
 
     test("getAgentAllowedTools matches outline / writer / review / extraction", () => {
       clearPromptFileCache();
-      const outline = getAgentAllowedTools("outline_writer");
+      const outline = getAgentAllowedTools("outline");
       assert.ok(outline.includes("save_outline"));
       assert.ok(outline.includes("get_novel_form"));
 
-      const create = getAgentAllowedTools("writer_create");
-      const rewrite = getAgentAllowedTools("writer_rewrite");
+      const create = getAgentAllowedTools("writer");
+      const rewrite = getAgentAllowedTools("rewriter");
       assert.ok(create.includes("get_outline") && create.includes("save_prose"));
       assert.ok(rewrite.includes("get_prose") && rewrite.includes("get_findings"));
       assert.equal(create.includes("get_prose"), false);
 
-      const fsTools = getAgentAllowedTools("foreshadowing_review");
+      const fsTools = getAgentAllowedTools("foreshadow_reviewer");
       assert.ok(fsTools.includes("save_foreshadowing_realization"));
       assert.equal(fsTools.includes("save_findings"), false);
 
-      assert.deepEqual(getAgentAllowedTools("character_list"), []);
+      const novel = getAgentAllowedTools("analyst");
+      assert.ok(novel.includes("agent"));
+      assert.ok(novel.includes("finish_novel_analysis"));
+      assert.equal(novel.includes("save_prose"), false);
     });
 
     test("resolveAgentToolSchemas builds schemas after initRegistry", () => {
@@ -126,7 +133,7 @@ Body
       assert.equal(names.includes("save_prose"), false);
       assert.ok(master.every((s) => s.description && s.parameters));
 
-      const writer = resolveAgentToolSchemas("writer_create");
+      const writer = resolveAgentToolSchemas("writer");
       assert.ok(writer.some((s) => s.name === "save_prose"));
     });
   });

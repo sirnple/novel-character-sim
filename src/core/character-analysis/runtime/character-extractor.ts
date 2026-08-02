@@ -7,7 +7,7 @@ import type { CharacterProfile, ParsedNovel } from "@/types";
 import { createLLMProvider } from "@/core/llm/factory";
 import { buildNovelContext } from "@/core/parser/novel-parser";
 import { generateId, isChinese } from "@/lib/utils";
-import { resolveAgentSystem } from "@/core/prompts/resolve-agent-prompt";
+import { renderOneshot } from "@/core/prompts/oneshot";
 import type { TextUnit } from "./character-name-units";
 import type { NameAggregate } from "./character-name-aggregate";
 import {
@@ -563,7 +563,7 @@ export class CharacterExtractor {
       }
     };
 
-    const prompt = resolveAgentSystem("chapter_end_states", this.zh ? "zh" : "en", {
+    const prompt = renderOneshot("chapter-end-states", {
       recentText: recentText.slice(0, 12000),
       knownNames: knownNames.join(", "),
     });
@@ -594,7 +594,7 @@ export class CharacterExtractor {
     console.log(`[Extractor] Pass 1: Identifying characters (contextLen=${this.novelContext.length})...`);
     const t0 = Date.now();
 
-    const prompt = resolveAgentSystem("character_list", this.zh ? "zh" : "en", {
+    const prompt = renderOneshot("character-list", {
       novelContext: this.novelContext,
       frequencyRoster:
         "（当前为节选直抽模式。请仅根据下方小说节选列出角色。）",
@@ -629,7 +629,7 @@ export class CharacterExtractor {
       `[Extractor] Pass 1b merge roster (contextLen=${this.novelContext.length})...`,
     );
     const t0 = Date.now();
-    const prompt = resolveAgentSystem("character_list", this.zh ? "zh" : "en", {
+    const prompt = renderOneshot("character-list", {
       novelContext: this.novelContext,
       frequencyRoster:
         frequencyRoster ||
@@ -1313,7 +1313,7 @@ export class CharacterExtractor {
     character: RawCharacter,
     novelContext?: string,
   ): Promise<CharacterDetail> {
-    const prompt = resolveAgentSystem("character_detail", this.zh ? "zh" : "en", {
+    const prompt = renderOneshot("character-detail", {
       characterName: character.name,
       characterBrief: character.briefDescription,
       characterRole: character.role,
@@ -1333,7 +1333,7 @@ export class CharacterExtractor {
     llm: ReturnType<typeof createLLMProvider>,
     characterNames: string[],
   ): Promise<RawRelationship[]> {
-    const prompt = resolveAgentSystem("relationships", this.zh ? "zh" : "en", {
+    const prompt = renderOneshot("relationships", {
       characterNames: characterNames.join(", "),
       novelContext: this.novelContext,
       focusCharacter: "",
@@ -1368,7 +1368,7 @@ export class CharacterExtractor {
 不要把单向写成双向。description 必须是 from 视角。`
       : `from="${focusName}". Emit directed edges. Set symmetry carefully (uni/bi/asymmetric). Types: ${typeCatalog}. description is from's POV.`;
 
-    const prompt = resolveAgentSystem("relationships", this.zh ? "zh" : "en", {
+    const prompt = renderOneshot("relationships", {
       characterNames: candidateNames.join("、"),
       novelContext,
       focusCharacter: focusName,
@@ -1408,7 +1408,7 @@ export class CharacterExtractor {
       ? `深挖有向对：「${nameA}」(from) 与「${nameB}」(to)。必须给出 symmetry，以及必要时 reverseType/reverseDescription（to 对 from）。`
       : `Deep-dive directed pair from="${nameA}" to="${nameB}". Set symmetry and reverse fields when needed.`;
 
-    const prompt = resolveAgentSystem("relationships", this.zh ? "zh" : "en", {
+    const prompt = renderOneshot("relationships", {
       characterNames: nameB,
       novelContext,
       focusCharacter: nameA,
