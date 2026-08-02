@@ -23,6 +23,7 @@ import { runCharacterNameFrequencyTests } from "./tests/character-name-frequency
 import { runAnalysisWiringTests } from "./tests/analysis-wiring.test";
 import { runAnalysisCommitTests } from "./tests/analysis-commit.test";
 import { runAnalysisForceRefreshFlagTests } from "./tests/analysis-force-refresh-flag.test";
+import { runAgentRunTests } from "./tests/agent-run.test";
 import { runAgentFrontmatterTests } from "./tests/agent-frontmatter.test";
 import { runAgentPromptRenderTests } from "./tests/agent-prompt-render.test";
 import { runSharePayloadTests } from "./tests/share-payload.test";
@@ -70,6 +71,7 @@ async function main() {
   await runAnalysisWiringTests();
   await runAnalysisCommitTests();
   await runAnalysisForceRefreshFlagTests();
+  runAgentRunTests();
   runSharePayloadTests();
   runShareStoreTests();
 

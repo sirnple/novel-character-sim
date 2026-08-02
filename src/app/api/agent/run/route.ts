@@ -1,83 +1,80 @@
-import { NextRequest } from "next/server";
-import { createLLMProvider } from "@/core/llm/factory";
+import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
-import { getAgent } from "@/core/agents/agent-registry";
-import { initRegistry } from "@/core/agents/init";
-import { resolveAnalysisAgentType } from "@/core/agents/analysis-allowlist";
-import { runWithTokenContext } from "@/lib/token-usage-context";
+import {
+  agentRunToDto,
+  cancelAgentRun,
+  getAgentRun,
+  listAgentRunsForNovel,
+} from "@/core/agents/agent-run";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-let initialized = false;
-function ensureInit() { if (!initialized) { initRegistry(); initialized = true; } }
-
-export async function POST(request: NextRequest) {
-  ensureInit();
+/**
+ * GET ?runId= | ?novelId=&branchId=
+ * Poll server-owned agent run events (OpenCode-style subscribe).
+ */
+export async function GET(request: NextRequest) {
   const userId = getUserId(request);
-  const rate = checkRateLimit(userId, "agent_run", { windowMs: 60_000, maxRequests: 20 });
-  if (!rate.allowed) return new Response(JSON.stringify({ error: rateLimitMessage(rate) }), { status: 429, headers: { "Content-Type": "application/json" } });
-
-  const { agent_type, prompt, context } = await request.json();
-  if (!agent_type || !prompt) {
-    return new Response(JSON.stringify({ error: "agent_type and prompt are required" }), { status: 400, headers: { "Content-Type": "application/json" } });
-  }
-
-  const resolvedType = resolveAnalysisAgentType(String(agent_type));
-  const agentDef = getAgent(resolvedType) || getAgent(String(agent_type));
-  if (!agentDef) {
-    return new Response(JSON.stringify({ error: `未知子 Agent: ${agent_type}` }), { status: 400, headers: { "Content-Type": "application/json" } });
-  }
-
-  const novelId = String(context?.novelId || "");
-  const branchId = String(context?.branchId || "");
-  const llm = createLLMProvider("write");
-  const encoder = new TextEncoder();
-  const toolCallId = Math.random().toString(36).slice(2);
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      await runWithTokenContext(
-        {
-          userId: context?.userId || userId,
-          novelId,
-          branchId,
-          agentId: resolvedType,
-          category: "agent",
-        },
-        async () => {
-          const send = (data: Record<string, unknown>) => {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-          };
-
-          try {
-            send({ type: "tool_call", tool: resolvedType, status: "running", toolCallId });
-
-            const result = await agentDef.execute(
-              {
-                prompt,
-                ...(context || {}),
-                userId: context?.userId || userId,
-                novelId,
-                branchId,
-                novelText: context?.novelText || "",
-                characters: context?.characters || [],
-              },
-              llm,
-              (text) => send({ type: "tool_chunk", toolCallId, content: text }),
-              (messages) => send({ type: "tool_trail", toolCallId, messages, tool: resolvedType }),
-            );
-
-            send({ type: "tool_call", tool: resolvedType, status: "done", toolCallId, result: result.content.slice(0, 5000), messages: result.messages });
-          } catch (e) {
-            send({ type: "error", message: (e as Error).message });
-          }
-          controller.close();
-        },
-      );
-    },
+  const rate = checkRateLimit(userId, "agent_run_get", {
+    windowMs: 60_000,
+    maxRequests: 180,
   });
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: rateLimitMessage(rate) },
+      { status: 429 },
+    );
+  }
 
-  return new Response(stream, {
-    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+  const runId = request.nextUrl.searchParams.get("runId");
+  const afterSeq = Number(request.nextUrl.searchParams.get("afterSeq") || "0");
+
+  if (runId) {
+    const run = getAgentRun(runId);
+    if (!run || run.userId !== userId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({
+      run: agentRunToDto(run, Number.isFinite(afterSeq) ? afterSeq : 0),
+    });
+  }
+
+  const novelId = request.nextUrl.searchParams.get("novelId") || "";
+  const branchId = request.nextUrl.searchParams.get("branchId") || "main";
+  if (!novelId) {
+    return NextResponse.json(
+      { error: "runId or novelId required" },
+      { status: 400 },
+    );
+  }
+  const runs = listAgentRunsForNovel(userId, novelId, branchId).map((r) =>
+    agentRunToDto(r, 0),
+  );
+  return NextResponse.json({
+    runs,
+    latest: runs[0] || null,
+    active:
+      runs.find(
+        (r) => r.status === "running" || r.status === "awaiting_user",
+      ) || null,
+  });
+}
+
+/** DELETE ?runId= — cancel server-owned run */
+export async function DELETE(request: NextRequest) {
+  const userId = getUserId(request);
+  const runId = request.nextUrl.searchParams.get("runId") || "";
+  if (!runId) {
+    return NextResponse.json({ error: "runId required" }, { status: 400 });
+  }
+  const run = getAgentRun(runId);
+  if (!run || run.userId !== userId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const ok = cancelAgentRun(runId);
+  return NextResponse.json({
+    ok,
+    run: agentRunToDto(getAgentRun(runId) || run, 0),
   });
 }

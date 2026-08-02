@@ -634,6 +634,8 @@ export default function AgentPanel({
   const abortRef = useRef<AbortController | null>(null);
   /** 一键 full 进行中：后续消息 preserveFull，勿清 full 标记；确认保存后关掉 */
   const fullAnalysisActiveRef = useRef(false);
+  /** Server-owned analysis AgentRun id (survives SSE drop) */
+  const activeAgentRunIdRef = useRef<string | null>(null);
   const messagesRef = useRef<AgentMessage[]>([]);
   const {
     setNovel,
@@ -794,6 +796,8 @@ export default function AgentPanel({
       let buffer = "";
       let agentContent = "";
       let currentTextMsgId: string | null = Math.random().toString(36).slice(2);
+      let serverRunId: string | null = null;
+      let lastEventSeq = 0;
 
       // First agent message — will be replaced if not used
       const firstId = currentTextMsgId;
@@ -802,18 +806,15 @@ export default function AgentPanel({
         timestamp: new Date().toISOString(),
       }]);
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-
+      const handleStreamEvent = (event: Record<string, any>) => {
+            if (typeof event.seq === "number") {
+              lastEventSeq = Math.max(lastEventSeq, event.seq);
+            }
+            if (event.type === "agent_run" && event.runId) {
+              serverRunId = String(event.runId);
+              activeAgentRunIdRef.current = serverRunId;
+              return;
+            }
             if (event.type === "chunk") {
               agentContent = event.content;
               if (!currentTextMsgId) {
@@ -1078,20 +1079,63 @@ export default function AgentPanel({
               notifyLibrariesRefresh();
               refreshFsStatus();
             }
-          } catch {}
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            handleStreamEvent(JSON.parse(line.slice(6)));
+          } catch { /* ignore bad line */ }
+        }
+      }
+
+      // Analysis: SSE may drop; poll server-owned AgentRun for remaining events
+      if (isAnalysis && serverRunId && !abort.signal.aborted) {
+        const pollUntil = Date.now() + 6 * 60 * 60 * 1000;
+        while (Date.now() < pollUntil && !abort.signal.aborted) {
+          try {
+            const pr = await fetch(
+              `/api/agent/run?runId=${encodeURIComponent(serverRunId)}&afterSeq=${lastEventSeq}`,
+            );
+            if (!pr.ok) break;
+            const pj = await pr.json();
+            const run = pj.run;
+            if (!run) break;
+            for (const ev of run.events || []) {
+              handleStreamEvent(ev);
+            }
+            if (
+              run.status === "done" ||
+              run.status === "error" ||
+              run.status === "cancelled" ||
+              run.status === "awaiting_user"
+            ) {
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 800));
+          } catch {
+            break;
+          }
         }
       }
     } catch (e) {
       if ((e as Error).name === "AbortError") {
-        // Client abort often drops SSE before "stopped" — still clear running chips
+        // Stream aborted; analysis AgentRun only cancelled via handleStop DELETE
         setMessages((prev) =>
           prev.map((m) =>
             m.role === "tool" && m.metadata?.status === "running"
               ? {
                   ...m,
                   content: m.content?.trim()
-                    ? `${m.content}\n\n**已停止**`
-                    : "**已停止**",
+                    ? `${m.content}\n\n**已断开（服务端可能仍在跑）**`
+                    : "**已断开**",
                   metadata: { ...m.metadata, status: "done" as const },
                 }
               : m,
@@ -1138,6 +1182,7 @@ export default function AgentPanel({
       return any ? next : prev;
     });
     abortRef.current = null;
+    activeAgentRunIdRef.current = null;
     setStatus("idle");
     refreshFsStatus();
     // Analysis finished (or stopped): refresh overview meta + libraries
@@ -1346,7 +1391,14 @@ export default function AgentPanel({
   };
 
   const handleStop = () => {
+    const runId = activeAgentRunIdRef.current;
     abortRef.current?.abort();
+    if (isAnalysis && runId) {
+      void fetch(`/api/agent/run?runId=${encodeURIComponent(runId)}`, {
+        method: "DELETE",
+      }).catch(() => {});
+      activeAgentRunIdRef.current = null;
+    }
     // Optimistic UI: hide running pulse immediately (stream may die without "stopped")
     setMessages((prev) =>
       prev.map((m) =>

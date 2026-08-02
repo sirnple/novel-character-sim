@@ -25,8 +25,16 @@ import {
   waveAgentTypes,
 } from "@/core/agents/parallel-tool-waves";
 import type { LLMMessage, SystemMessage, UserMessage, AssistantMessage, ToolMessage, ToolSchema } from "@/types";
+import {
+  appendAgentRunEvent,
+  createAgentRun,
+  getAgentRun,
+  setAgentRunStatus,
+  type AgentRun,
+} from "@/core/agents/agent-run";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 let initialized = false;
 function ensureInit() {
@@ -110,8 +118,23 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  /**
+   * Analysis mode: agent loop owned by AgentRun (server process).
+   * SSE only subscribes; client disconnect does not abort the loop.
+   * Write mode keeps request-bound loop.
+   */
+  const agentRun: AgentRun | null = isAnalysis
+    ? createAgentRun({
+        userId,
+        novelId,
+        branchId,
+        mode: "analysis",
+      })
+    : null;
+
   const stream = new ReadableStream({
     async start(controller) {
+      const runLoop = async () => {
       await runWithTokenContext(
         {
           userId,
@@ -121,11 +144,21 @@ export async function POST(request: NextRequest) {
           category: "agent",
         },
         async () => {
-      const signal = request.signal;
+      const signal = agentRun ? agentRun.abort.signal : request.signal;
       const checkAbort = () => { if (signal.aborted) throw new Error("ABORTED"); };
       const send = (data: Record<string, unknown>) => {
-        try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`)); } catch { /* stream closed */ }
+        if (agentRun) {
+          try {
+            appendAgentRunEvent(agentRun.id, data);
+          } catch {
+            /* ignore */
+          }
+        }
+        try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`)); } catch { /* stream closed — loop may continue */ }
       };
+      if (agentRun) {
+        send({ type: "agent_run", runId: agentRun.id });
+      }
       const sendChunk = (text: string) => send({ type: "chunk", content: text });
       const sendTool = (tool: string, status: string, toolCallId: string, result?: string, msgs?: any[]) => {
         send({ type: "tool_call", tool, status, toolCallId, result, messages: msgs });
@@ -787,19 +820,70 @@ export async function POST(request: NextRequest) {
         if (maxSteps <= 0) {
           logSession({ ts: new Date().toISOString(), type: "master_agent", status: "max_steps" });
         }
+        if (agentRun && getAgentRun(agentRun.id)?.status === "running") {
+          setAgentRunStatus(agentRun.id, "done");
+          send({ type: "done", runId: agentRun.id });
+        }
       } catch (e) {
         const msg = (e as Error).message || String(e);
         if (msg === "ABORTED" || (e as Error).name === "AbortError") {
-          console.log("[agent/chat] aborted (client stop/F5)");
+          console.log("[agent/chat] aborted (run cancel or write client abort)");
           send({ type: "stopped" });
+          if (agentRun) {
+            const st = getAgentRun(agentRun.id)?.status;
+            if (st === "running") {
+              setAgentRunStatus(agentRun.id, "cancelled", { message: "已停止" });
+            }
+          }
         } else {
           logSession({ ts: new Date().toISOString(), type: "error", error: msg });
           send({ type: "error", message: msg });
+          if (agentRun) {
+            setAgentRunStatus(agentRun.id, "error", { error: msg });
+          }
         }
       }
-      controller.close();
         },
       );
+      };
+
+      if (agentRun) {
+        void runLoop().catch((e) => {
+          console.error("[agent/chat] detached loop error:", (e as Error).message);
+          setAgentRunStatus(agentRun!.id, "error", {
+            error: (e as Error).message || String(e),
+          });
+          try {
+            appendAgentRunEvent(agentRun!.id, {
+              type: "error",
+              message: (e as Error).message || String(e),
+            });
+          } catch {
+            /* ignore */
+          }
+        });
+        try {
+          while (!request.signal.aborted) {
+            const r = getAgentRun(agentRun.id);
+            if (!r) break;
+            if (r.status !== "running") break;
+            await new Promise((res) => setTimeout(res, 200));
+          }
+        } finally {
+          try {
+            controller.close();
+          } catch {
+            /* ignore */
+          }
+        }
+      } else {
+        await runLoop();
+        try {
+          controller.close();
+        } catch {
+          /* ignore */
+        }
+      }
     },
   });
 
