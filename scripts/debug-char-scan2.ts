@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { scanCharacterCandidates } from "../src/core/extractor/character-candidates";
+import { scanCharacterCandidates } from "../src/core/character-analysis/runtime/character-candidates";
 
 const db = new Database("data/novels.db");
 const text = (

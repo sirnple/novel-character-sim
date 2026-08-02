@@ -313,7 +313,7 @@ S_{J0} = \frac{|N(A) \cap N(B)|}{|N(A) \cup N(B)|} \in [0,1]
 - [x] **共享 alias 的远距离对（gap&gt;10）不被通道 B 剪掉**  
 - [x] 通道 C 不经共现倒排；与 A 结果取并  
 
-**代码：** `src/core/extractor/character-cooccur-resolve.ts`  
+**代码：** `src/core/character-analysis/runtime/character-cooccur-resolve.ts`  
 **接入：** `character-extract-job`（overlap 种子之后、Agent 之前）  
 **测试：** `scripts/tests/character-cooccur-resolve.test.ts`
 

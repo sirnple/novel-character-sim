@@ -2,20 +2,20 @@
  * merge / split ops for global coref
  */
 import assert from "node:assert/strict";
-import { applyEntityOps } from "../../src/core/extractor/character-entity-ops";
-import type { ResolvedEntity } from "../../src/core/extractor/character-entity-types";
+import { applyEntityOps } from "../../src/core/character-analysis/runtime/character-entity-ops";
+import type { ResolvedEntity } from "../../src/core/character-analysis/runtime/character-entity-types";
 import {
   buildLocalEntitiesFromUnitHits,
   collapseTechnicalFarSameNameKeys,
   listNearCrossNameAliasCandidates,
   seedGlobalEntitiesFromLocal,
-} from "../../src/core/extractor/character-local-entities";
+} from "../../src/core/character-analysis/runtime/character-local-entities";
 import {
   formatRelationPrimariesForPrompt,
   listRelationPrimaryNames,
-} from "../../src/core/extractor/character-entity-coverage";
-import type { TextUnit } from "../../src/core/extractor/character-name-units";
-import type { UnitNameHit } from "../../src/core/extractor/character-name-aggregate";
+} from "../../src/core/character-analysis/runtime/character-entity-coverage";
+import type { TextUnit } from "../../src/core/character-analysis/runtime/character-name-units";
+import type { UnitNameHit } from "../../src/core/character-analysis/runtime/character-name-aggregate";
 
 function ent(
   name: string,
@@ -327,7 +327,7 @@ function ent(
   const {
     normalizeResolvedEntities,
     validateSubmitEntities,
-  } = require("../../src/core/extractor/character-entity-types") as typeof import("../../src/core/extractor/character-entity-types");
+  } = require("../../src/core/character-analysis/runtime/character-entity-types") as typeof import("../../src/core/character-analysis/runtime/character-entity-types");
   const kept = normalizeResolvedEntities([
     { name: "女朋友", aliases: ["裴冉"] },
     { name: "周航", aliases: ["弟弟"] },
@@ -383,7 +383,7 @@ function ent(
     foldSafeEntityRedundancies,
     listPrimaryAliasCollisions,
     listBlockingConsistencyIssues,
-  } = require("../../src/core/extractor/character-entity-consistency") as typeof import("../../src/core/extractor/character-entity-consistency");
+  } = require("../../src/core/character-analysis/runtime/character-entity-consistency") as typeof import("../../src/core/character-analysis/runtime/character-entity-consistency");
 
   // 雪棠 ⊂ 洛雪棠 as dual primaries → program fold
   {
@@ -407,7 +407,7 @@ function ent(
   {
     const {
       formatDualHangBlockForSubmit,
-    } = require("../../src/core/extractor/character-entity-consistency") as typeof import("../../src/core/extractor/character-entity-consistency");
+    } = require("../../src/core/character-analysis/runtime/character-entity-consistency") as typeof import("../../src/core/character-analysis/runtime/character-entity-consistency");
     const roster = [
       ent("战女王", []),
       ent("唐兰嫣", ["战女王", "队长"]),
@@ -436,7 +436,7 @@ function ent(
     const {
       listMutualAliasHangs,
       formatDualHangBlockForSubmit: fmtBlock,
-    } = require("../../src/core/extractor/character-entity-consistency") as typeof import("../../src/core/extractor/character-entity-consistency");
+    } = require("../../src/core/character-analysis/runtime/character-entity-consistency") as typeof import("../../src/core/character-analysis/runtime/character-entity-consistency");
     const mutualRoster = [
       ent("女朋友", ["许栀"]),
       ent("许栀", ["女朋友", "许老师"]),
@@ -454,7 +454,7 @@ function ent(
     const {
       listMutualAliasHangs,
       formatDualHangBlockForSubmit: fmtBlock,
-    } = require("../../src/core/extractor/character-entity-consistency") as typeof import("../../src/core/extractor/character-entity-consistency");
+    } = require("../../src/core/character-analysis/runtime/character-entity-consistency") as typeof import("../../src/core/character-analysis/runtime/character-entity-consistency");
     const both = [ent("女朋友", ["校花女友"]), ent("校花女友", ["女朋友"])];
     assert.ok(listMutualAliasHangs(both).length >= 1);
     const block = fmtBlock(both);
@@ -494,7 +494,7 @@ function ent(
     recordMergesFromOps,
     formatUnresolvedCrossNameBlock,
     crossNamePairKey,
-  } = require("../../src/core/extractor/character-cross-name") as typeof import("../../src/core/extractor/character-cross-name");
+  } = require("../../src/core/character-analysis/runtime/character-cross-name") as typeof import("../../src/core/character-analysis/runtime/character-cross-name");
 
   const locals = [
     {

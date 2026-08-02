@@ -9,9 +9,9 @@ import {
   resolveResidualCooccurProgram,
   scoreCooccurPair,
   type EntityUnitStats,
-} from "../../src/core/extractor/character-cooccur-resolve";
+} from "../../src/core/character-analysis/runtime/character-cooccur-resolve";
 import { resolveCharacterCorefConfig } from "../../src/lib/character-coref-config";
-import type { ResolvedEntity } from "../../src/core/extractor/character-entity-types";
+import type { ResolvedEntity } from "../../src/core/character-analysis/runtime/character-entity-types";
 
 const cfg = resolveCharacterCorefConfig();
 

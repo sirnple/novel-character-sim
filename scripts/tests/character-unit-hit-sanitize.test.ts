@@ -2,11 +2,11 @@
  * Stage-1: no suspended deictic / unanchored relation as primary name
  */
 import assert from "node:assert/strict";
-import { sanitizeUnitNameHit } from "../../src/core/extractor/character-unit-hit-sanitize";
+import { sanitizeUnitNameHit } from "../../src/core/character-analysis/runtime/character-unit-hit-sanitize";
 import {
   isInvalidUnitPrimaryName,
   isUnanchoredRelationLabel,
-} from "../../src/core/extractor/character-entity-types";
+} from "../../src/core/character-analysis/runtime/character-entity-types";
 
 assert.ok(isUnanchoredRelationLabel("小儿子"));
 assert.ok(isUnanchoredRelationLabel("女朋友"));

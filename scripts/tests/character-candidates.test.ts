@@ -5,7 +5,7 @@ import { assert, suite, test } from "../lib/test-harness";
 import {
   formatCandidatesForPrompt,
   scanCharacterCandidates,
-} from "../../src/core/extractor/character-candidates";
+} from "../../src/core/character-analysis/runtime/character-candidates";
 
 export function runCharacterCandidatesTests(): void {
   suite("character-candidates", () => {

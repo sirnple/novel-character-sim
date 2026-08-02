@@ -16,7 +16,7 @@ useEvalDb();
 import {
   startCharacterExtractJob,
   getCharacterExtractJob,
-} from "../../src/core/extractor/character-extract-job";
+} from "../../src/core/character-analysis/runtime/character-extract-job";
 import { getCharacters, getNovel, resolveDbPath } from "../../src/lib/db";
 
 const ROOT = process.cwd();

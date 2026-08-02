@@ -6,14 +6,14 @@ import {
   buildOverlapScanUnits,
   overlapTextBetweenUnits,
   DEFAULT_OVERLAP_CHARS,
-} from "../../src/core/extractor/character-name-units";
+} from "../../src/core/character-analysis/runtime/character-name-units";
 import {
   criterionASharedMentionInOverlap,
   mergeLocalEntitiesByOverlap,
   mentionSetOf,
-} from "../../src/core/extractor/character-overlap-merge";
-import type { UnitNameHit } from "../../src/core/extractor/character-name-aggregate";
-import type { TextUnit } from "../../src/core/extractor/character-name-units";
+} from "../../src/core/character-analysis/runtime/character-overlap-merge";
+import type { UnitNameHit } from "../../src/core/character-analysis/runtime/character-name-aggregate";
+import type { TextUnit } from "../../src/core/character-analysis/runtime/character-name-units";
 
 // --- overlap windows adjacent share text ---
 {

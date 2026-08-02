@@ -30,7 +30,7 @@ import {
   getNovelAnalysisWorkspace,
   clearNovelAnalysisWorkspace,
 } from "../../src/core/extractor/novel-analysis-workspace";
-import { getCharacterExtractWorkspace } from "../../src/core/extractor/character-extract-workspace";
+import { getCharacterExtractWorkspace } from "../../src/core/character-analysis/runtime/character-extract-workspace";
 import { ANALYSIS_OK } from "../../src/core/agents/agents/analysis-tools";
 import type { LLMProvider } from "../../src/types";
 

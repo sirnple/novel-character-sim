@@ -7,27 +7,27 @@ import {
   defaultMentionThreshold,
   filterByMentionFrequency,
   type UnitNameHit,
-} from "../../src/core/extractor/character-name-aggregate";
+} from "../../src/core/character-analysis/runtime/character-name-aggregate";
 import {
   buildNameScanUnits,
   packUnitsForMentionScan,
-} from "../../src/core/extractor/character-name-units";
+} from "../../src/core/character-analysis/runtime/character-name-units";
 import {
   distributeHitsToUnits,
   formatMentionScanBatchText,
-} from "../../src/core/extractor/character-name-scan";
-import { buildSurfaceCatalog } from "../../src/core/extractor/character-surface-catalog";
-import { countResolvedEntities } from "../../src/core/extractor/character-entity-frequency";
+} from "../../src/core/character-analysis/runtime/character-name-scan";
+import { buildSurfaceCatalog } from "../../src/core/character-analysis/runtime/character-surface-catalog";
+import { countResolvedEntities } from "../../src/core/character-analysis/runtime/character-entity-frequency";
 import {
   findFirstSecondPersonAliasIssues,
   isFirstOrSecondPersonDeictic,
   mergeResolvedEntities,
   normalizeResolvedEntities,
-} from "../../src/core/extractor/character-entity-types";
+} from "../../src/core/character-analysis/runtime/character-entity-types";
 import {
   buildRosterCandidateCards,
   gateRosterWithLlm,
-} from "../../src/core/extractor/character-roster-gate";
+} from "../../src/core/character-analysis/runtime/character-roster-gate";
 import {
   LOOKUP_OFFSET_BATCH_MAX,
   LOOKUP_SURFACE_BATCH_MAX,
@@ -37,12 +37,12 @@ import {
 import { formatBatchOverflowNotice } from "../../src/core/agents/batch-tool-limits";
 import {
   formatSurfaceCandidatesForPrompt,
-} from "../../src/core/extractor/character-surface-catalog";
+} from "../../src/core/character-analysis/runtime/character-surface-catalog";
 import {
   formatAnchorId,
   normalizeAnchors,
   sampleAnchors,
-} from "../../src/core/extractor/mention-anchor";
+} from "../../src/core/character-analysis/runtime/mention-anchor";
 import type { LLMProvider } from "../../src/types";
 
 export async function runCharacterNameFrequencyTests(): Promise<void> {
@@ -335,7 +335,7 @@ export async function runCharacterNameFrequencyTests(): Promise<void> {
     test("normalize preserves agent names; validate catches deictic aliases", () => {
       const {
         validateSubmitEntities,
-      } = require("../../src/core/extractor/character-entity-types") as typeof import("../../src/core/extractor/character-entity-types");
+      } = require("../../src/core/character-analysis/runtime/character-entity-types") as typeof import("../../src/core/character-analysis/runtime/character-entity-types");
       const ents = normalizeResolvedEntities([
         {
           name: "周伯彦",

@@ -11,7 +11,7 @@ import type {
   CharacterProfile,
 } from "@/types";
 import type { IdeaLibraryEntry } from "@/types";
-import type { TextUnit } from "./character-name-units";
+import type { TextUnit } from "@/core/character-analysis/runtime/character-name-units";
 import {
   saveAnalysisWorkspaceRow,
   loadAnalysisWorkspaceRow,

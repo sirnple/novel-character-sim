@@ -16,7 +16,7 @@ useEvalDb();
 import { createLLMProvider } from "../src/core/llm/factory";
 import { initRegistry } from "../src/core/agents/init";
 import { getAgent } from "../src/core/agents/agent-registry";
-import { getCharacterExtractWorkspace } from "../src/core/extractor/character-extract-workspace";
+import { getCharacterExtractWorkspace } from "../src/core/character-analysis/runtime/character-extract-workspace";
 import { entitiesToProfiles } from "../src/core/agents/agents/character-extract-tools";
 import {
   getBranchProse,

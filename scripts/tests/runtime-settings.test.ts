@@ -14,8 +14,8 @@ import {
   MENTION_SCAN_PRIVILEGED_CONCURRENCY_DEFAULT,
 } from "../../src/lib/runtime-settings";
 import { CHARACTER_COREF_DEFAULTS } from "../../src/lib/character-coref-config";
-import { packUnitsForMentionScan } from "../../src/core/extractor/character-name-units";
-import type { TextUnit } from "../../src/core/extractor/character-name-units";
+import { packUnitsForMentionScan } from "../../src/core/character-analysis/runtime/character-name-units";
+import type { TextUnit } from "../../src/core/character-analysis/runtime/character-name-units";
 
 function fakeUnits(n: number, chars = 100): TextUnit[] {
   return Array.from({ length: n }, (_, i) => ({

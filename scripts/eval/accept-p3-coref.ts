@@ -12,15 +12,15 @@ import {
   recordMergesFromOps,
   crossNamePairKey,
   formatUnresolvedCrossNameBlock,
-} from "../../src/core/extractor/character-cross-name";
+} from "../../src/core/character-analysis/runtime/character-cross-name";
 import {
   listPrimaryAliasCollisions,
   listMutualAliasHangs,
   formatDualHangBlockForSubmit,
   foldSafeEntityRedundancies,
-} from "../../src/core/extractor/character-entity-consistency";
-import type { ResolvedEntity } from "../../src/core/extractor/character-entity-types";
-import type { LocalEntity } from "../../src/core/extractor/character-local-entities";
+} from "../../src/core/character-analysis/runtime/character-entity-consistency";
+import type { ResolvedEntity } from "../../src/core/character-analysis/runtime/character-entity-types";
+import type { LocalEntity } from "../../src/core/character-analysis/runtime/character-local-entities";
 
 function ent(name: string, aliases: string[] = []): ResolvedEntity {
   return { name, aliases, surfaces: [name, ...aliases] };

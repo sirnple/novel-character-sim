@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 import {
   scanCharacterCandidates,
   formatCandidatesForPrompt,
-} from "../src/core/extractor/character-candidates";
+} from "../src/core/character-analysis/runtime/character-candidates";
 
 const arg = process.argv[2] || "绿帽武神";
 const db = new Database("data/novels.db");
