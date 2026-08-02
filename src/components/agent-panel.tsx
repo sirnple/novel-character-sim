@@ -636,6 +636,10 @@ export default function AgentPanel({
   const fullAnalysisActiveRef = useRef(false);
   /** Server-owned analysis AgentRun id (survives SSE drop) */
   const activeAgentRunIdRef = useRef<string | null>(null);
+  /** Last event seq for AgentRun poll */
+  const agentRunSeqRef = useRef(0);
+  /** User clicked 停止 — do not resume poll after abort */
+  const stopRequestedRef = useRef(false);
   const messagesRef = useRef<AgentMessage[]>([]);
   const {
     setNovel,
@@ -748,6 +752,58 @@ export default function AgentPanel({
     refreshFsStatus();
   }, [refreshFsStatus, status]);
 
+  /**
+   * Poll server-owned AgentRun until terminal (or user stop).
+   * Used after SSE ends or on network drop — same event handler as live stream.
+   */
+  const pollAgentRunUntilDone = useCallback(
+    async (
+      runId: string,
+      handleStreamEvent: (event: Record<string, any>) => void,
+      _abort?: AbortController,
+    ): Promise<"done" | "error" | "cancelled" | "awaiting_user" | "stopped" | "lost"> => {
+      // Only stopRequestedRef gates poll — SSE AbortController must not kill reconnect.
+      const pollUntil = Date.now() + 6 * 60 * 60 * 1000;
+      let consecutiveErrors = 0;
+      while (Date.now() < pollUntil && !stopRequestedRef.current) {
+        try {
+          const pr = await fetch(
+            `/api/agent/run?runId=${encodeURIComponent(runId)}&afterSeq=${agentRunSeqRef.current}`,
+          );
+          if (!pr.ok) {
+            consecutiveErrors += 1;
+            if (consecutiveErrors >= 8) return "lost";
+            await new Promise((r) => setTimeout(r, 1500));
+            continue;
+          }
+          consecutiveErrors = 0;
+          const pj = await pr.json();
+          const run = pj.run;
+          if (!run) return "lost";
+          for (const ev of run.events || []) {
+            handleStreamEvent(ev);
+          }
+          if (
+            run.status === "done" ||
+            run.status === "error" ||
+            run.status === "cancelled" ||
+            run.status === "awaiting_user"
+          ) {
+            return run.status;
+          }
+          await new Promise((r) => setTimeout(r, 800));
+        } catch {
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= 12) return "lost";
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+      if (stopRequestedRef.current) return "stopped";
+      return "lost";
+    },
+    [],
+  );
+
   const runChat = useCallback(async (
     history: AgentMessage[],
     userMsg: AgentMessage,
@@ -761,6 +817,8 @@ export default function AgentPanel({
     setStatus("generating");
     const abort = new AbortController();
     abortRef.current = abort;
+    stopRequestedRef.current = false;
+    agentRunSeqRef.current = 0;
     const autoPassCheckpoints = !!opts?.autoPassCheckpoints;
     // wipe only on one-click start; multi-turn full uses preserveFull
     const forceRefresh = isAnalysis && !!opts?.forceRefresh;
@@ -770,45 +828,25 @@ export default function AgentPanel({
       !forceRefresh &&
       (opts?.preserveFull === true || fullAnalysisActiveRef.current);
 
-    try {
-      const res = await fetch("/api/agent/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: buildOutgoingMessages(history, userMsg),
-          branchId: branchId || "main",
-          novelId,
-          selectedStyleId: selectedStyleId ?? null,
-          selectedIdeaIds: selectedIdeaIds || [],
-          autoPickIdeas: autoPickIdeas !== false,
-          autoPassCheckpoints: isAnalysis ? false : autoPassCheckpoints,
-          mode: isAnalysis ? "analysis" : "write",
-          forceRefresh,
-          preserveFull,
-        }),
-        signal: abort.signal,
-      });
-      if (!res.ok) throw new Error("Failed");
+    let serverRunId: string | null = null;
+    let agentContent = "";
+    let currentTextMsgId: string | null = Math.random().toString(36).slice(2);
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("No stream");
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let agentContent = "";
-      let currentTextMsgId: string | null = Math.random().toString(36).slice(2);
-      let serverRunId: string | null = null;
-      let lastEventSeq = 0;
-
-      // First agent message — will be replaced if not used
-      const firstId = currentTextMsgId;
-      setMessages(prev => [...prev, {
-        id: firstId, role: "agent", content: "",
+    // First agent message — will be replaced if not used
+    const firstId = currentTextMsgId;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: firstId,
+        role: "agent",
+        content: "",
         timestamp: new Date().toISOString(),
-      }]);
+      },
+    ]);
 
-      const handleStreamEvent = (event: Record<string, any>) => {
+    const handleStreamEvent = (event: Record<string, any>) => {
             if (typeof event.seq === "number") {
-              lastEventSeq = Math.max(lastEventSeq, event.seq);
+              agentRunSeqRef.current = Math.max(agentRunSeqRef.current, event.seq);
             }
             if (event.type === "agent_run" && event.runId) {
               serverRunId = String(event.runId);
@@ -1081,6 +1119,114 @@ export default function AgentPanel({
             }
       };
 
+    /** Resolve runId from header / SSE / novel active run (Railway may drop before first event). */
+    const adoptRunId = (id: string | null | undefined) => {
+      if (!id) return;
+      const s = String(id);
+      serverRunId = s;
+      activeAgentRunIdRef.current = s;
+    };
+
+    const discoverActiveRunId = async (): Promise<string | null> => {
+      if (!isAnalysis || !novelId) return null;
+      try {
+        const q = new URLSearchParams({
+          novelId,
+          branchId: branchId || "main",
+        });
+        // brief retry — run may exist a moment after a partial POST
+        for (let i = 0; i < 4; i++) {
+          const pr = await fetch(`/api/agent/run?${q.toString()}`);
+          if (pr.ok) {
+            const pj = await pr.json();
+            const active = pj.active || pj.latest;
+            if (active?.id && (active.status === "running" || active.status === "awaiting_user")) {
+              return String(active.id);
+            }
+            if (active?.id && i >= 2) return String(active.id);
+          }
+          await new Promise((r) => setTimeout(r, 600));
+        }
+      } catch {
+        /* ignore */
+      }
+      return null;
+    };
+
+    /** Keep running tool cards; sync remaining events from server-owned AgentRun. */
+    const resumeViaPoll = async (softNotice?: string) => {
+      if (!serverRunId) {
+        const found = await discoverActiveRunId();
+        if (found) adoptRunId(found);
+      }
+      if (!serverRunId || stopRequestedRef.current) return false;
+      if (softNotice) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(36).slice(2),
+            role: "agent",
+            content: `_${softNotice}_`,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      }
+      const terminal = await pollAgentRunUntilDone(
+        serverRunId,
+        handleStreamEvent,
+        abort,
+      );
+      if (terminal === "lost") {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(36).slice(2),
+            role: "agent",
+            content:
+              "**进度同步中断**：服务端任务可能仍在跑。刷新页面后可继续查看；或点停止后重试。",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      }
+      return true;
+    };
+
+    try {
+      const res = await fetch("/api/agent/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: buildOutgoingMessages(history, userMsg),
+          branchId: branchId || "main",
+          novelId,
+          selectedStyleId: selectedStyleId ?? null,
+          selectedIdeaIds: selectedIdeaIds || [],
+          autoPickIdeas: autoPickIdeas !== false,
+          autoPassCheckpoints: isAnalysis ? false : autoPassCheckpoints,
+          mode: isAnalysis ? "analysis" : "write",
+          forceRefresh,
+          preserveFull,
+        }),
+        signal: abort.signal,
+      });
+
+      // Prefer header runId before reading body (survives partial SSE)
+      adoptRunId(res.headers.get("X-Agent-Run-Id") || res.headers.get("x-agent-run-id"));
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(
+          errText
+            ? `HTTP ${res.status}: ${errText.slice(0, 200)}`
+            : `HTTP ${res.status}`,
+        );
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No stream");
+      const decoder = new TextDecoder();
+      let buffer = "";
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -1092,49 +1238,62 @@ export default function AgentPanel({
           if (!line.startsWith("data: ")) continue;
           try {
             handleStreamEvent(JSON.parse(line.slice(6)));
-          } catch { /* ignore bad line */ }
-        }
-      }
-
-      // Analysis: SSE may drop; poll server-owned AgentRun for remaining events
-      if (isAnalysis && serverRunId && !abort.signal.aborted) {
-        const pollUntil = Date.now() + 6 * 60 * 60 * 1000;
-        while (Date.now() < pollUntil && !abort.signal.aborted) {
-          try {
-            const pr = await fetch(
-              `/api/agent/run?runId=${encodeURIComponent(serverRunId)}&afterSeq=${lastEventSeq}`,
-            );
-            if (!pr.ok) break;
-            const pj = await pr.json();
-            const run = pj.run;
-            if (!run) break;
-            for (const ev of run.events || []) {
-              handleStreamEvent(ev);
-            }
-            if (
-              run.status === "done" ||
-              run.status === "error" ||
-              run.status === "cancelled" ||
-              run.status === "awaiting_user"
-            ) {
-              break;
-            }
-            await new Promise((r) => setTimeout(r, 800));
           } catch {
-            break;
+            /* ignore bad line */
           }
         }
       }
+
+      // SSE EOF ≠ task done (proxy may cut stream while AgentRun continues). Silent poll.
+      if (isAnalysis && !stopRequestedRef.current) {
+        await resumeViaPoll();
+      }
     } catch (e) {
-      if ((e as Error).name === "AbortError") {
-        // Stream aborted; analysis AgentRun only cancelled via handleStop DELETE
+      if (stopRequestedRef.current) {
+        // User 停止 — UI already updated in handleStop; AgentRun cancelled via DELETE
+      } else if (isAnalysis) {
+        // Network/proxy drop: keep tools running, poll server-owned run (header / SSE / discover)
+        const detail =
+          (e as Error).name === "AbortError"
+            ? "已断开"
+            : (e as Error).message || "网络错误";
+        const resumed = await resumeViaPoll(
+          `连接中断（${detail}），正在从服务端同步进度…`,
+        );
+        if (!resumed) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Math.random().toString(36).slice(2),
+              role: "agent",
+              content:
+                "**连接失败**，且未找到进行中的分析任务。若刚开始请重试；若服务端仍在跑可刷新后查看。\n\n详情: " +
+                detail,
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.role === "tool" && m.metadata?.status === "running"
+                ? {
+                    ...m,
+                    content: m.content?.trim()
+                      ? `${m.content}\n\n**中断**`
+                      : "**中断**",
+                    metadata: { ...m.metadata, status: "done" as const },
+                  }
+                : m,
+            ),
+          );
+        }
+      } else if ((e as Error).name === "AbortError") {
         setMessages((prev) =>
           prev.map((m) =>
             m.role === "tool" && m.metadata?.status === "running"
               ? {
                   ...m,
                   content: m.content?.trim()
-                    ? `${m.content}\n\n**已断开（服务端可能仍在跑）**`
+                    ? `${m.content}\n\n**已断开**`
                     : "**已断开**",
                   metadata: { ...m.metadata, status: "done" as const },
                 }
@@ -1142,12 +1301,15 @@ export default function AgentPanel({
           ),
         );
       } else {
-        setMessages(prev => [...prev, {
-          id: Math.random().toString(36).slice(2),
-          role: "agent", content: "**连接失败**: " + (e as Error).message,
-          timestamp: new Date().toISOString(),
-        }]);
-        // Fail-safe: don't leave sub-agents spinning after connection errors
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(36).slice(2),
+            role: "agent",
+            content: "**连接失败**: " + (e as Error).message,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
         setMessages((prev) =>
           prev.map((m) =>
             m.role === "tool" && m.metadata?.status === "running"
@@ -1163,7 +1325,7 @@ export default function AgentPanel({
         );
       }
     }
-    // Always clear any leftover running tool cards when the chat turn ends
+    // Turn ended (SSE+poll finished, or hard fail, or user stop) — clear leftover running cards
     setMessages((prev) => {
       let any = false;
       const next = prev.map((m) => {
@@ -1189,7 +1351,9 @@ export default function AgentPanel({
     if (isAnalysis) {
       try {
         notifyLibrariesRefresh();
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       onAnalysisDone?.();
     }
     // Load final save_prose draft for reading pane (not stream junk)
@@ -1204,7 +1368,9 @@ export default function AgentPanel({
             setNovel({ generatedProse: d.prose });
           }
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }, [
     branchId,
@@ -1216,6 +1382,7 @@ export default function AgentPanel({
     refreshFsStatus,
     isAnalysis,
     onAnalysisDone,
+    pollAgentRunUntilDone,
   ]);
 
   /** Commit analysis workspace when user confirms save (program path, not LLM). */
@@ -1392,6 +1559,7 @@ export default function AgentPanel({
 
   const handleStop = () => {
     const runId = activeAgentRunIdRef.current;
+    stopRequestedRef.current = true;
     abortRef.current?.abort();
     if (isAnalysis && runId) {
       void fetch(`/api/agent/run?runId=${encodeURIComponent(runId)}`, {
@@ -1399,7 +1567,7 @@ export default function AgentPanel({
       }).catch(() => {});
       activeAgentRunIdRef.current = null;
     }
-    // Optimistic UI: hide running pulse immediately (stream may die without "stopped")
+    // Optimistic UI: hide running pulse immediately (stream/poll may die without "stopped")
     setMessages((prev) =>
       prev.map((m) =>
         m.role === "tool" && m.metadata?.status === "running"

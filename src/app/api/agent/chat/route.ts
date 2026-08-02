@@ -887,8 +887,16 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  return new Response(stream, {
-    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  };
+  // Client can poll even if the first SSE frame never arrives (proxy cut mid-handshake)
+  if (agentRun) {
+    headers["X-Agent-Run-Id"] = agentRun.id;
+    headers["Access-Control-Expose-Headers"] = "X-Agent-Run-Id";
+  }
+  return new Response(stream, { headers });
 }
 
