@@ -1,8 +1,16 @@
 import type { ToolDefinition } from "../types";
 import {
-  saveOutline, getOutline, saveProse, getProse,
-  saveFindings, getFindings, clearFindings, formatFindingsReadable,
-  resolveStoreIds, debugStoreKeys,
+  saveOutline,
+  getOutline,
+  saveProse,
+  getProse,
+  saveFindings,
+  getFindings,
+  clearFindings,
+  formatFindingsReadable,
+  resolveStoreIds,
+  debugStoreKeys,
+  normalizeFindingDimension,
 } from "../intermediate-store";
 import {
   validateProseContent,
@@ -242,24 +250,25 @@ export const intermediateTools: ToolDefinition[] = [
       if (!Array.isArray(parsed)) {
         return { content: `${dimRaw}: findings 必须是 JSON 数组。`, messages: [] };
       }
+      const dim = normalizeFindingDimension(dimRaw);
       const normalized = parsed
         .filter((f) => f && (f.description || f.suggestion))
         .map((f) => ({
-          dimension: dimRaw,
+          dimension: dim,
           severity: String(f.severity || "minor"),
           description: String(f.description || "").trim(),
           suggestion: String(f.suggestion || "").trim(),
         }))
         .filter((f) => f.description.length > 0);
-      saveFindings(novelId, branchId, normalized, {
-        dimension: dimRaw,
+      await saveFindings(novelId, branchId, normalized, {
+        dimension: dim,
         overwrite,
       });
       const readable = formatFindingsReadable(normalized);
       const mode = overwrite ? "覆盖本维" : "追加本维";
       return {
         content:
-          `${dimRaw}: ${normalized.length} 条 ${SAVE_FINDINGS_OK}（${mode}）。\n\n` +
+          `${dim}: ${normalized.length} 条 ${SAVE_FINDINGS_OK}（${mode}）。\n\n` +
           (normalized.length ? readable : "本维无问题（已按 overwrite 更新该维）。"),
         messages: [],
       };
@@ -287,7 +296,7 @@ export const intermediateTools: ToolDefinition[] = [
     execute: async (args, ctx) => {
       const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
       const dim = String(args.dimension || args.agent_type || "").trim();
-      clearFindings(novelId, branchId, dim || undefined);
+      await clearFindings(novelId, branchId, dim || undefined);
       return {
         content: dim
           ? `已清空 findings 维度：${dim}`

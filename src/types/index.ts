@@ -382,8 +382,6 @@ export interface NovelFormProfile {
 
 // --- Branch chapter progress (branch-level) ---
 
-export type ChapterBoundary = "open" | "closed";
-
 /**
  * Narrative track for TOC entries.
  * Mainline continuity (章号连贯) only uses `main`; 番外/序章/尾声 are not main plot chapters.
@@ -412,14 +410,12 @@ export interface ChapterCatalogEntry {
   kind?: string;
 }
 
+/** Branch chapter catalog and tip-unit facts. */
 export interface BranchChapterMeta {
   novelId: string;
   branchId: string;
-  /** open = mid-chapter; closed = ready for new chapter title */
-  chapterBoundary: ChapterBoundary;
-  openChapter?: { number?: number; title?: string; startedAtOffset: number };
   /**
-   * Physical last closed unit (may be 番外). Prefer lastMainChapter for mainline 第N章.
+   * Physical last catalog unit at tip (may be 番外). Prefer lastMainChapter for 第N章.
    */
   lastClosedChapter?: {
     number?: number;

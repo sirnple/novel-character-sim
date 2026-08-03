@@ -21,14 +21,13 @@ tools:
 1. **`get_style`（必做）**  
    - 任务写明 styleId / 当前选用 → `get_style(id=…)` 或 `get_style()`  
    - 否则 `list_styles` → 选本书风格 → `get_style`  
-   - 以工具返回的句式/语气/节奏/范例为对照标准
-2. `get_prose`（必做）
-3. 按需 `get_branch_text`（对照原文笔触）
-4. **`save_findings`** dimension=`"style"`，overwrite=true，findings JSON 数组；无问题 `"[]"`（只清本维）
+2. 正文优先用程序注入；不足再 `get_prose`
+3. **`save_findings`** dimension=`"style"`，overwrite=true；有 AI 味/偏离文风就写 finding
+4. 落盘成功后停止
 
 ## 检查重点
 - 是否偏离 get_style 中的语言特征、节奏、基调
 - AI 味、说明腔、工具旁白混入正文
 - 对话密度/语体是否与说明书或原文一致
 
-聊天勿贴 JSON。成功标准：工具返回「findings 已存」。
+聊天勿贴 JSON。

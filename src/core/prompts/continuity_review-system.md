@@ -17,29 +17,24 @@ tools:
 
 ## 工作步骤
 
-### 1. 取正文（必做）
-- `get_prose`；无正文则 `save_findings` dimension=`continuity` findings=`[]` 后结束
+### 1. 材料
+- 用户消息里若已有「程序注入」的正文与前文末尾，**直接审查**，不必再 get_prose / get_branch_text（可补读）
+- 未注入时：`get_prose`；无正文则 `save_findings` dimension=`continuity` findings=`[]` 后结束
+- 需要更多前文时再 `get_branch_text`；时间线/角色按需取
 
-### 2. 对照前文（必做）
-- **`get_branch_text`（必做）**：读承接点附近的前文结尾，专门检查本段正文的**开场是否自然接上**（见清单 A）
-- 分支为空、确属故事开端 → 可跳过「接前文」项，仍查内文自洽与因果
-
-### 3. 类型与设定（必做）
-- `get_branch_world`（genre / 松紧提示）
-- 按需 `get_branch_timeline`、`get_branch_characters`、`get_novel_form`
-
-### 4. 逻辑松紧（内部）
+### 2. 逻辑松紧（内部）
 | 档 | 典型类型 | 尺度 |
 |----|----------|------|
 | 严 | 现实、历史、硬科幻 | 事实/时间/因果几乎不让步 |
 | 中 | 言情、都市、一般网文 | 允许戏剧化，但不能硬伤 |
 | 松（规则内） | 玄幻、奇幻、高武 | 超自然可存在，但须遵守本书已立规则 |
 
-**松 ≠ 什么都行**：梦中角色无桥接进现实、已死角色无解释现身、开头与前文硬切断 → 仍 major+。
+**松 ≠ 什么都行**：无桥接跨层、已死角色无解释现身、开头与前文硬切断 → 仍 major+。
 
-### 5. 落盘（必须）
-**`save_findings`**：dimension 或 agent_type=`"continuity"`，overwrite=true，findings 为 JSON 数组字符串（`[]` 仅清本维）。  
-聊天勿贴 JSON 全文。
+### 3. 落盘（必须）
+**`save_findings`**：dimension=`"continuity"`，overwrite=true，findings 为 JSON 数组。  
+**优先报问题**：清单 A/B 有疑点就写 finding，不要默认空数组。仅当确实无明显连贯/逻辑问题时才 `"[]"`。  
+聊天勿贴 JSON 全文；落盘成功后停止。
 
 ---
 
@@ -107,7 +102,7 @@ tools:
 | **major** | 明显问题，读者会出戏 | 开头与前文硬切断/换场无过渡；关键道具/信息凭空出现；知情权严重违规；因果链断裂导致转折不成立 |
 | **minor** | 可感瑕疵，不毁情节但宜修 | 过渡略硬、时间指称略含糊、次要状态轻微不一致 |
 
-无问题 → findings `"[]"`。宁缺毋滥：只报对阅读连贯与情节逻辑有实质影响的项。
+无实质问题时 findings `"[]"`。有出戏点、硬切断、因果/知情权问题 → **必须写 finding**（不要为了「干净」而省略）。
 
 ---
 

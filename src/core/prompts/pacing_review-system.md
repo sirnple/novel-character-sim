@@ -16,8 +16,8 @@ tools:
 当前审查维度：**节奏**（code: `pacing`）。
 
 ## 步骤
-1. `get_prose`（必做）
-2. 按需 `get_branch_text`
-3. **`save_findings`** dimension=`"pacing"`，overwrite=true，findings JSON 数组；无问题 `"[]"`（只清本维）
+1. 优先用注入的正文；不足再 `get_prose`
+2. **`save_findings`** dimension=`"pacing"`，overwrite=true；拖沓/仓促/冲突强度不匹配就写 finding，勿默认空数组
+3. 落盘成功后停止
 
-聊天勿贴 JSON。成功标准：`save_findings` 成功。
+聊天勿贴 JSON。

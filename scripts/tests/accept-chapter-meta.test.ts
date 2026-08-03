@@ -13,6 +13,7 @@ import {
   saveBranchChapterMeta,
   emptyBranchChapterMeta,
 } from "../../src/lib/db";
+import { extractChapterCatalog } from "../../src/core/form/chapter-catalog";
 import type { NovelFormProfile } from "../../src/types";
 
 const BODY =
@@ -60,7 +61,7 @@ function disabledForm(novelId: string): NovelFormProfile {
 
 export function runAcceptChapterMetaTests(): void {
   suite("accept chapter meta", () => {
-    test("enabled + draft starts with 第K章 → catalog gains chapter, boundary closed", () => {
+    test("enabled + draft starts with 第K章 → catalog gains chapter (no boundary field)", () => {
       _resetStore();
       const userId = `tu_${randomUUID().slice(0, 8)}`;
       const novelId = `tn_${randomUUID().slice(0, 8)}`;
@@ -71,7 +72,6 @@ export function runAcceptChapterMetaTests(): void {
         saveNovelForm(userId, novelId, enabledForm(novelId));
         saveBranchChapterMeta(userId, {
           ...emptyBranchChapterMeta(novelId, "main"),
-          chapterBoundary: "open",
           chapters: [
             {
               id: "c1",
@@ -85,7 +85,6 @@ export function runAcceptChapterMetaTests(): void {
 
         const draft = `第3章 桥\n${BODY}`;
         saveProse(novelId, "main", draft);
-        // outline keyword optional — prose wins for new chapter title
         const r = acceptContinuation({
           userId,
           novelId,
@@ -95,7 +94,10 @@ export function runAcceptChapterMetaTests(): void {
         assert.equal(r.ok, true, r.error || "accept failed");
 
         const meta = getBranchChapterMeta(userId, novelId, "main");
-        assert.equal(meta.chapterBoundary, "closed");
+        assert.equal(
+          (meta as { chapterBoundary?: unknown }).chapterBoundary,
+          undefined,
+        );
         assert.ok(
           meta.chapters.some(
             (c) =>
@@ -104,6 +106,61 @@ export function runAcceptChapterMetaTests(): void {
               c.title.includes("第3章"),
           ),
           `catalog missing ch3: ${JSON.stringify(meta.chapters)}`,
+        );
+        const last = meta.chapters[meta.chapters.length - 1];
+        assert.ok(
+          last.endOffset != null && last.endOffset > last.startOffset,
+          "last chapter endOffset should reach tip",
+        );
+      } finally {
+        deleteNovel(userId, novelId);
+        _resetStore();
+      }
+    });
+
+    test("enabled + continue same chapter → last endOffset extends", () => {
+      _resetStore();
+      const userId = `tu_${randomUUID().slice(0, 8)}`;
+      const novelId = `tn_${randomUUID().slice(0, 8)}`;
+      try {
+        const base =
+          "第1章 序\n" + "甲".repeat(80) + "\n\n第2章 雨\n" + "乙".repeat(80);
+        importNovel(userId, novelId, "chap-novel", base);
+        saveNovelForm(userId, novelId, enabledForm(novelId));
+        // Seed full catalog like after analysis
+        const seeded = extractChapterCatalog(base);
+        saveBranchChapterMeta(userId, {
+          ...emptyBranchChapterMeta(novelId, "main"),
+          chapters: seeded,
+        });
+        const beforeLen = base.length;
+        const beforeLastEnd =
+          getBranchChapterMeta(userId, novelId, "main").chapters.slice(-1)[0]
+            ?.endOffset ?? beforeLen;
+
+        const draft = BODY; // no new 第N章 — continue chapter 2
+        saveProse(novelId, "main", draft);
+        const r = acceptContinuation({
+          userId,
+          novelId,
+          branchId: "main",
+          content: draft,
+        });
+        assert.equal(r.ok, true, r.error || "accept failed");
+
+        const meta = getBranchChapterMeta(userId, novelId, "main");
+        const tip = (r.branchText || "").length;
+        assert.ok(tip > beforeLen, "branch text should grow");
+        const last = meta.chapters[meta.chapters.length - 1];
+        assert.ok(last, "catalog should still have chapters");
+        assert.equal(
+          last.endOffset,
+          tip,
+          `last endOffset should be tip ${tip}, got ${last.endOffset} (was ${beforeLastEnd})`,
+        );
+        assert.ok(
+          meta.chapters.some((c) => c.number === 2 || c.title.includes("雨")),
+          "chapter 2 should remain",
         );
       } finally {
         deleteNovel(userId, novelId);
@@ -121,7 +178,6 @@ export function runAcceptChapterMetaTests(): void {
         saveBranchChapterMeta(userId, {
           ...emptyBranchChapterMeta(novelId, "main"),
           chapters: [],
-          chapterBoundary: "closed",
         });
 
         // Draft starts with a chapter title so a regressing (non-early-return)

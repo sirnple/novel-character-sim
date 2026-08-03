@@ -9,18 +9,19 @@ import {
   getBranchProse,
   getForeshadowingLedger,
   getNovelForm,
+  rebuildBranchChapterMetaFromText,
   resolveBranchText,
   saveBranchChapterMeta,
   saveForeshadowingLedger,
 } from "@/lib/db";
 import {
   getForeshadowRealization,
-  getOutline,
   getProse,
   saveProse,
 } from "@/core/agents/intermediate-store";
 import { commitRealization } from "@/core/foreshadowing/commit";
 import type { ForeshadowingRealization } from "@/core/foreshadowing/types";
+import type { ChapterCatalogEntry } from "@/types";
 import { extractChapterCatalog } from "@/core/form/chapter-catalog";
 
 export interface AcceptContinuationInput {
@@ -119,7 +120,7 @@ export function acceptContinuation(input: AcceptContinuationInput): AcceptContin
   );
   const afterText = resolveBranchText(userId, novelId, branchId);
 
-  // Chapter boundary + catalog (D: outline intent + prose evidence)
+  // Rebuild chapter catalog from full branch text (new 第N章 titles + tip endOffset)
   try {
     updateChapterMetaAfterAccept(userId, novelId, branchId, content, afterText);
   } catch (e) {
@@ -144,8 +145,8 @@ export function acceptContinuation(input: AcceptContinuationInput): AcceptContin
 }
 
 /**
- * Hybrid chapter boundary: outline keywords + whether draft starts with a chapter title.
- * If novel form says chaptering disabled, skip.
+ * Rebuild chapter catalog after accept.
+ * Skip only when form explicitly disables chaptering.
  */
 function updateChapterMetaAfterAccept(
   userId: string,
@@ -155,64 +156,108 @@ function updateChapterMetaAfterAccept(
   fullText: string,
 ): void {
   const form = getNovelForm(userId, novelId);
-  if (form && !form.chaptering.enabled) return;
+  // Explicit false only — missing form still try rebuild from headings
+  if (form?.chaptering?.enabled === false) return;
 
-  const meta = getBranchChapterMeta(userId, novelId, branchId);
-  const outline = (getOutline(novelId, branchId) || "").toString();
-  const outlineWantsClose =
-    /收束|完成本章|章末|新开一章|下一章|第\s*\d+\s*章|分为\s*\d+\s*章/.test(outline);
-  const outlineWantsContinue =
-    /续写本章|接续本章|同一章|不新开章|章内/.test(outline);
+  const before = getBranchChapterMeta(userId, novelId, branchId);
+  const beforeN = before.chapters?.length || 0;
+  const tipLen = fullText.length;
 
-  const draftHead = draftChunk.trim().slice(0, 80);
-  const proseLooksNewChapter = /^第\s*[\d一二三四五六七八九十百千零〇两]+\s*章/.test(draftHead);
+  // 1) Full-text program catalog (preferred)
+  rebuildBranchChapterMetaFromText(userId, novelId, branchId, fullText);
+  let chapters = getBranchChapterMeta(userId, novelId, branchId).chapters || [];
 
-  // D: outline first, conflict → prose
-  let boundary: "open" | "closed" = meta.chapterBoundary || "closed";
-  if (outlineWantsContinue && !outlineWantsClose) boundary = "open";
-  else if (outlineWantsClose) boundary = "closed";
-  if (proseLooksNewChapter) boundary = "closed";
-  else if (outlineWantsContinue) boundary = "open";
+  // 2) Extract found nothing but we already had a TOC: keep it and stretch last endOffset
+  if (!chapters.length && before.chapters?.length) {
+    chapters = stretchCatalogToTip(before.chapters, tipLen);
+    saveTipMeta(userId, novelId, branchId, chapters, tipLen);
+    chapters = getBranchChapterMeta(userId, novelId, branchId).chapters || [];
+  }
 
-  // Rebuild catalog from full text (program track seed); keep it cheap
-  const catalog = extractChapterCatalog(fullText, form?.chaptering);
-  const chapters = catalog.length ? catalog : meta.chapters;
+  // 3) Still empty: scan draft chunk for 第N章 and append after previous catalog
+  if (!chapters.length && draftChunk.trim()) {
+    const draftCatalog = extractChapterCatalog(draftChunk, form?.chaptering);
+    if (draftCatalog.length) {
+      const anchor = draftChunk.trim().slice(0, 48);
+      let baseLen = tipLen - draftChunk.length;
+      if (anchor) {
+        const idx = fullText.lastIndexOf(anchor);
+        if (idx >= 0) baseLen = idx;
+      }
+      baseLen = Math.max(0, Math.min(baseLen, tipLen));
+      const mapped: ChapterCatalogEntry[] = draftCatalog.map((c) => ({
+        ...c,
+        startOffset: baseLen + c.startOffset,
+        endOffset:
+          c.endOffset != null ? baseLen + c.endOffset : tipLen,
+        source: "accept",
+      }));
+      const prevKept = (before.chapters || []).filter((c) => c.startOffset < baseLen);
+      chapters = stretchCatalogToTip([...prevKept, ...mapped], tipLen);
+      saveTipMeta(userId, novelId, branchId, chapters, tipLen);
+      chapters = getBranchChapterMeta(userId, novelId, branchId).chapters || [];
+    }
+  }
+
+  // 4) Always stretch tip endOffset (接本章 without new title still moves the tip)
+  if (chapters.length) {
+    const stretched = stretchCatalogToTip(chapters, tipLen);
+    saveTipMeta(userId, novelId, branchId, stretched, tipLen);
+  }
+
+  const afterN = getBranchChapterMeta(userId, novelId, branchId).chapters?.length || 0;
+  console.log(
+    `[accept] chapter-meta ${novelId}/${branchId}: ${beforeN} → ${afterN} units, textLen=${tipLen}`,
+  );
+}
+
+function stretchCatalogToTip(
+  chapters: ChapterCatalogEntry[],
+  tipLen: number,
+): ChapterCatalogEntry[] {
+  if (!chapters.length) return [];
+  const sorted = [...chapters].sort((a, b) => a.startOffset - b.startOffset);
+  for (let i = 0; i < sorted.length; i++) {
+    sorted[i] = {
+      ...sorted[i],
+      endOffset:
+        i + 1 < sorted.length ? sorted[i + 1].startOffset : tipLen,
+    };
+  }
+  return sorted;
+}
+
+function saveTipMeta(
+  userId: string,
+  novelId: string,
+  branchId: string,
+  chapters: ChapterCatalogEntry[],
+  tipLen: number,
+): void {
   const last = chapters.length ? chapters[chapters.length - 1] : undefined;
   const lastMain = [...chapters]
     .reverse()
     .find((c) => !c.track || c.track === "main");
-
   saveBranchChapterMeta(userId, {
-    ...meta,
     novelId,
     branchId,
-    chapterBoundary: boundary,
     chapters,
-    lastClosedChapter:
-      boundary === "closed" && last
-        ? {
-            number: last.number,
-            title: last.title,
-            endOffset: last.endOffset ?? fullText.length,
-            track: last.track || "main",
-          }
-        : meta.lastClosedChapter,
+    lastClosedChapter: last
+      ? {
+          number: last.number,
+          title: last.title,
+          endOffset: last.endOffset ?? tipLen,
+          track: last.track || "main",
+        }
+      : undefined,
     lastMainChapter: lastMain
       ? {
           number: lastMain.number,
           title: lastMain.title,
-          endOffset: lastMain.endOffset ?? fullText.length,
+          endOffset: lastMain.endOffset ?? tipLen,
           track: "main",
         }
-      : meta.lastMainChapter,
-    openChapter:
-      boundary === "open" && last
-        ? {
-            number: last.number,
-            title: last.title,
-            startedAtOffset: last.startOffset,
-          }
-        : undefined,
+      : undefined,
   });
 }
 

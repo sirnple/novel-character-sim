@@ -52,7 +52,7 @@ async function main() {
   runOutlineModeTests();
   runRuntimeSettingsTests();
   runProseGuardTests();
-  runIntermediateStoreTests();
+  await runIntermediateStoreTests();
   runCriticalMissTests();
   runSaveVerifyTests();
   runCommitRealizationTests();

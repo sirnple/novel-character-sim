@@ -151,7 +151,7 @@ export const foreshadowTools: ToolDefinition[] = [
           description: f.description,
           suggestion: f.suggestion || "",
         }));
-      saveFindings(ctx.novelId, ctx.branchId, findings, {
+      await saveFindings(ctx.novelId, ctx.branchId, findings, {
         dimension: "foreshadowing",
         overwrite: true,
       });

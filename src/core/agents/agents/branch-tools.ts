@@ -13,7 +13,8 @@ import {
 } from "@/core/form/form-context";
 import { formatCriticalMiss } from "../critical-miss";
 
-const TEXT_TAIL = 30000;
+/** Default tail for writing agents. Reviews should use injected shorter tip, not this. */
+const TEXT_TAIL = 12_000;
 
 /** Rough genre → logic strictness for review agents (prompt hint only). */
 function inferLogicStrictnessHint(genre: string, themes?: string[]): string {
@@ -43,12 +44,17 @@ function inferLogicStrictnessHint(genre: string, themes?: string[]): string {
 export const branchTools: ToolDefinition[] = [
   {
     name: "get_branch_text",
-    description: "获取当前分支的正文尾部（最近若干字）作为续写起点。要求 novelId+branchId 双参。",
+    description:
+      "获取当前分支正文尾部作为续写/对照材料。可选 maxChars（默认 12000，上限 30000）。",
     parameters: {
       type: "object",
       properties: {
         novelId: { type: "string", description: "小说 ID" },
         branchId: { type: "string", description: "分支 ID（主线为 main）" },
+        maxChars: {
+          type: "number",
+          description: "取尾部最多多少字，默认 12000，最大 30000",
+        },
       },
       required: ["novelId", "branchId"],
     },
@@ -73,7 +79,11 @@ export const branchTools: ToolDefinition[] = [
           messages: [],
         };
       }
-      const tail = text.slice(-TEXT_TAIL);
+      const want = Number(args.maxChars);
+      const cap = Number.isFinite(want)
+        ? Math.min(30_000, Math.max(500, Math.floor(want)))
+        : TEXT_TAIL;
+      const tail = text.slice(-cap);
       // Empty IF branch is allowed (new fork); only miss when no branch row
       if (!tail) {
         return {
@@ -164,7 +174,7 @@ export const branchTools: ToolDefinition[] = [
   {
     name: "get_branch_meta",
     description:
-      "获取分支元信息：name/字数，以及形态/章法摘要（是否分章、章名样例、continuationRules、章开闭边界、目录条数）。大纲与写手续写前应调用。",
+      "获取分支元信息：name/字数，以及形态/章法摘要（是否分章、章名样例、continuationRules、目录条数、文末单元等）。",
     parameters: {
       type: "object",
       properties: {
@@ -208,7 +218,7 @@ export const branchTools: ToolDefinition[] = [
   {
     name: "get_novel_form",
     description:
-      "获取小说形态/章法（骨）：formType、是否分章、章名 samples、continuationRules、分支章边界与目录摘要。大纲与写手在规划章节前应调用；弱分章时必须遵守 forbidInventChapterTitles。",
+      "获取小说形态/章法：formType、是否分章、章名 samples、continuationRules、目录与文末单元摘要、forbidInventChapterTitles 等。",
     parameters: {
       type: "object",
       properties: {

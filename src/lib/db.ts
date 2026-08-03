@@ -946,9 +946,34 @@ export function emptyBranchChapterMeta(
   return {
     novelId,
     branchId,
-    chapterBoundary: "closed",
     chapters: [],
     updatedAt: new Date().toISOString(),
+  };
+}
+
+/** Drop legacy open/closed fields from older DB rows. */
+function normalizeBranchChapterMeta(
+  novelId: string,
+  branchId: string,
+  raw: Partial<BranchChapterMeta> & {
+    chapterBoundary?: unknown;
+    openChapter?: unknown;
+  },
+): BranchChapterMeta {
+  const {
+    chapterBoundary: _b,
+    openChapter: _o,
+    ...rest
+  } = raw as Partial<BranchChapterMeta> & {
+    chapterBoundary?: unknown;
+    openChapter?: unknown;
+  };
+  return {
+    ...emptyBranchChapterMeta(novelId, branchId),
+    ...rest,
+    novelId,
+    branchId,
+    chapters: Array.isArray(rest.chapters) ? rest.chapters : [],
   };
 }
 
@@ -957,12 +982,13 @@ export function saveBranchChapterMeta(
   meta: BranchChapterMeta,
 ): void {
   const d = getDb();
-  const data = { ...meta, updatedAt: new Date().toISOString() };
+  const data = normalizeBranchChapterMeta(meta.novelId, meta.branchId, meta);
+  data.updatedAt = new Date().toISOString();
   d.prepare(
     `INSERT OR REPLACE INTO branch_chapter_meta
       (novel_id, branch_id, user_id, data, updated_at)
      VALUES (?, ?, ?, ?, datetime('now'))`,
-  ).run(meta.novelId, meta.branchId, userId, JSON.stringify(data));
+  ).run(data.novelId, data.branchId, userId, JSON.stringify(data));
 }
 
 export function getBranchChapterMeta(
@@ -978,14 +1004,8 @@ export function getBranchChapterMeta(
     .get(novelId, branchId, userId) as { data: string } | undefined;
   if (!row?.data) return emptyBranchChapterMeta(novelId, branchId);
   try {
-    const parsed = JSON.parse(row.data) as BranchChapterMeta;
-    return {
-      ...emptyBranchChapterMeta(novelId, branchId),
-      ...parsed,
-      novelId,
-      branchId,
-      chapters: Array.isArray(parsed.chapters) ? parsed.chapters : [],
-    };
+    const parsed = JSON.parse(row.data) as Partial<BranchChapterMeta>;
+    return normalizeBranchChapterMeta(novelId, branchId, parsed);
   } catch {
     return emptyBranchChapterMeta(novelId, branchId);
   }
@@ -1038,40 +1058,18 @@ export function copyBranchChapterMeta(
     .reverse()
     .find((c) => !c.track || c.track === "main");
 
-  // Mid-chapter fork → open boundary; fork after a chapter title block → closed
-  let chapterBoundary = src.chapterBoundary || "closed";
-  if (end != null) {
-    const startedMid =
-      last &&
-      last.startOffset < end &&
-      (last.endOffset == null || last.endOffset >= end);
-    chapterBoundary = startedMid && chapters.length ? "open" : chapterBoundary;
-  }
-
   saveBranchChapterMeta(userId, {
-    ...src,
     novelId,
     branchId: toBranchId,
     chapters,
-    chapterBoundary,
-    lastClosedChapter:
-      chapterBoundary === "closed" && last
-        ? {
-            number: last.number,
-            title: last.title,
-            endOffset: last.endOffset ?? end ?? last.startOffset,
-            track: last.track || "main",
-          }
-        : chapterBoundary === "open"
-          ? src.lastClosedChapter
-          : last
-            ? {
-                number: last.number,
-                title: last.title,
-                endOffset: last.endOffset ?? end ?? last.startOffset,
-                track: last.track || "main",
-              }
-            : undefined,
+    lastClosedChapter: last
+      ? {
+          number: last.number,
+          title: last.title,
+          endOffset: last.endOffset ?? end ?? last.startOffset,
+          track: last.track || "main",
+        }
+      : undefined,
     lastMainChapter: lastMain
       ? {
           number: lastMain.number,
@@ -1080,14 +1078,6 @@ export function copyBranchChapterMeta(
           track: "main",
         }
       : undefined,
-    openChapter:
-      chapterBoundary === "open" && last
-        ? {
-            number: last.number,
-            title: last.title,
-            startedAtOffset: last.startOffset,
-          }
-        : undefined,
     updatedAt: new Date().toISOString(),
   });
 }
@@ -1132,27 +1122,19 @@ export function rebuildBranchChapterMetaFromText(
     }
   }
 
-  const prev = getBranchChapterMeta(userId, novelId, branchId);
   const end = (fullText || "").length;
-  // Chapter containing the fork tip (end of CoW prefix)
-  const atFork =
+  // Chapter containing the tip (end of branch text)
+  const atTip =
     end > 0 ? findChapterAtOffset(chapters, Math.max(0, end - 1)) : null;
-  const last = atFork || (chapters.length ? chapters[chapters.length - 1] : undefined);
+  const last = atTip || (chapters.length ? chapters[chapters.length - 1] : undefined);
   const lastMain = [...chapters]
     .reverse()
     .find((c) => !c.track || c.track === "main");
-  const midOpen =
-    !!last &&
-    last.startOffset < end &&
-    (last.endOffset == null || last.endOffset >= end) &&
-    end - last.startOffset > 0;
 
   saveBranchChapterMeta(userId, {
-    ...prev,
     novelId,
     branchId,
     chapters,
-    chapterBoundary: midOpen ? "open" : prev.chapterBoundary || "closed",
     lastMainChapter: lastMain
       ? {
           number: lastMain.number,
@@ -1161,23 +1143,14 @@ export function rebuildBranchChapterMetaFromText(
           track: "main",
         }
       : undefined,
-    lastClosedChapter:
-      !midOpen && last
-        ? {
-            number: last.number,
-            title: last.title,
-            endOffset: last.endOffset ?? end,
-            track: last.track || "main",
-          }
-        : prev.lastClosedChapter,
-    openChapter:
-      midOpen && last
-        ? {
-            number: last.number,
-            title: last.title,
-            startedAtOffset: last.startOffset,
-          }
-        : undefined,
+    lastClosedChapter: last
+      ? {
+          number: last.number,
+          title: last.title,
+          endOffset: last.endOffset ?? end,
+          track: last.track || "main",
+        }
+      : undefined,
     updatedAt: new Date().toISOString(),
   });
 }

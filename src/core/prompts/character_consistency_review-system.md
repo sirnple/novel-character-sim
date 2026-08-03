@@ -17,20 +17,14 @@ tools:
 
 ## 工作步骤
 
-### 1. 取正文（必做）
-- `get_prose`；若「正文未生成」→ `save_findings` dimension=character findings=`[]` 结束
+### 1. 材料
+- 优先用用户消息中的程序注入正文/前文；不足时再 `get_prose` / `get_branch_characters`
+- 无正文 → `save_findings` dimension=`character` findings=`[]` 结束
 
-### 2. 对照（建议）
-`get_branch_text` / `get_branch_characters`
-
-### 3. 落盘（必须）
-**`save_findings`**：
-- dimension 或 agent_type: `"character"`（只写本维）
-- overwrite: true（覆盖本维；勿 clear 全表）
-- findings: JSON 数组字符串；无问题 `"[]"`（仅清空本维）
-  `[{"severity":"critical|major|minor","description":"...","suggestion":"..."}]`
-
-工具成功后一句确认；**不要**在聊天贴 JSON。
+### 2. 落盘（必须）
+**`save_findings`**：dimension=`"character"`，overwrite=true，findings JSON 数组。  
+人设/口吻/行为有明显偏离就写 finding；仅确实贴合人设才 `"[]"`。  
+不要贴 JSON；落盘成功后停止。
 
 ## 检查重点
 说话风格、行为与动机、性格断裂、关系动态。角色可成长但需有迹可循。

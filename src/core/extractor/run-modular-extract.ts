@@ -227,13 +227,31 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
       // Always seed/overwrite main catalog when program found chapters
       // (don't leave a previous bad 1-chapter meta after force re-analyze)
       if (formResult.catalog.length > 0) {
-        const existing = getBranchChapterMeta(userId, novelId, branchId);
+        const catalog = formResult.catalog;
+        const last = catalog.length ? catalog[catalog.length - 1] : undefined;
+        const lastMain = [...catalog]
+          .reverse()
+          .find((c) => !c.track || c.track === "main");
         saveBranchChapterMeta(userId, {
-          ...existing,
           novelId,
           branchId,
-          chapters: formResult.catalog,
-          chapterBoundary: existing?.chapterBoundary || "closed",
+          chapters: catalog,
+          lastClosedChapter: last
+            ? {
+                number: last.number,
+                title: last.title,
+                endOffset: last.endOffset ?? text.length,
+                track: last.track || "main",
+              }
+            : undefined,
+          lastMainChapter: lastMain
+            ? {
+                number: lastMain.number,
+                title: lastMain.title,
+                endOffset: lastMain.endOffset ?? text.length,
+                track: "main",
+              }
+            : undefined,
         });
         // Catalog length change invalidates timeline (was often 1 chapter from old job)
         const prevTl = getTimeline(userId, novelId, branchId);
@@ -337,13 +355,31 @@ async function runModularExtractInner(input: ModularExtractInput): Promise<Modul
         saveNovelForm(userId, novelId, formResult.profile);
         ensureMainBranch(userId, novelId);
         if (formResult.catalog.length > 0) {
-          const existing = getBranchChapterMeta(userId, novelId, branchId);
+          const catalog = formResult.catalog;
+          const last = catalog.length ? catalog[catalog.length - 1] : undefined;
+          const lastMain = [...catalog]
+            .reverse()
+            .find((c) => !c.track || c.track === "main");
           saveBranchChapterMeta(userId, {
-            ...existing,
             novelId,
             branchId,
-            chapters: formResult.catalog,
-            chapterBoundary: existing?.chapterBoundary || "closed",
+            chapters: catalog,
+            lastClosedChapter: last
+              ? {
+                  number: last.number,
+                  title: last.title,
+                  endOffset: last.endOffset ?? text.length,
+                  track: last.track || "main",
+                }
+              : undefined,
+            lastMainChapter: lastMain
+              ? {
+                  number: lastMain.number,
+                  title: lastMain.title,
+                  endOffset: lastMain.endOffset ?? text.length,
+                  track: "main",
+                }
+              : undefined,
           });
         }
         result.form = formResult.profile;

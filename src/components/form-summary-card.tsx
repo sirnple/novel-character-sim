@@ -72,6 +72,21 @@ export default function FormSummaryCard({
     };
   }, [load, refreshKey, localKey]);
 
+  // Accept 续写后刷新目录（write 页发 ncs:branch-updated；overview 也要跟）
+  useEffect(() => {
+    const onBranch = (ev: Event) => {
+      const d = (ev as CustomEvent).detail as {
+        novelId?: string;
+        branchId?: string;
+      };
+      if (!d?.novelId || d.novelId !== novelId) return;
+      if (d.branchId && d.branchId !== branchId) return;
+      setLocalKey((k) => k + 1);
+    };
+    window.addEventListener("ncs:branch-updated", onBranch);
+    return () => window.removeEventListener("ncs:branch-updated", onBranch);
+  }, [novelId, branchId]);
+
   const reextract = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!novelId || rescanning || !debugMode) return;

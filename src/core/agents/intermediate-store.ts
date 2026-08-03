@@ -286,81 +286,67 @@ export interface SaveFindingsOptions {
 }
 
 /**
- * Save findings for one or more dimensions.
+ * Save findings for one or more dimensions (serialized per branch — safe under parallel reviews).
  * - overwrite=true (default): replace only the named dimension(s); other dims kept.
  * - overwrite=false: append; never wipes other agents' findings.
  * Empty findings + dimension + overwrite clears that dimension only (not global).
  */
-export function saveFindings(
-  novelId: string,
-  branchId: string,
-  findings: ReviewFindings[],
-  opts?: SaveFindingsOptions,
-): void {
-  const k = key(novelId, branchId);
-  const store = storeMap();
-  const s = store.get(k) || {};
-  const existing = s.findings || [];
-  const overwrite = opts?.overwrite !== false;
-
-  const forcedDim = opts?.dimension
-    ? normalizeFindingDimension(opts.dimension)
-    : undefined;
-
-  const normalized = (findings || []).map((f) => ({
-    dimension: forcedDim || normalizeFindingDimension(f.dimension),
-    severity: String(f.severity || "minor"),
-    description: String(f.description || "").trim(),
-    suggestion: String(f.suggestion || "").trim(),
-  })).filter((f) => f.description.length > 0 || overwrite);
-
-  // Drop empty-description rows when not a pure "clear this dim" save
-  const rows = normalized.filter((f) => f.description.length > 0);
-
-  if (overwrite) {
-    const dims = forcedDim
-      ? [forcedDim]
-      : Array.from(new Set(rows.map((f) => f.dimension)));
-    if (dims.length === 0) {
-      // empty [] without dimension → no-op (do not global wipe)
-      store.set(k, s);
-      console.log(`[Store] saveFindings ${k} overwrite no-op (empty, no dimension)`);
-      return;
-    }
-    const kept = existing.filter((f) => !dims.includes(f.dimension));
-    // Tag rows with forced dim when provided
-    const toWrite = forcedDim
-      ? rows.map((f) => ({ ...f, dimension: forcedDim }))
-      : rows;
-    s.findings = kept.concat(toWrite);
-    store.set(k, s);
-    console.log(
-      `[Store] saveFindings ${k} overwrite dims=[${dims.join(",")}] ` +
-        `+${toWrite.length} kept=${kept.length} total=${s.findings.length}`,
-    );
-    return;
-  }
-
-  // append
-  const toWrite = forcedDim
-    ? rows.map((f) => ({ ...f, dimension: forcedDim }))
-    : rows;
-  s.findings = existing.concat(toWrite);
-  store.set(k, s);
-  console.log(
-    `[Store] saveFindings ${k} append +${toWrite.length} total=${s.findings.length}`,
-  );
-}
-
-/** Parallel-safe: serialize saveFindings for this branch. */
-export async function saveFindingsLocked(
+export async function saveFindings(
   novelId: string,
   branchId: string,
   findings: ReviewFindings[],
   opts?: SaveFindingsOptions,
 ): Promise<void> {
   await withBranchLock(novelId, branchId, () => {
-    saveFindings(novelId, branchId, findings, opts);
+    const k = key(novelId, branchId);
+    const store = storeMap();
+    const s = store.get(k) || {};
+    const existing = s.findings || [];
+    const overwrite = opts?.overwrite !== false;
+
+    const forcedDim = opts?.dimension
+      ? normalizeFindingDimension(opts.dimension)
+      : undefined;
+
+    const normalized = (findings || []).map((f) => ({
+      dimension: forcedDim || normalizeFindingDimension(f.dimension),
+      severity: String(f.severity || "minor"),
+      description: String(f.description || "").trim(),
+      suggestion: String(f.suggestion || "").trim(),
+    })).filter((f) => f.description.length > 0 || overwrite);
+
+    const rows = normalized.filter((f) => f.description.length > 0);
+
+    if (overwrite) {
+      const dims = forcedDim
+        ? [forcedDim]
+        : Array.from(new Set(rows.map((f) => f.dimension)));
+      if (dims.length === 0) {
+        store.set(k, s);
+        console.log(`[Store] saveFindings ${k} overwrite no-op (empty, no dimension)`);
+        return;
+      }
+      const kept = existing.filter((f) => !dims.includes(f.dimension));
+      const toWrite = forcedDim
+        ? rows.map((f) => ({ ...f, dimension: forcedDim }))
+        : rows;
+      s.findings = kept.concat(toWrite);
+      store.set(k, s);
+      console.log(
+        `[Store] saveFindings ${k} overwrite dims=[${dims.join(",")}] ` +
+          `+${toWrite.length} kept=${kept.length} total=${s.findings.length}`,
+      );
+      return;
+    }
+
+    const toWrite = forcedDim
+      ? rows.map((f) => ({ ...f, dimension: forcedDim }))
+      : rows;
+    s.findings = existing.concat(toWrite);
+    store.set(k, s);
+    console.log(
+      `[Store] saveFindings ${k} append +${toWrite.length} total=${s.findings.length}`,
+    );
   });
 }
 
@@ -369,34 +355,26 @@ export function getFindings(novelId: string, branchId: string): ReviewFindings[]
 }
 
 /**
- * Clear findings. If dimension provided, only that review dimension is cleared.
+ * Clear findings (serialized per branch). If dimension provided, only that dim is cleared.
  * Full clear only when dimension omitted — prefer per-dim overwrite via save_findings.
  */
-export function clearFindings(
-  novelId: string,
-  branchId: string,
-  dimension?: string,
-): void {
-  const k = key(novelId, branchId);
-  const store = storeMap();
-  const s = store.get(k);
-  if (!s) return;
-  if (dimension) {
-    const dim = normalizeFindingDimension(dimension);
-    s.findings = (s.findings || []).filter((f) => f.dimension !== dim);
-  } else {
-    s.findings = [];
-  }
-  store.set(k, s);
-}
-
-export async function clearFindingsLocked(
+export async function clearFindings(
   novelId: string,
   branchId: string,
   dimension?: string,
 ): Promise<void> {
   await withBranchLock(novelId, branchId, () => {
-    clearFindings(novelId, branchId, dimension);
+    const k = key(novelId, branchId);
+    const store = storeMap();
+    const s = store.get(k);
+    if (!s) return;
+    if (dimension) {
+      const dim = normalizeFindingDimension(dimension);
+      s.findings = (s.findings || []).filter((f) => f.dimension !== dim);
+    } else {
+      s.findings = [];
+    }
+    store.set(k, s);
   });
 }
 

@@ -1767,8 +1767,13 @@ export default function AgentPanel({
                     if (isRunning) return null;
                     return null;
                   }
-                  // Compact review pass with no findings: keep one-line header only when done
-                  if (isDone && isReview && !hasFindings && !base.some(s => s.role === "tool_call")) {
+                  // Compact review: hide empty transcript only when there is truly no trail
+                  if (
+                    isDone &&
+                    isReview &&
+                    !hasFindings &&
+                    base.length === 0
+                  ) {
                     return null;
                   }
                   return (

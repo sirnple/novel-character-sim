@@ -96,13 +96,30 @@ export function commitAnalysisWorkspace(input: {
       };
     }
     saveNovelForm(userId, novelId, form);
-    const existingMeta = getBranchChapterMeta(userId, novelId, branchId);
+    const last = catalog.length ? catalog[catalog.length - 1] : undefined;
+    const lastMain = [...catalog]
+      .reverse()
+      .find((c) => !c.track || c.track === "main");
     saveBranchChapterMeta(userId, {
-      ...existingMeta,
       novelId,
       branchId,
       chapters: catalog,
-      chapterBoundary: existingMeta.chapterBoundary || "closed",
+      lastClosedChapter: last
+        ? {
+            number: last.number,
+            title: last.title,
+            endOffset: last.endOffset ?? text.length,
+            track: last.track || "main",
+          }
+        : undefined,
+      lastMainChapter: lastMain
+        ? {
+            number: lastMain.number,
+            title: lastMain.title,
+            endOffset: lastMain.endOffset ?? text.length,
+            track: "main",
+          }
+        : undefined,
       updatedAt: new Date().toISOString(),
     });
     committed.push(`form+catalog(${catalog.length})`);

@@ -39,10 +39,30 @@ export async function GET(request: NextRequest) {
     if (text) {
       const catalog = extractChapterCatalog(text, form.chaptering);
       if (catalog.length) {
+        const last = catalog.length ? catalog[catalog.length - 1] : undefined;
+        const lastMain = [...catalog]
+          .reverse()
+          .find((c) => !c.track || c.track === "main");
         meta = {
-          ...meta,
+          novelId,
+          branchId,
           chapters: catalog,
-          chapterBoundary: meta.chapterBoundary || "closed",
+          lastClosedChapter: last
+            ? {
+                number: last.number,
+                title: last.title,
+                endOffset: last.endOffset ?? text.length,
+                track: last.track || "main",
+              }
+            : undefined,
+          lastMainChapter: lastMain
+            ? {
+                number: lastMain.number,
+                title: lastMain.title,
+                endOffset: lastMain.endOffset ?? text.length,
+                track: "main",
+              }
+            : undefined,
         };
         saveBranchChapterMeta(userId, meta);
       }

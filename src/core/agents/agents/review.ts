@@ -1,14 +1,18 @@
 import type { Agent, TrailMessage } from "../types";
 import { defineAgent } from "../agent-registry";
 import { runSubAgentToolLoop } from "../tool-loop";
-import { getFindings, getForeshadowRealization } from "../intermediate-store";
+import {
+  getFindings,
+  getForeshadowRealization,
+  getProse,
+} from "../intermediate-store";
 import {
   resolveAgentPrompt,
   resolveAgentToolSchemas,
 } from "@/core/prompts/resolve-agent-prompt";
 import { SAVE_FINDINGS_OK } from "./intermediate-tools";
 import { SAVE_FS_REALIZATION_OK } from "./foreshadow-tools";
-import { getStoryInfo } from "@/lib/db";
+import { getBranchProse, getStoryInfo } from "@/lib/db";
 import { toolSaveSucceeded } from "../save-verify";
 
 /** findings dimension code → system md (name comes from that file's frontmatter). */
@@ -20,6 +24,39 @@ const REVIEW_SYSTEM_FILES: Record<string, string> = {
   world: "world_review-system.md",
   pacing: "pacing_review-system.md",
 };
+
+/** Injected branch tip for reviews (short). get_branch_text default 30k is for writer context, not review. */
+const REVIEW_BRANCH_TAIL = 4_000;
+const REVIEW_PROSE_CAP = 24_000;
+
+function buildReviewMaterialInject(
+  userId: string,
+  novelId: string,
+  branchId: string,
+): string {
+  const prose = (getProse(novelId, branchId) || "").trim();
+  const { text } = getBranchProse(userId, novelId, branchId);
+  const tail = (text || "").slice(-REVIEW_BRANCH_TAIL);
+  const parts: string[] = ["\n\n## 程序注入材料（优先直接用，减少重复 get_*）\n"];
+  if (prose.length >= 20) {
+    const body =
+      prose.length > REVIEW_PROSE_CAP
+        ? prose.slice(0, REVIEW_PROSE_CAP) +
+          `\n…（正文共 ${prose.length} 字，已截断）`
+        : prose;
+    parts.push(`### 当前正文草稿（${prose.length} 字）\n\n${body}\n`);
+  } else {
+    parts.push("### 当前正文草稿\n（store 中无可用正文；可用 get_prose 再试）\n");
+  }
+  if (tail) {
+    parts.push(
+      `### 前文末尾（约 ${tail.length} 字，承接点）\n\n${tail}\n`,
+    );
+  } else {
+    parts.push("### 前文末尾\n（本分支暂无前文）\n");
+  }
+  return parts.join("\n");
+}
 
 function makeReviewAgent(dimensionName: string, dimensionCode: string): Agent {
   const systemFile =
@@ -44,20 +81,26 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): Agent {
         styleHint = ctx.selectedStyleId
           ? `\n\n## 文风对照（必须用工具）\n` +
             `用户选用 styleId=\`${ctx.selectedStyleId}\`。\n` +
-            `审查前必做：**get_style(id="${ctx.selectedStyleId}")** 或 **get_style()**，再对照 get_prose。\n`
+            `审查前必做：**get_style(id="${ctx.selectedStyleId}")** 或 **get_style()**，再对照正文。\n`
           : `\n\n## 文风对照（必须用工具）\n` +
-            `未预选风格：先 **list_styles**，再 **get_style**；优先本书来源，再对照 get_prose。\n`;
+            `未预选风格：先 **list_styles**，再 **get_style**；优先本书来源，再对照正文。\n`;
       }
+
+      const materialInject = buildReviewMaterialInject(
+        ctx.userId,
+        ctx.novelId,
+        ctx.branchId,
+      );
 
       const isFs = dimensionCode === "foreshadowing";
       const saveHint = isFs
         ? `\n\n## 落盘（必须）\n取证后**必须**调用 save_foreshadowing_realization，参数 realization 为 JSON 字符串（含 pass/findings/realized/gaps）。` +
           `不要在聊天里贴完整 JSON；程序只认 tool 成功。工具会返回人类可读摘要。\n`
         : `\n\n## 落盘（必须）\n取证后**必须**调用 save_findings：\n` +
-          `- dimension 或 agent_type: "${dimensionCode}"（本审查 agent 类型，只写本维）\n` +
-          `- overwrite: true（覆盖本维旧结果；不要清其它维、不要 clear_findings 全表）\n` +
-          `- findings: JSON 数组字符串，无问题用 "[]"（overwrite 下即清空本维）\n` +
-          `不要在聊天里贴 JSON；程序只认 save_findings 成功。\n`;
+          `- dimension: "${dimensionCode}"（只写本维）\n` +
+          `- overwrite: true\n` +
+          `- findings: JSON 数组字符串；有问题就写清，真正无问题才用 "[]"\n` +
+          `不要在聊天里贴 JSON；程序只认 save_findings 成功。落盘成功后停止。\n`;
 
       const { system: sys, user: baseUc } = resolveAgentPrompt(name, "zh", {
         prompt: ctx.prompt,
@@ -66,14 +109,26 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): Agent {
         dimensionName,
         dimensionCode,
       });
-      const uc = baseUc + genreHint + styleHint + saveHint;
+      const uc =
+        baseUc + materialInject + genreHint + styleHint + saveHint;
       // tools allowlist from review-*-system.md frontmatter
       const tools = resolveAgentToolSchemas(name);
 
       const run = (user: string) =>
         runSubAgentToolLoop(llm, sys, user, tools, ctx, undefined, onTrail, {
-          maxTokens: 4096,
-          temperature: 0.2,
+          maxTokens: 8192,
+          temperature: 0.35,
+          maxSteps: isFs ? 12 : 10,
+          // Stop as soon as findings are saved — avoids extra idle LLM rounds
+          stopOnToolSuccess: isFs
+            ? {
+                toolName: "save_foreshadowing_realization",
+                okMarker: SAVE_FS_REALIZATION_OK,
+              }
+            : {
+                toolName: "save_findings",
+                okMarker: SAVE_FINDINGS_OK,
+              },
         });
 
       let loop = await run(uc);
@@ -93,7 +148,7 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): Agent {
         const retryUc = `${uc}
 
 ## 系统纠错
-你尚未成功 ${toolName}。请立刻调用该工具提交本维结果（无问题也要 findings=[] 或对应空结构）。`;
+你尚未成功 ${toolName}。请立刻调用该工具提交本维结果（有问题写 findings；确无问题才 findings=[]）。`;
         const second = await run(retryUc);
         if (second.askUser) {
           return {
@@ -127,7 +182,9 @@ function makeReviewAgent(dimensionName: string, dimensionCode: string): Agent {
         };
       }
 
-      const all = getFindings(ctx.novelId, ctx.branchId).filter((f) => f.dimension === dimensionCode);
+      const all = getFindings(ctx.novelId, ctx.branchId).filter(
+        (f) => f.dimension === dimensionCode,
+      );
       return {
         content: `${dimensionName}: ${all.length} findings（已 save_findings）。主 agent 可用 get_findings。`,
         messages: trail,

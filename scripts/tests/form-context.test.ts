@@ -41,8 +41,12 @@ function baseMeta(over: Partial<BranchChapterMeta> = {}): BranchChapterMeta {
   return {
     novelId: "n1",
     branchId: "main",
-    chapterBoundary: "open",
-    openChapter: { number: 2, title: "第2章 发展", startedAtOffset: 100 },
+    lastClosedChapter: {
+      number: 2,
+      title: "第2章 发展",
+      endOffset: 200,
+      track: "main",
+    },
     chapters: [
       {
         id: "c1",
@@ -76,8 +80,8 @@ export function runFormContextTests(): void {
       assert.equal(ctx.chapteringEnabled, true);
       assert.equal(ctx.forbidInventChapterTitles, false);
       assert.ok(ctx.chapterTitleSamples.includes("第1章 开端"));
-      assert.equal(ctx.chapterBoundary, "open");
       assert.equal(ctx.catalogCount, 2);
+      assert.ok(!("chapterBoundary" in ctx));
       assert.ok(ctx.continuationRules.length >= 1);
       assert.equal(ctx.formType, "web_novel");
     });
@@ -108,7 +112,7 @@ export function runFormContextTests(): void {
           },
           continuationRules: ["本书按保守策略视为弱分章/不分章：除非用户要求，不要添加「第N章」标题。"],
         }),
-        chapterMeta: baseMeta({ chapterBoundary: "closed", chapters: [] }),
+        chapterMeta: baseMeta({ chapters: [] }),
         novelId: "n1",
         branchId: "main",
       });
@@ -134,12 +138,12 @@ export function runFormContextTests(): void {
         "forbidInventChapterTitles",
         "chapterTitleSamples",
         "continuationRules",
-        "chapterBoundary",
         "catalogCount",
         "unitHierarchy",
       ]) {
         assert.ok(k in parsed, `missing key ${k}`);
       }
+      assert.equal("chapterBoundary" in parsed, false);
     });
   });
 }

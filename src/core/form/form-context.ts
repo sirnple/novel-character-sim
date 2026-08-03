@@ -38,8 +38,7 @@ export interface FormAgentContext {
   titlePattern: string;
   numbering: string;
   continuationRules: string[];
-  chapterBoundary: "open" | "closed" | "unknown";
-  openChapter?: { number?: number; title?: string; startedAtOffset: number };
+  /** Physical last catalog unit at tip. */
   lastClosedChapter?: { number?: number; title?: string; endOffset: number };
   /** Last mainline chapter (for 第N章 planning) */
   lastMainChapter?: {
@@ -126,15 +125,20 @@ export function buildFormAgentContext(input: {
     track: effectiveTrack(c),
   }));
 
-  const chapterBoundary = meta?.chapterBoundary ?? "unknown";
   const forbidInventChapterTitles = !enabled;
 
   let summaryLine: string;
   if (!form) {
     summaryLine = "未找到形态分析：按弱分章处理，禁止发明第N章。";
   } else if (enabled) {
+    const tip =
+      lastPhys
+        ? `文末单元「${lastPhys.title}」`
+        : lastMain
+          ? `主线末「${lastMain.title}」`
+          : "目录空";
     summaryLine =
-      `分章开启（confidence=${confidence.toFixed(2)}）；边界=${chapterBoundary}；` +
+      `分章开启（confidence=${confidence.toFixed(2)}）；${tip}；` +
       `目录 ${chapters.length}（主线 ${stats.main}` +
       (stats.extra ? ` · 番外 ${stats.extra}` : "") +
       (stats.front_matter + stats.back_matter
@@ -143,8 +147,8 @@ export function buildFormAgentContext(input: {
       `）；样例：${samples.slice(0, 2).join(" / ") || "无"}`;
     if (needChoice && lastPhys) {
       summaryLine +=
-        ` 【须先 ask】书末是${trackLabelZh(effectiveTrack(lastPhys))}「${lastPhys.title}」，` +
-        `勿直接当主线下一章。`;
+        ` 书末是${trackLabelZh(effectiveTrack(lastPhys))}「${lastPhys.title}」` +
+        `（needsContinuationTrackChoice=true）。`;
     }
   } else {
     summaryLine = `弱分章/不分章（formType=${form.formType}）：禁止发明第N章，除非用户要求。`;
@@ -166,8 +170,6 @@ export function buildFormAgentContext(input: {
     titlePattern: form?.chaptering?.titlePattern || "",
     numbering: form?.chaptering?.numbering || "none",
     continuationRules: rules,
-    chapterBoundary,
-    openChapter: meta?.openChapter,
     lastClosedChapter: meta?.lastClosedChapter,
     lastMainChapter: lastMain ? slimChapter(lastMain) : undefined,
     lastPhysicalChapter: lastPhys ? slimChapter(lastPhys) : undefined,

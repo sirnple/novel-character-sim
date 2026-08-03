@@ -79,9 +79,9 @@ Key fields (see `src/types/index.ts`):
 
 Stored: `branch_chapter_meta` table.
 
-- `chapterBoundary`: `open` | `closed`
-- `openChapter` / `lastClosedChapter` (optional)
 - `chapters[]`: `{ id, number?, title, startOffset, endOffset?, source }`
+- `lastMainChapter` / `lastClosedChapter` (optional catalog tip facts)
+- **No** `chapterBoundary` / open-closed: write master decides 接本章 vs 新开章 from prose; ask user if unsure
 
 **On fork:** copy meta snapshot to new branch.
 

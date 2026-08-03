@@ -15,16 +15,15 @@ export type ReviewAgentType = string;
 
 export type ReviewProgressEvent =
   | { phase: "start"; agentType: ReviewAgentType }
+  | { phase: "chunk"; agentType: ReviewAgentType; content: string }
+  | { phase: "trail"; agentType: ReviewAgentType; messages: any[] }
   | { phase: "done"; agentType: ReviewAgentType; content: string; messages: any[] }
   | { phase: "error"; agentType: ReviewAgentType; error: string };
 
 /**
  * Run the six review agents concurrently.
- * - Does NOT global-clear findings (rewrite 仍可读旧清单；各维 save_findings overwrite 本维)
- * - Each agent get_prose (read) in parallel — safe
- * - Each save_findings(dimension, overwrite=true) replaces only that agent’s dim
- * - onProgress lets the SSE layer open one tool card per dimension
- * - If any dimension hits critical get miss, askUser is bubbled for direct user ask
+ * - Per-dim save_findings(overwrite) only replaces that dim (not full wipe)
+ * - onProgress: start / trail / chunk / done for live sub-agent cards
  */
 export async function runReviewsParallel(
   ctx: {
@@ -55,8 +54,7 @@ export async function runReviewsParallel(
         return { agentType, content, messages: [] as any[], askUser: undefined as AskUserRequest | undefined };
       }
       try {
-        // Do not share onChunk across parallel agents (stream interleaving);
-        // each card gets trail via onProgress done.
+        // Per-agent onChunk/onTrail so UI cards fill while running (not only on done)
         const result = await agentDef.execute(
           {
             prompt,
@@ -66,6 +64,9 @@ export async function runReviewsParallel(
             selectedStyleId: ctx.selectedStyleId ?? null,
           },
           llm,
+          (text) => onProgress?.({ phase: "chunk", agentType, content: text }),
+          (messages) =>
+            onProgress?.({ phase: "trail", agentType, messages: messages || [] }),
         );
         onProgress?.({
           phase: "done",

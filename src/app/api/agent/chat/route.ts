@@ -751,6 +751,20 @@ export async function POST(request: NextRequest) {
                     const subId = `${toolId}__${ev.agentType}`;
                     if (ev.phase === "start") {
                       sendTool(ev.agentType, "running", subId);
+                    } else if (ev.phase === "chunk") {
+                      send({
+                        type: "tool_chunk",
+                        toolCallId: subId,
+                        content: ev.content,
+                        tool: ev.agentType,
+                      });
+                    } else if (ev.phase === "trail") {
+                      send({
+                        type: "tool_trail",
+                        toolCallId: subId,
+                        messages: ev.messages,
+                        tool: ev.agentType,
+                      });
                     } else if (ev.phase === "done") {
                       sendTool(ev.agentType, "done", subId, ev.content, ev.messages);
                     } else if (ev.phase === "error") {
@@ -798,16 +812,23 @@ export async function POST(request: NextRequest) {
                 }
               }
               sendTool("accept_continuation", "done", toolId, resultContent.slice(0, 3000));
-              // Notify UI with length only — avoid multi-MB SSE payloads; client refetches body
+              // Notify UI with length only — avoid multi-MB SSE payloads; client refetches body + catalog
               try {
-                const { getBranch } = await import("@/lib/db");
+                const { getBranch, getBranchChapterMeta, resolveBranchText } =
+                  await import("@/lib/db");
                 const b = getBranch(userId, novelId, branchId);
                 if (b) {
+                  const fullLen =
+                    typeof b.char_count === "number" && b.char_count > 0
+                      ? b.char_count
+                      : resolveBranchText(userId, novelId, branchId).length;
+                  const meta = getBranchChapterMeta(userId, novelId, branchId);
                   send({
                     type: "continuation_accepted",
                     branchId,
                     novelId,
-                    totalLength: (b.text || "").length,
+                    totalLength: fullLen,
+                    catalogCount: meta.chapters?.length || 0,
                     message: resultContent,
                   });
                 }

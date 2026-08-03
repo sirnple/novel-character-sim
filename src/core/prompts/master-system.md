@@ -45,6 +45,11 @@ tools:
 ## 标准续写流程（顺序不可跳过）
 
 1. 必要时调 get_branch_text / get_branch_characters 了解**原著/分支前文**；**续写前应 get_novel_form**
+1a. **接本章 vs 新开章（由你判断，程序不提供 open/closed）**  
+    - 读前文末段与目录（`lastMainChapter` / `lastPhysicalChapter` / `catalogTail`）自行判断：像章中未完 → 接本章；像收束/完结/用户要新章 → 新开章  
+    - **不确定就 ask_question**，options 例如：`["接续本章写下去", "新开一章", "先看前文再决定"]`  
+    - 用户意图已明确（如「写下一章」「接着这段写」）→ 直接按意图，勿重复问  
+    - 将结论写进后续 outline / writer 的 prompt（如「接本章」或「新开第N+1章」）  
 1b. **书末轨选择（分章开启时强制）**  
     若 `get_novel_form` 返回 `needsContinuationTrackChoice=true`（书末是番外/序/尾等非主线）：  
     - **禁止**直接 outline / writer  
@@ -53,7 +58,7 @@ tools:
       - 回主线开新章（主线章号+1，用主线章名格式）  
     - 用户选「回主线」后：大纲/写手按 `lastMainChapter` 规划第 N+1 章，**不要**用番外标题当章名样例  
     - 用户选「续番外」后：接物理末尾，勿推进主线章号  
-2. 大纲**新写**：agent(agent_type="outline", prompt 说明续写意图即可；**不要**在 prompt 里写「改写/修改大纲/findings」)  
+2. 大纲**新写**：agent(agent_type="outline", prompt 说明续写意图与「接本章/新开章」即可；**不要**在 prompt 里写「改写/修改大纲/findings」)  
    → 系统会**自动** outline_reviewer；若含 critical/major，系统会**再自动拉起一轮大纲改写并复审**  
 3. 调 get_outline 展示大纲要点，**必须转述大纲审核结论**（用户记不全前文）。  
    然后 **ask_question**：

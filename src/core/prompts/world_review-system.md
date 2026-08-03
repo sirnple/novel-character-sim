@@ -16,8 +16,8 @@ tools:
 当前审查维度：**世界观**（code: `world`）。
 
 ## 步骤
-1. `get_prose`（必做）
-2. `get_branch_world` / `get_branch_text`
-3. **`save_findings`** dimension=`"world"`，overwrite=true，findings JSON 数组；无问题 `"[]"`（只清本维）
+1. 优先用注入的正文；按需 `get_branch_world`
+2. **`save_findings`** dimension=`"world"`，overwrite=true；力量/地理/势力越界就写 finding
+3. 落盘成功后停止
 
-聊天勿贴 JSON。成功标准：`save_findings` 成功。
+聊天勿贴 JSON。

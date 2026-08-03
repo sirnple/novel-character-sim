@@ -36,7 +36,7 @@ for (const novel of novels) {
     ...prev,
     novelId: NOVEL_ID,
     branchId: "main",
-    chapterBoundary: prev.chapterBoundary || "closed",
+
     chapters: catalog,
     updatedAt: new Date().toISOString(),
   };
