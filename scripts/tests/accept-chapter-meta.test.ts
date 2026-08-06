@@ -2,7 +2,7 @@
  * After acceptContinuation: chapter meta boundary + catalog (D4).
  */
 import { randomUUID } from "node:crypto";
-import { assert, suite, test } from "../lib/test-harness";
+import { assert, suiteAsync, testAsync } from "../lib/test-harness";
 import { acceptContinuation } from "../../src/core/foreshadowing/accept-continuation";
 import { _resetStore, saveProse } from "../../src/core/agents/intermediate-store";
 import {
@@ -59,155 +59,160 @@ function disabledForm(novelId: string): NovelFormProfile {
   return f;
 }
 
-export function runAcceptChapterMetaTests(): void {
-  suite("accept chapter meta", () => {
-    test("enabled + draft starts with 第K章 → catalog gains chapter (no boundary field)", () => {
-      _resetStore();
-      const userId = `tu_${randomUUID().slice(0, 8)}`;
-      const novelId = `tn_${randomUUID().slice(0, 8)}`;
-      try {
-        const base =
-          "第1章 序\n" + "甲".repeat(80) + "\n\n第2章 雨\n" + "乙".repeat(80);
-        importNovel(userId, novelId, "chap-novel", base);
-        saveNovelForm(userId, novelId, enabledForm(novelId));
-        saveBranchChapterMeta(userId, {
-          ...emptyBranchChapterMeta(novelId, "main"),
-          chapters: [
-            {
-              id: "c1",
-              number: 1,
-              title: "第1章 序",
-              startOffset: 0,
-              source: "regex",
-            },
-          ],
-        });
-
-        const draft = `第3章 桥\n${BODY}`;
-        saveProse(novelId, "main", draft);
-        const r = acceptContinuation({
-          userId,
-          novelId,
-          branchId: "main",
-          content: draft,
-        });
-        assert.equal(r.ok, true, r.error || "accept failed");
-
-        const meta = getBranchChapterMeta(userId, novelId, "main");
-        assert.equal(
-          (meta as { chapterBoundary?: unknown }).chapterBoundary,
-          undefined,
-        );
-        assert.ok(
-          meta.chapters.some(
-            (c) =>
-              c.number === 3 ||
-              c.title.includes("桥") ||
-              c.title.includes("第3章"),
-          ),
-          `catalog missing ch3: ${JSON.stringify(meta.chapters)}`,
-        );
-        const last = meta.chapters[meta.chapters.length - 1];
-        assert.ok(
-          last.endOffset != null && last.endOffset > last.startOffset,
-          "last chapter endOffset should reach tip",
-        );
-      } finally {
-        deleteNovel(userId, novelId);
+export async function runAcceptChapterMetaTests(): Promise<void> {
+  await suiteAsync("accept chapter meta", async () => {
+    await testAsync(
+      "enabled + draft starts with 第K章 → catalog gains chapter (no boundary field)",
+      async () => {
         _resetStore();
-      }
-    });
+        const userId = `tu_${randomUUID().slice(0, 8)}`;
+        const novelId = `tn_${randomUUID().slice(0, 8)}`;
+        try {
+          const base =
+            "第1章 序\n" + "甲".repeat(80) + "\n\n第2章 雨\n" + "乙".repeat(80);
+          importNovel(userId, novelId, "chap-novel", base);
+          saveNovelForm(userId, novelId, enabledForm(novelId));
+          saveBranchChapterMeta(userId, {
+            ...emptyBranchChapterMeta(novelId, "main"),
+            chapters: [
+              {
+                id: "c1",
+                number: 1,
+                title: "第1章 序",
+                startOffset: 0,
+                source: "regex",
+              },
+            ],
+          });
 
-    test("enabled + continue same chapter → last endOffset extends", () => {
-      _resetStore();
-      const userId = `tu_${randomUUID().slice(0, 8)}`;
-      const novelId = `tn_${randomUUID().slice(0, 8)}`;
-      try {
-        const base =
-          "第1章 序\n" + "甲".repeat(80) + "\n\n第2章 雨\n" + "乙".repeat(80);
-        importNovel(userId, novelId, "chap-novel", base);
-        saveNovelForm(userId, novelId, enabledForm(novelId));
-        // Seed full catalog like after analysis
-        const seeded = extractChapterCatalog(base);
-        saveBranchChapterMeta(userId, {
-          ...emptyBranchChapterMeta(novelId, "main"),
-          chapters: seeded,
-        });
-        const beforeLen = base.length;
-        const beforeLastEnd =
-          getBranchChapterMeta(userId, novelId, "main").chapters.slice(-1)[0]
-            ?.endOffset ?? beforeLen;
+          const draft = `第3章 桥\n${BODY}`;
+          saveProse(novelId, "main", draft);
+          const r = await acceptContinuation({
+            userId,
+            novelId,
+            branchId: "main",
+            content: draft,
+          });
+          assert.equal(r.ok, true, r.error || "accept failed");
 
-        const draft = BODY; // no new 第N章 — continue chapter 2
-        saveProse(novelId, "main", draft);
-        const r = acceptContinuation({
-          userId,
-          novelId,
-          branchId: "main",
-          content: draft,
-        });
-        assert.equal(r.ok, true, r.error || "accept failed");
+          const meta = getBranchChapterMeta(userId, novelId, "main");
+          assert.equal(
+            (meta as { chapterBoundary?: unknown }).chapterBoundary,
+            undefined,
+          );
+          assert.ok(
+            meta.chapters.some(
+              (c) =>
+                c.number === 3 ||
+                c.title.includes("桥") ||
+                c.title.includes("第3章"),
+            ),
+            `catalog missing ch3: ${JSON.stringify(meta.chapters)}`,
+          );
+          const last = meta.chapters[meta.chapters.length - 1];
+          assert.ok(
+            last.endOffset != null && last.endOffset > last.startOffset,
+            "last chapter endOffset should reach tip",
+          );
+        } finally {
+          deleteNovel(userId, novelId);
+          _resetStore();
+        }
+      },
+    );
 
-        const meta = getBranchChapterMeta(userId, novelId, "main");
-        const tip = (r.branchText || "").length;
-        assert.ok(tip > beforeLen, "branch text should grow");
-        const last = meta.chapters[meta.chapters.length - 1];
-        assert.ok(last, "catalog should still have chapters");
-        assert.equal(
-          last.endOffset,
-          tip,
-          `last endOffset should be tip ${tip}, got ${last.endOffset} (was ${beforeLastEnd})`,
-        );
-        assert.ok(
-          meta.chapters.some((c) => c.number === 2 || c.title.includes("雨")),
-          "chapter 2 should remain",
-        );
-      } finally {
-        deleteNovel(userId, novelId);
+    await testAsync(
+      "enabled + continue same chapter → last endOffset extends",
+      async () => {
         _resetStore();
-      }
-    });
+        const userId = `tu_${randomUUID().slice(0, 8)}`;
+        const novelId = `tn_${randomUUID().slice(0, 8)}`;
+        try {
+          const base =
+            "第1章 序\n" + "甲".repeat(80) + "\n\n第2章 雨\n" + "乙".repeat(80);
+          importNovel(userId, novelId, "chap-novel", base);
+          saveNovelForm(userId, novelId, enabledForm(novelId));
+          const seeded = extractChapterCatalog(base);
+          saveBranchChapterMeta(userId, {
+            ...emptyBranchChapterMeta(novelId, "main"),
+            chapters: seeded,
+          });
+          const beforeLen = base.length;
+          const beforeLastEnd =
+            getBranchChapterMeta(userId, novelId, "main").chapters.slice(-1)[0]
+              ?.endOffset ?? beforeLen;
 
-    test("disabled chaptering → accept does not require chapter titles in meta", () => {
-      _resetStore();
-      const userId = `tu_${randomUUID().slice(0, 8)}`;
-      const novelId = `tn_${randomUUID().slice(0, 8)}`;
-      try {
-        importNovel(userId, novelId, "prose-novel", "长文无章。".repeat(20));
-        saveNovelForm(userId, novelId, disabledForm(novelId));
-        saveBranchChapterMeta(userId, {
-          ...emptyBranchChapterMeta(novelId, "main"),
-          chapters: [],
-        });
+          const draft = BODY;
+          saveProse(novelId, "main", draft);
+          const r = await acceptContinuation({
+            userId,
+            novelId,
+            branchId: "main",
+            content: draft,
+          });
+          assert.equal(r.ok, true, r.error || "accept failed");
 
-        // Draft starts with a chapter title so a regressing (non-early-return)
-        // updateChapterMetaAfterAccept would catalog it via extractChapterCatalog.
-        const draft = `第99章 不该入库\n${BODY}`;
-        saveProse(novelId, "main", draft);
-        const r = acceptContinuation({
-          userId,
-          novelId,
-          branchId: "main",
-          content: draft,
-        });
-        assert.equal(r.ok, true, r.error || "accept failed");
+          const meta = getBranchChapterMeta(userId, novelId, "main");
+          const tip = (r.branchText || "").length;
+          assert.ok(tip > beforeLen, "branch text should grow");
+          const last = meta.chapters[meta.chapters.length - 1];
+          assert.ok(last, "catalog should still have chapters");
+          assert.equal(
+            last.endOffset,
+            tip,
+            `last endOffset should be tip ${tip}, got ${last.endOffset} (was ${beforeLastEnd})`,
+          );
+          assert.ok(
+            meta.chapters.some((c) => c.number === 2 || c.title.includes("雨")),
+            "chapter 2 should remain",
+          );
+        } finally {
+          deleteNovel(userId, novelId);
+          _resetStore();
+        }
+      },
+    );
 
-        const meta = getBranchChapterMeta(userId, novelId, "main");
-        // updateChapterMetaAfterAccept should early-return when disabled
-        assert.equal(meta.chapters.length, 0);
-        assert.ok(
-          !meta.chapters.some(
-            (c) =>
-              c.number === 99 ||
-              c.title.includes("不该入库") ||
-              c.title.includes("第99章"),
-          ),
-          `disabled chaptering must not catalog draft title: ${JSON.stringify(meta.chapters)}`,
-        );
-      } finally {
-        deleteNovel(userId, novelId);
+    await testAsync(
+      "disabled chaptering → accept does not require chapter titles in meta",
+      async () => {
         _resetStore();
-      }
-    });
+        const userId = `tu_${randomUUID().slice(0, 8)}`;
+        const novelId = `tn_${randomUUID().slice(0, 8)}`;
+        try {
+          importNovel(userId, novelId, "prose-novel", "长文无章。".repeat(20));
+          saveNovelForm(userId, novelId, disabledForm(novelId));
+          saveBranchChapterMeta(userId, {
+            ...emptyBranchChapterMeta(novelId, "main"),
+            chapters: [],
+          });
+
+          const draft = `第99章 不该入库\n${BODY}`;
+          saveProse(novelId, "main", draft);
+          const r = await acceptContinuation({
+            userId,
+            novelId,
+            branchId: "main",
+            content: draft,
+          });
+          assert.equal(r.ok, true, r.error || "accept failed");
+
+          const meta = getBranchChapterMeta(userId, novelId, "main");
+          assert.equal(meta.chapters.length, 0);
+          assert.ok(
+            !meta.chapters.some(
+              (c) =>
+                c.number === 99 ||
+                c.title.includes("不该入库") ||
+                c.title.includes("第99章"),
+            ),
+            `disabled chaptering must not catalog draft title: ${JSON.stringify(meta.chapters)}`,
+          );
+        } finally {
+          deleteNovel(userId, novelId);
+          _resetStore();
+        }
+      },
+    );
   });
 }

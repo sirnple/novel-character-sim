@@ -4,13 +4,18 @@ import { listAgentNames } from "./agent-config";
 import { branchTools } from "./agents/branch-tools";
 import { intermediateTools } from "./agents/intermediate-tools";
 import { libraryTools } from "./agents/library-tools";
+import { characterIntroTools } from "./agents/character-intro-tools";
 import { foreshadowTools } from "./agents/foreshadow-tools";
 import {
   acceptContinuation,
   formatAcceptHint,
 } from "@/core/foreshadowing/accept-continuation";
-import { outlineAgent } from "./agents/outline";
+import {
+  outlineCreateAgent,
+  outlineRewriteAgent,
+} from "./agents/outline";
 import { writerCreateAgent, writerRewriteAgent } from "./agents/writer";
+import { chapterTitleAgent } from "./agents/chapter-title";
 import {
   reviewCharacterAgent,
   reviewContinuityAgent,
@@ -18,6 +23,7 @@ import {
   reviewStyleAgent,
   reviewWorldAgent,
   reviewPacingAgent,
+  reviewAiTasteAgent,
 } from "./agents/review";
 import { outlineReviewAgent } from "./agents/outline-review";
 import { characterExtractTools } from "./agents/character-extract-tools";
@@ -32,9 +38,11 @@ export function initRegistry(): void {
   registryInitialized = true;
 
   // Each agent carries config; registerAgent keys by agent.config.name
-  registerAgent(outlineAgent);
+  registerAgent(outlineCreateAgent);
+  registerAgent(outlineRewriteAgent);
   registerAgent(writerCreateAgent);
   registerAgent(writerRewriteAgent);
+  registerAgent(chapterTitleAgent);
   registerAgent(outlineReviewAgent);
   registerAgent(reviewCharacterAgent);
   registerAgent(reviewContinuityAgent);
@@ -42,6 +50,7 @@ export function initRegistry(): void {
   registerAgent(reviewStyleAgent);
   registerAgent(reviewWorldAgent);
   registerAgent(reviewPacingAgent);
+  registerAgent(reviewAiTasteAgent);
 
   for (const agent of ANALYSIS_AGENTS) {
     registerAgent(agent);
@@ -51,8 +60,9 @@ export function initRegistry(): void {
   register({
     name: "agent",
     description:
-      "调用子 Agent（LLM tool loop）。agent_type 必须是 system md frontmatter 的 name。" +
-      `可用: ${agentNames.join(", ")}。只传任务说明，勿塞正文。`,
+      "调用子 Agent。agent_type = system md frontmatter 的 name。" +
+      `可用: ${agentNames.join(", ")}。` +
+      "续写子 agent 只需 agent_type（程序注入 novelId/branchId）；勿塞正文/大纲/findings 全文。",
     parameters: {
       type: "object",
       properties: {
@@ -65,10 +75,10 @@ export function initRegistry(): void {
         prompt: {
           type: "string",
           description:
-            "任务说明（用户要求、MODE 标记等）。不要粘贴正文全文；子 agent 会自己取上下文。",
+            "可选；续写子 agent 可省略（只绑定 novelId/branchId）。勿粘贴正文/大纲全文。",
         },
       },
-      required: ["agent_type", "prompt"],
+      required: ["agent_type"],
     },
     execute: async (args, ctx, llm, onChunk) => {
       const raw = String(args.agent_type || "").trim();
@@ -79,7 +89,7 @@ export function initRegistry(): void {
         );
       }
       return agentImpl.execute(
-        { prompt: args.prompt as string, ...ctx },
+        { prompt: String(args.prompt ?? ""), ...ctx },
         llm,
         onChunk,
       );
@@ -134,7 +144,7 @@ export function initRegistry(): void {
       required: [],
     },
     execute: async (_args, ctx) => {
-      const result = acceptContinuation({
+      const result = await acceptContinuation({
         userId: ctx.userId,
         novelId: ctx.novelId,
         branchId: ctx.branchId,
@@ -149,15 +159,10 @@ export function initRegistry(): void {
   register({
     name: "run_reviews",
     description:
-      "并行运行六个审查 agent（角色/连贯/伏笔/风格/世界观/节奏）。正文写完后调用一次即可。",
+      "并行运行正文审查 agent（角色/连贯/伏笔/风格/世界观/节奏/AI痕迹）。正文写完后调用一次即可；无需 prompt。",
     parameters: {
       type: "object",
-      properties: {
-        prompt: {
-          type: "string",
-          description: "传给各审查 agent 的简短说明",
-        },
-      },
+      properties: {},
       required: [],
     },
     execute: async () => {
@@ -168,6 +173,7 @@ export function initRegistry(): void {
   for (const tool of branchTools) register(tool);
   for (const tool of intermediateTools) register(tool);
   for (const tool of libraryTools) register(tool);
+  for (const tool of characterIntroTools) register(tool);
   for (const tool of foreshadowTools) register(tool);
   for (const tool of characterExtractTools) register(tool);
   for (const tool of allAnalysisTools()) register(tool);

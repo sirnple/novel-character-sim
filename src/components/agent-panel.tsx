@@ -1468,7 +1468,7 @@ export default function AgentPanel({
   const handleOneClickContinue = async () => {
     if (status === "generating" || !branchId || !novelId || isAnalysis) return;
     const text =
-      "请对本分支进行【一键续写】：按标准流程完成 大纲→大纲审核→写正文→六维审查→接受续写写入分支。" +
+      "请对本分支进行【一键续写】：按标准流程完成 大纲→大纲审核→写正文→七维审查→接受续写写入分支。" +
       "不要停下来等我确认；但审核/审查若有致命或重要问题，必须改写到通过后再往下，禁止「了解风险仍继续」。完成后简要汇报。";
     await handleSend(text, { autoPassCheckpoints: true, skipCommit: true });
   };

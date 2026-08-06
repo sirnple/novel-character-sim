@@ -38,7 +38,8 @@ export function runAgentFrontmatterTests(): void {
         if (
           cfg!.name === "master" ||
           cfg!.name.startsWith("writer_") ||
-          cfg!.name === "outline" ||
+          cfg!.name === "outline_creator" ||
+          cfg!.name === "outline_rewriter" ||
           cfg!.name.includes("review")
         ) {
           assert.ok(
@@ -103,9 +104,13 @@ Body
 
     test("getAgentAllowedTools matches outline / writer / review / extraction", () => {
       clearPromptFileCache();
-      const outline = getAgentAllowedTools("outline");
-      assert.ok(outline.includes("save_outline"));
-      assert.ok(outline.includes("get_novel_form"));
+      const creator = getAgentAllowedTools("outline_creator");
+      assert.ok(creator.includes("save_outline"));
+      assert.ok(creator.includes("get_novel_form"));
+      assert.equal(creator.includes("get_outline"), false);
+
+      const oRewrite = getAgentAllowedTools("outline_rewriter");
+      assert.ok(oRewrite.includes("get_outline") && oRewrite.includes("save_outline"));
 
       const create = getAgentAllowedTools("writer");
       const rewrite = getAgentAllowedTools("rewriter");

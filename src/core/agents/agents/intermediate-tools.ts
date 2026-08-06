@@ -7,6 +7,8 @@ import {
   saveFindings,
   getFindings,
   clearFindings,
+  saveChapterTitle,
+  getChapterTitle,
   formatFindingsReadable,
   resolveStoreIds,
   debugStoreKeys,
@@ -23,6 +25,7 @@ import { formatCriticalMiss } from "../critical-miss";
 /** Prefixes so execute layer can verify tool save without parsing free text */
 export const SAVE_OUTLINE_OK = "大纲已存";
 export const SAVE_FINDINGS_OK = "findings 已存";
+export const SAVE_CHAPTER_TITLE_OK = "章名已存";
 
 /** Read-only intermediate tools — safe for sub-agents that should not write. */
 export const intermediateReadTools: ToolDefinition[] = [
@@ -46,7 +49,7 @@ export const intermediateReadTools: ToolDefinition[] = [
         return {
           content: formatCriticalMiss(
             "outline",
-            `大纲未生成（key=${novelId}::${branchId}）。请先 generate_outline 并成功 save_outline。` +
+            `大纲未生成（key=${novelId}::${branchId}）。请先 outline_creator 并成功 save_outline。` +
               (debugStoreKeys().length
                 ? ` 当前 store 有：${debugStoreKeys().join(", ")}`
                 : " 当前 store 为空。"),
@@ -68,7 +71,7 @@ export const intermediateReadTools: ToolDefinition[] = [
         return {
           content: formatCriticalMiss(
             "prose",
-            `正文草稿未生成（key=${novelId}::${branchId}）。请先 write_prose 并成功 save_prose。`,
+            `正文草稿未生成（key=${novelId}::${branchId}）。请先 writer 并成功 save_prose。`,
           ),
           messages: [],
         };
@@ -202,8 +205,8 @@ export const intermediateTools: ToolDefinition[] = [
         dimension: {
           type: "string",
           description:
-            "审查维度或 agent 类型：outline / character / continuity / foreshadowing / style / world / pacing，" +
-            "或 review_continuity / continuity_reviewer 等别名",
+            "审查维度或 agent 类型：outline / character / continuity / foreshadowing / style / world / pacing / ai_taste，" +
+            "或 review_continuity / continuity_reviewer / ai_reviewer 等别名",
         },
         agent_type: {
           type: "string",
@@ -270,6 +273,105 @@ export const intermediateTools: ToolDefinition[] = [
         content:
           `${dim}: ${normalized.length} 条 ${SAVE_FINDINGS_OK}（${mode}）。\n\n` +
           (normalized.length ? readable : "本维无问题（已按 overwrite 更新该维）。"),
+        messages: [],
+      };
+    },
+  },
+  {
+    name: "save_chapter_title",
+    description:
+      "保存章节标题草案（正文完成后由 chapter_title_generator 调用）。" +
+      "accept 时若本书分章且本轮新开章，会把 final_title 作为标题行写入分支。",
+    parameters: {
+      type: "object",
+      properties: {
+        final_title: {
+          type: "string",
+          description: "最终选用的完整章标题行（对齐本书格式，如「第N章 xxx」或纯标题）",
+        },
+        alternatives: {
+          type: "string",
+          description: "候选标题：JSON 字符串数组，或用换行/｜分隔",
+        },
+        reason: {
+          type: "string",
+          description: "选用理由（对照原著风格 + 正文核心）",
+        },
+      },
+      required: ["final_title"],
+    },
+    execute: async (args, ctx) => {
+      const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
+      if (!novelId) {
+        return { content: "章名保存失败：缺少 novelId", messages: [] };
+      }
+      const final_title = String(args.final_title ?? "").trim();
+      if (final_title.length < 1 || final_title.length > 80) {
+        return {
+          content: `章名保存失败：final_title 长度异常（${final_title.length}），请 1–80 字。`,
+          messages: [],
+        };
+      }
+      let alternatives: string[] = [];
+      const altRaw = args.alternatives;
+      if (Array.isArray(altRaw)) {
+        alternatives = altRaw.map((x) => String(x).trim()).filter(Boolean);
+      } else if (typeof altRaw === "string" && altRaw.trim()) {
+        const s = altRaw.trim();
+        try {
+          const p = JSON.parse(s);
+          if (Array.isArray(p)) {
+            alternatives = p.map((x) => String(x).trim()).filter(Boolean);
+          } else {
+            alternatives = s.split(/[\n｜|]/).map((x) => x.trim()).filter(Boolean);
+          }
+        } catch {
+          alternatives = s.split(/[\n｜|]/).map((x) => x.trim()).filter(Boolean);
+        }
+      }
+      const reason = String(args.reason ?? "").trim();
+      saveChapterTitle(novelId, branchId, {
+        final_title,
+        alternatives: alternatives.slice(0, 8),
+        reason,
+      });
+      const alts =
+        alternatives.length > 0
+          ? `候选：${alternatives.slice(0, 5).join(" / ")}`
+          : "无候选列表";
+      return {
+        content:
+          `${SAVE_CHAPTER_TITLE_OK}：${final_title}（${alts}）` +
+          (reason ? `。理由：${reason.slice(0, 120)}` : "") +
+          `。accept 时将按需写入标题行。`,
+        messages: [],
+      };
+    },
+  },
+  {
+    name: "get_chapter_title",
+    description: "读取本轮已保存的章节标题草案（final_title / alternatives / reason）。",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+    execute: async (args, ctx) => {
+      const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
+      const t = getChapterTitle(novelId, branchId);
+      if (!t?.final_title) {
+        return {
+          content: "尚未 save_chapter_title（无章名草案）。",
+          messages: [],
+        };
+      }
+      return {
+        content:
+          `章名草案：${t.final_title}\n` +
+          (t.alternatives?.length
+            ? `候选：${t.alternatives.join(" / ")}\n`
+            : "") +
+          (t.reason ? `理由：${t.reason}` : ""),
         messages: [],
       };
     },

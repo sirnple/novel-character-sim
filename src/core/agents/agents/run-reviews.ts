@@ -21,7 +21,7 @@ export type ReviewProgressEvent =
   | { phase: "error"; agentType: ReviewAgentType; error: string };
 
 /**
- * Run the six review agents concurrently.
+ * Run all prose review agents concurrently.
  * - Per-dim save_findings(overwrite) only replaces that dim (not full wipe)
  * - onProgress: start / trail / chunk / done for live sub-agent cards
  */
@@ -41,7 +41,7 @@ export async function runReviewsParallel(
   results: { agentType: string; content: string }[];
   askUser?: AskUserRequest;
 }> {
-  const prompt = ctx.prompt?.trim() || "正文已写完，请自行 get_prose 后按你的维度审查。";
+  // Sub-agents only need novelId/branchId; system md has the rest
   const reviewTypes = getReviewAgentTypes();
 
   const results = await Promise.all(
@@ -57,7 +57,7 @@ export async function runReviewsParallel(
         // Per-agent onChunk/onTrail so UI cards fill while running (not only on done)
         const result = await agentDef.execute(
           {
-            prompt,
+            prompt: "",
             novelId: ctx.novelId,
             branchId: ctx.branchId,
             userId: ctx.userId,
@@ -98,7 +98,7 @@ export async function runReviewsParallel(
   const lines = results.map(r => `- ${r.content}`);
   const content = firstAsk
     ? `审查因关键数据缺失已中止（部分维度可能已完成）。\n` + lines.join("\n")
-    : `六维审查已并行完成（共 ${total} 条 findings）。\n` +
+    : `七维审查已并行完成（共 ${total} 条 findings）。\n` +
       lines.join("\n") +
       `\n主 agent 请 get_findings 汇总后 ask_question 询问用户是否修改。`;
 

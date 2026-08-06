@@ -118,11 +118,14 @@ export const AGENT_FILE_SPECS: AgentFileSpec[] = [
   },
   // write
   {
-    system: "outline_writer-system.md", // name: outline
-    systemExtra: "outline_writer-contract.md",
-    user: "outline_writer-user.md",
+    system: "outline_creator.md", // name: outline_creator
     category: "simulation",
-    variables: ["prompt", "novelId", "branchId", "selectionInstruction"],
+    variables: ["prompt", "novelId", "branchId"],
+  },
+  {
+    system: "outline_rewriter.md", // name: outline_rewriter
+    category: "simulation",
+    variables: ["prompt", "novelId", "branchId"],
   },
   {
     system: "writer_create-system.md", // name: writer
@@ -133,6 +136,11 @@ export const AGENT_FILE_SPECS: AgentFileSpec[] = [
   {
     system: "writer_rewrite-system.md", // name: rewriter
     user: "writer_rewrite-user.md",
+    category: "writing",
+    variables: ["prompt", "novelId", "branchId"],
+  },
+  {
+    system: "chapter_title_generator.md", // name: chapter_title_generator
     category: "writing",
     variables: ["prompt", "novelId", "branchId"],
   },
@@ -175,6 +183,12 @@ export const AGENT_FILE_SPECS: AgentFileSpec[] = [
   },
   {
     system: "pacing_review-system.md", // name: pacing_reviewer
+    user: "review-user.md",
+    category: "review",
+    variables: ["prompt", "novelId", "branchId", "dimensionName", "dimensionCode"],
+  },
+  {
+    system: "ai_review-system.md", // name: ai_reviewer
     user: "review-user.md",
     category: "review",
     variables: ["prompt", "novelId", "branchId", "dimensionName", "dimensionCode"],
@@ -347,7 +361,7 @@ export function listAnalysisSubagentNames(): string[] {
     .map((c) => c.name);
 }
 
-/** Six prose review agents (category review, excluding outline_reviewer). */
+/** Prose review agents (category review, excluding outline_reviewer). */
 export function listProseReviewAgentNames(): string[] {
   return listAgentConfigsByCategory("review")
     .filter((c) => c.name !== "outline_reviewer")

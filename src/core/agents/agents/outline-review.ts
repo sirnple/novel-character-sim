@@ -6,6 +6,7 @@ import {
   resolveAgentPrompt,
   resolveAgentToolSchemas,
 } from "@/core/prompts/resolve-agent-prompt";
+import { writeTargetUserPrompt } from "../write-target";
 import { SAVE_FINDINGS_OK } from "./intermediate-tools";
 import { getStoryInfo } from "@/lib/db";
 import { toolSaveSucceeded } from "../save-verify";
@@ -35,23 +36,19 @@ export async function runOutlineReview(
   const name = agentName || outlineReviewAgent.config.name;
   const outline = getOutline(ctx.novelId, ctx.branchId);
   if (!outline || String(outline).length < 30) {
-    return { pass: true, findings: [], summary: "无大纲可审（请先 generate_outline / save_outline）" };
+    return { pass: true, findings: [], summary: "无大纲可审（请先 outline_creator / save_outline）" };
   }
 
   const info = getStoryInfo(ctx.userId, ctx.novelId);
   const genre = info?.writingStyle?.genre || "";
-  const { system: sys, user: baseUser } = resolveAgentPrompt(name, "zh", {
-    prompt: ctx.prompt || "请审核本轮续写大纲。",
+  // User message = session binding only; how-to in system md
+  const { system: sys } = resolveAgentPrompt(name, "zh", {
     novelId: ctx.novelId,
     branchId: ctx.branchId,
   });
   const uc =
-    baseUser +
-    `\n\n## 本书类型\ngenre: ${genre || "（未知）"}\nthemes: ${(info?.themes || []).join("、") || "—"}\n` +
-    `\n## 落盘（必须）\n` +
-    `取证后调用 save_findings：dimension="outline"（或 agent_type=${name}），` +
-    `overwrite=true，findings=JSON 数组字符串（无问题 "[]" 仅清大纲维）。\n` +
-    `不要在聊天贴完整 JSON。程序只认 save_findings。\n`;
+    writeTargetUserPrompt(ctx.novelId, ctx.branchId) +
+    `\n\n## 本书类型\ngenre: ${genre || "（未知）"}\nthemes: ${(info?.themes || []).join("、") || "—"}\n`;
 
   // tools allowlist from system md frontmatter
   const TOOLS = resolveAgentToolSchemas(name);
@@ -121,7 +118,7 @@ export async function runOutlineReview(
     (lines.length ? "：\n" + lines.join("\n") : "。") +
     (pass
       ? ""
-      : "\n→ 主 agent：**必须**再调 generate_outline 按上述意见改写大纲，禁止隐瞒问题直接写正文。");
+      : "\n→ 主 agent：**必须**再调 outline_rewriter 按上述意见改写大纲，禁止隐瞒问题直接写正文。");
 
   return { pass, findings, summary };
 }

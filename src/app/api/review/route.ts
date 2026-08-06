@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       id: crypto.randomUUID(),
       userId,
       category: "review",
-      label: "六维审查",
+      label: "审查",
       inputSummary: draft.slice(0, 200),
       outputPreview: `findings:${result.findings.length}, needsHuman:${result.needsHumanReview.length}`,
       fullOutput: JSON.stringify(result),

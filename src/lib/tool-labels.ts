@@ -8,7 +8,7 @@ export const TOOL_LABELS: Record<string, string> = {
   // Master / control
   agent: "调用子 Agent",
   ask_question: "向你提问",
-  run_reviews: "六维审查（并行）",
+  run_reviews: "七维审查（并行）",
   accept_continuation: "接受续写",
   finish_novel_analysis: "完成分析",
 
@@ -19,6 +19,8 @@ export const TOOL_LABELS: Record<string, string> = {
   save_outline: "保存大纲",
   save_prose: "保存正文",
   save_findings: "保存审查发现",
+  save_chapter_title: "保存章名",
+  get_chapter_title: "获取章名草案",
   clear_findings: "清空审查发现",
 
   // Branch / book
@@ -46,6 +48,8 @@ export const TOOL_LABELS: Record<string, string> = {
   get_style: "获取文笔",
   list_ideas: "列点子库",
   get_ideas: "获取点子",
+  introduce_character: "引入新角色",
+  save_character: "暂存新角色",
 
   // Analysis context
   get_current_novel: "当前小说",
@@ -99,9 +103,11 @@ export const TOOL_LABELS: Record<string, string> = {
  * Client-safe (no fs); server source of truth is AgentConfig / frontmatter.
  */
 export const AGENT_LABELS: Record<string, string> = {
-  outline: "大纲 Agent",
+  outline_creator: "大纲·创作",
+  outline_rewriter: "大纲·改写",
   writer: "写手 Agent",
   rewriter: "写手·改写",
+  chapter_title_generator: "章名生成",
   outline_reviewer: "大纲审核",
   character_reviewer: "角色审查",
   continuity_reviewer: "连贯与逻辑审查",
@@ -109,6 +115,7 @@ export const AGENT_LABELS: Record<string, string> = {
   style_reviewer: "风格审查",
   world_reviewer: "世界观审查",
   pacing_reviewer: "节奏审查",
+  ai_reviewer: "AI痕迹审查",
   analyst: "全书分析主编",
   form: "分析章法",
   story_world: "分析故事世界",

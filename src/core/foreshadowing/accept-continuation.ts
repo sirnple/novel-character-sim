@@ -18,7 +18,13 @@ import {
   getForeshadowRealization,
   getProse,
   saveProse,
+  getChapterTitle,
+  clearChapterTitle,
+  commitPendingIdeasOnAccept,
+  awaitPendingCharacterRels,
+  clearPendingCharacters,
 } from "@/core/agents/intermediate-store";
+import { commitPendingCharactersToNovel } from "@/core/agents/agents/character-intro-tools";
 import { commitRealization } from "@/core/foreshadowing/commit";
 import type { ForeshadowingRealization } from "@/core/foreshadowing/types";
 import type { ChapterCatalogEntry } from "@/types";
@@ -43,6 +49,8 @@ export interface AcceptContinuationResult {
   foreshadowNote?: string;
   activeCount?: number;
   ledgerVersion?: number;
+  charactersAdded?: number;
+  characterNames?: string[];
 }
 
 function emptyRealization(
@@ -64,7 +72,9 @@ function emptyRealization(
  * Always commits ledger from realized (actual text), never pretends plan was fully done.
  * Missing realization → empty realized (no false plant/reveal).
  */
-export function acceptContinuation(input: AcceptContinuationInput): AcceptContinuationResult {
+export async function acceptContinuation(
+  input: AcceptContinuationInput,
+): Promise<AcceptContinuationResult> {
   const { userId, novelId } = input;
   const branchId = input.branchId || "main";
   let content = (input.content || "").trim() || (getProse(novelId, branchId) || "").trim();
@@ -91,9 +101,23 @@ export function acceptContinuation(input: AcceptContinuationInput): AcceptContin
   if (!content || content.length < 50) {
     return {
       ok: false,
-      error: "没有可接受的正文草稿（请先完成 write_prose）",
+      error: "没有可接受的正文草稿（请先完成 writer）",
       code: "NO_DRAFT",
     };
+  }
+
+  // Prepend chapter title from chapter_title_generator (outline/writer must not invent titles)
+  const titleDraft = getChapterTitle(novelId, branchId);
+  const titleLine = String(titleDraft?.final_title || "").trim();
+  if (titleLine) {
+    const head = content.slice(0, Math.min(120, content.length));
+    const alreadyHas =
+      head.startsWith(titleLine) ||
+      /^第[^\n]{0,40}章/.test(head) ||
+      head.split("\n")[0]?.trim() === titleLine;
+    if (!alreadyHas) {
+      content = `${titleLine}\n\n${content}`;
+    }
   }
 
   const storedRealization = getForeshadowRealization(novelId, branchId);
@@ -131,6 +155,29 @@ export function acceptContinuation(input: AcceptContinuationInput): AcceptContin
   const next = commitRealization(ledger, realization);
   saveForeshadowingLedger(next);
   saveProse(novelId, branchId, "");
+  clearChapterTitle(novelId, branchId);
+  // Ideas only count as used after final accept
+  const committedIdeas = commitPendingIdeasOnAccept(novelId, branchId);
+
+  // Wait for async character relationship jobs, then merge pending intros into novel cast
+  try {
+    await awaitPendingCharacterRels(novelId, branchId, 25_000);
+  } catch (e) {
+    console.warn(
+      "[accept] await character rels:",
+      (e as Error).message || e,
+    );
+  }
+  let charCommit = { added: 0, total: 0, names: [] as string[] };
+  try {
+    charCommit = commitPendingCharactersToNovel(userId, novelId, branchId);
+    clearPendingCharacters(novelId, branchId);
+  } catch (e) {
+    console.warn(
+      "[accept] commit pending characters failed:",
+      (e as Error).message || e,
+    );
+  }
 
   return {
     ok: true,
@@ -138,9 +185,18 @@ export function acceptContinuation(input: AcceptContinuationInput): AcceptContin
     branchText: afterText,
     branchId,
     realizationPass: getForeshadowRealization(novelId, branchId) ? !!pass : null,
-    foreshadowNote,
+    foreshadowNote:
+      foreshadowNote +
+      (committedIdeas.length
+        ? `；点子已消耗 ${committedIdeas.length} 条`
+        : "") +
+      (charCommit.added
+        ? `；新角色入库 ${charCommit.added}：${charCommit.names.join("、")}`
+        : ""),
     activeCount: next.active.length,
     ledgerVersion: next.version,
+    charactersAdded: charCommit.added,
+    characterNames: charCommit.names,
   };
 }
 
@@ -263,8 +319,14 @@ function saveTipMeta(
 
 export function formatAcceptHint(r: AcceptContinuationResult): string {
   if (!r.ok) return `接受续写失败：${r.error}`;
+  const charNote =
+    r.charactersAdded && r.charactersAdded > 0
+      ? `新角色入库 ${r.charactersAdded}：${(r.characterNames || []).join("、")}。`
+      : "";
   return (
     `已接受续写，写入分支 \`${r.branchId}\`（正文约 ${r.branchText?.length ?? 0} 字）。\n` +
-    `${r.foreshadowNote}。活跃伏笔 ${r.activeCount ?? "?"} 条。`
+    `${r.foreshadowNote}。活跃伏笔 ${r.activeCount ?? "?"} 条。` +
+    (charNote ? `\n${charNote}` : "") +
+    `（章名草案已消费/清空）`
   );
 }

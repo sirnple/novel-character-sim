@@ -11,6 +11,7 @@ import { requireAgentConfigBySystem } from "../agent-config";
 import { runSubAgentToolLoop } from "../tool-loop";
 import { toolSaveSucceeded } from "../save-verify";
 import { agentLabel, toolLabel } from "@/lib/tool-labels";
+import { writeTargetUserPrompt } from "../write-target";
 
 export interface LoopAgentOptions {
   /**
@@ -37,9 +38,9 @@ function toSchemas(tools: ToolDefinition[]): ToolSchema[] {
   }));
 }
 
-/** Minimal user message: analysis target only */
+/** Minimal user message: analysis / write target only */
 export function analysisTargetUserPrompt(novelId: string, branchId: string): string {
-  return `novelId=${novelId}\nbranchId=${branchId || "main"}`;
+  return writeTargetUserPrompt(novelId, branchId);
 }
 
 /** Build an Agent from system md path + tool list. */

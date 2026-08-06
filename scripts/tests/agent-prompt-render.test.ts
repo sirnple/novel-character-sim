@@ -316,18 +316,27 @@ export function runAgentPromptRenderTests(): void {
       assert.ok(withoutOptional.includes("末尾"));
     });
 
-    test("outline agent user renders prompt/novelId/branchId", () => {
+    test("outline_creator system renders without frontmatter", () => {
       clearPromptFileCache();
       const r = renderAgent(
-        "outline",
+        "outline_creator",
         "zh",
-        sampleVars(["prompt", "novelId", "branchId", "selectionInstruction"]),
+        sampleVars(["prompt", "novelId", "branchId"]),
       );
-      assert.ok(r.user.includes("__VAR_prompt__"));
-      assert.ok(r.user.includes("__VAR_novelId__"));
-      assert.ok(r.user.includes("__VAR_branchId__"));
-      // systemExtra contract is joined into system
+      // creator has no user.md — body is system only
       assert.ok(r.system.includes("save_outline") || r.system.includes("大纲"));
+      assert.equal(r.system.startsWith("---"), false);
+      assert.ok(!r.system.includes("name: outline_creator"));
+    });
+
+    test("outline_rewriter system renders without frontmatter", () => {
+      clearPromptFileCache();
+      const r = renderAgent(
+        "outline_rewriter",
+        "zh",
+        sampleVars(["prompt", "novelId", "branchId"]),
+      );
+      assert.ok(r.system.includes("save_outline") || r.system.includes("修复"));
       assert.equal(r.system.startsWith("---"), false);
     });
   });

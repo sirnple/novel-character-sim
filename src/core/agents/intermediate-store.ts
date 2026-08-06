@@ -4,6 +4,7 @@
  * 进程重启即丢失，一次续写流程内足够。
  */
 import type { ForeshadowingPlan, ForeshadowingRealization } from "@/core/foreshadowing/types";
+import type { CharacterProfile } from "@/types";
 
 type Outline = any;
 export interface ReviewFindings {
@@ -21,6 +22,7 @@ const DIM_LABELS: Record<string, string> = {
   style: "风格",
   world: "世界观",
   pacing: "节奏",
+  ai_taste: "AI生成痕迹",
 };
 
 const SEV_LABELS: Record<string, string> = {
@@ -57,12 +59,20 @@ export function formatFindingsReadable(findings: ReviewFindings[]): string {
   return lines.join("\n").trim();
 }
 
+/** Draft chapter title produced after prose (not invented in outline). */
+export interface ChapterTitleDraft {
+  final_title: string;
+  alternatives: string[];
+  reason: string;
+}
+
 interface BranchStore {
   outline?: Outline;
   findings?: ReviewFindings[];
   prose?: string;
   foreshadowPlan?: ForeshadowingPlan;
   foreshadowRealization?: ForeshadowingRealization;
+  chapterTitle?: ChapterTitleDraft;
 }
 
 /**
@@ -92,6 +102,99 @@ function storeMap() {
 
 function writeTailsMap() {
   return globalAgentStore().writeTails;
+}
+
+/**
+ * Idea usage (process-local):
+ * - **pending**: staged this continuation (get_ideas / UI select / outline) — still listable
+ * - **used**: only after accept_continuation / finish — list_ideas hides these
+ */
+type GlobalIdeaIdSets = Map<string, Set<string>>;
+
+function ideaSetMap(
+  prop: "__ncsUsedIdeas" | "__ncsPendingIdeas",
+): GlobalIdeaIdSets {
+  const g = globalThis as typeof globalThis & {
+    __ncsUsedIdeas?: GlobalIdeaIdSets;
+    __ncsPendingIdeas?: GlobalIdeaIdSets;
+  };
+  if (!g[prop]) g[prop] = new Map();
+  return g[prop]!;
+}
+
+function addToIdeaSet(
+  map: GlobalIdeaIdSets,
+  novelId: string,
+  branchId: string,
+  ids: string[],
+): void {
+  const k = key(novelId, branchId);
+  let set = map.get(k);
+  if (!set) {
+    set = new Set();
+    map.set(k, set);
+  }
+  for (const id of ids) {
+    const t = String(id || "").trim();
+    if (t) set.add(t);
+  }
+}
+
+function listIdeaSet(
+  map: GlobalIdeaIdSets,
+  novelId: string,
+  branchId: string,
+): string[] {
+  const set = map.get(key(novelId, branchId));
+  return set ? Array.from(set) : [];
+}
+
+/** Stage ideas for this round (not consumed until accept). */
+export function markIdeasPending(
+  novelId: string,
+  branchId: string,
+  ids: string[],
+): void {
+  addToIdeaSet(ideaSetMap("__ncsPendingIdeas"), novelId, branchId, ids);
+}
+
+export function getPendingIdeaIds(novelId: string, branchId: string): string[] {
+  return listIdeaSet(ideaSetMap("__ncsPendingIdeas"), novelId, branchId);
+}
+
+export function clearPendingIdeaIds(novelId: string, branchId: string): void {
+  ideaSetMap("__ncsPendingIdeas").delete(key(novelId, branchId));
+}
+
+/** Committed usage — only call from accept/finish. */
+export function markIdeasUsed(
+  novelId: string,
+  branchId: string,
+  ids: string[],
+): void {
+  addToIdeaSet(ideaSetMap("__ncsUsedIdeas"), novelId, branchId, ids);
+}
+
+export function getUsedIdeaIds(novelId: string, branchId: string): string[] {
+  return listIdeaSet(ideaSetMap("__ncsUsedIdeas"), novelId, branchId);
+}
+
+export function clearUsedIdeaIds(novelId: string, branchId: string): void {
+  ideaSetMap("__ncsUsedIdeas").delete(key(novelId, branchId));
+}
+
+/**
+ * On accept_continuation: pending → used, then clear pending.
+ * Returns ids that were committed.
+ */
+export function commitPendingIdeasOnAccept(
+  novelId: string,
+  branchId: string,
+): string[] {
+  const pending = getPendingIdeaIds(novelId, branchId);
+  if (pending.length) markIdeasUsed(novelId, branchId, pending);
+  clearPendingIdeaIds(novelId, branchId);
+  return pending;
 }
 
 /** Normalize ids so save/get always hit the same key. */
@@ -162,6 +265,8 @@ export function beginOutlineRound(
     );
   } else {
     storeMap().set(k, {});
+    // New create round: drop staged ideas (not yet accepted)
+    clearPendingIdeaIds(novelId, branchId);
     console.log(`[Store] beginOutlineRound ${k}`);
   }
 }
@@ -262,6 +367,12 @@ export function normalizeFindingDimension(raw: string | undefined | null): strin
     pacing: "pacing",
     pacing_reviewer: "pacing",
     review_pacing: "pacing",
+    ai_taste: "ai_taste",
+    ai: "ai_taste",
+    ai_review: "ai_taste",
+    ai_reviewer: "ai_taste",
+    review_ai: "ai_taste",
+    review_ai_taste: "ai_taste",
   };
   if (aliases[lower]) return aliases[lower];
   // strip common prefixes/suffixes
@@ -387,6 +498,38 @@ export function saveProse(novelId: string, branchId: string, prose: string): voi
   console.log(`[Store] saveProse ${k} len=${prose.length}`);
 }
 
+export function saveChapterTitle(
+  novelId: string,
+  branchId: string,
+  draft: ChapterTitleDraft,
+): void {
+  const k = key(novelId, branchId);
+  const store = storeMap();
+  const s = store.get(k) || {};
+  s.chapterTitle = draft;
+  store.set(k, s);
+  console.log(
+    `[Store] saveChapterTitle ${k} title=${JSON.stringify(draft.final_title).slice(0, 80)}`,
+  );
+}
+
+export function getChapterTitle(
+  novelId: string,
+  branchId: string,
+): ChapterTitleDraft | undefined {
+  const k = key(novelId, branchId);
+  return storeMap().get(k)?.chapterTitle;
+}
+
+export function clearChapterTitle(novelId: string, branchId: string): void {
+  const k = key(novelId, branchId);
+  const store = storeMap();
+  const s = store.get(k);
+  if (!s?.chapterTitle) return;
+  delete s.chapterTitle;
+  store.set(k, s);
+}
+
 export async function saveProseLocked(
   novelId: string,
   branchId: string,
@@ -401,7 +544,129 @@ export function getProse(novelId: string, branchId: string): string | undefined 
   return storeMap().get(key(novelId, branchId))?.prose;
 }
 
+// ── Continuation: staged character intros (survive outline save wipes) ──
+
+type GlobalCharMap = Map<string, CharacterProfile[]>;
+type GlobalLastIntro = Map<string, CharacterProfile>;
+type GlobalRelJobs = Map<string, Promise<void>>;
+
+function pendingCharsMap(): GlobalCharMap {
+  const g = globalThis as typeof globalThis & {
+    __ncsPendingChars?: GlobalCharMap;
+  };
+  if (!g.__ncsPendingChars) g.__ncsPendingChars = new Map();
+  return g.__ncsPendingChars;
+}
+
+function lastIntroMap(): GlobalLastIntro {
+  const g = globalThis as typeof globalThis & {
+    __ncsLastIntro?: GlobalLastIntro;
+  };
+  if (!g.__ncsLastIntro) g.__ncsLastIntro = new Map();
+  return g.__ncsLastIntro;
+}
+
+function relJobsMap(): GlobalRelJobs {
+  const g = globalThis as typeof globalThis & {
+    __ncsCharRelJobs?: GlobalRelJobs;
+  };
+  if (!g.__ncsCharRelJobs) g.__ncsCharRelJobs = new Map();
+  return g.__ncsCharRelJobs;
+}
+
+export function setLastIntroducedCharacter(
+  novelId: string,
+  branchId: string,
+  profile: CharacterProfile,
+): void {
+  lastIntroMap().set(key(novelId, branchId), profile);
+}
+
+export function getLastIntroducedCharacter(
+  novelId: string,
+  branchId: string,
+): CharacterProfile | undefined {
+  return lastIntroMap().get(key(novelId, branchId));
+}
+
+export function savePendingCharacter(
+  novelId: string,
+  branchId: string,
+  profile: CharacterProfile,
+): void {
+  const k = key(novelId, branchId);
+  const map = pendingCharsMap();
+  const list = map.get(k) || [];
+  const name = String(profile.name || "").replace(/\s+/g, "").trim();
+  const next = list.filter(
+    (c) => String(c.name || "").replace(/\s+/g, "").trim() !== name,
+  );
+  next.push(profile);
+  map.set(k, next);
+  setLastIntroducedCharacter(novelId, branchId, profile);
+}
+
+export function updatePendingCharacter(
+  novelId: string,
+  branchId: string,
+  profile: CharacterProfile,
+): void {
+  savePendingCharacter(novelId, branchId, profile);
+}
+
+export function getPendingCharacters(
+  novelId: string,
+  branchId: string,
+): CharacterProfile[] {
+  return [...(pendingCharsMap().get(key(novelId, branchId)) || [])];
+}
+
+export function clearPendingCharacters(
+  novelId: string,
+  branchId: string,
+): void {
+  const k = key(novelId, branchId);
+  pendingCharsMap().delete(k);
+  lastIntroMap().delete(k);
+}
+
+/** Register / replace async relationship job for a character id. */
+export function setCharacterRelJob(
+  novelId: string,
+  branchId: string,
+  characterId: string,
+  job: Promise<void>,
+): void {
+  const jk = `${key(novelId, branchId)}::${characterId}`;
+  relJobsMap().set(
+    jk,
+    job.finally(() => {
+      relJobsMap().delete(jk);
+    }),
+  );
+}
+
+/** Wait for outstanding relationship jobs (bounded). */
+export async function awaitPendingCharacterRels(
+  novelId: string,
+  branchId: string,
+  timeoutMs = 25_000,
+): Promise<void> {
+  const prefix = `${key(novelId, branchId)}::`;
+  const jobs = Array.from(relJobsMap().entries())
+    .filter(([jk]) => jk.startsWith(prefix))
+    .map(([, p]) => p);
+  if (!jobs.length) return;
+  await Promise.race([
+    Promise.allSettled(jobs),
+    new Promise<void>((r) => setTimeout(r, timeoutMs)),
+  ]);
+}
+
 /** 测试用清空 */
 export function _resetStore(): void {
   storeMap().clear();
+  pendingCharsMap().clear();
+  lastIntroMap().clear();
+  relJobsMap().clear();
 }

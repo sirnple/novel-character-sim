@@ -6,7 +6,10 @@ import { getTool, buildToolSchemas } from "@/core/agents/registry";
 import { getAgent } from "@/core/agents/agent-registry";
 import { initRegistry } from "@/core/agents/init";
 import { runReviewsParallel } from "@/core/agents/agents/run-reviews";
-import { outlineAgent } from "@/core/agents/agents/outline";
+import {
+  outlineCreateAgent,
+  outlineRewriteAgent,
+} from "@/core/agents/agents/outline";
 import { outlineReviewAgent } from "@/core/agents/agents/outline-review";
 import { agentNameFromSystem } from "@/core/agents/agent-config";
 import {
@@ -238,10 +241,14 @@ export async function POST(request: NextRequest) {
           return result;
         }
 
-        // After outline: visible review card; on fail auto-rewrite outline once then re-review
-        const outlineName = outlineAgent.config.name;
+        // After outline create/rewrite: visible review card; on fail auto-rewrite once then re-review
+        const outlineCreateName = outlineCreateAgent.config.name;
+        const outlineRewriteName = outlineRewriteAgent.config.name;
         const outlineReviewName = outlineReviewAgent.config.name;
-        if (agentType === outlineName) {
+        if (
+          agentType === outlineCreateName ||
+          agentType === outlineRewriteName
+        ) {
           const { getFindings } = await import("@/core/agents/intermediate-store");
           const { outlineReviewFailedFromFindings } = await import(
             "@/core/agents/agents/outline-review"
@@ -262,10 +269,7 @@ export async function POST(request: NextRequest) {
             try {
               const rev = await reviewDef.execute(
                 {
-                  prompt:
-                    attempt > 1
-                      ? "复审：检查改写后的大纲是否已消除上次 critical/major 问题"
-                      : "审核刚生成的大纲与前文/类型是否冲突（出场合法性、梦与现实、承接等）",
+                  prompt: "",
                   novelId,
                   branchId,
                   userId,
@@ -329,8 +333,9 @@ export async function POST(request: NextRequest) {
             outlineReviewFailedFromFindings(outlineFindings()) ||
             /【大纲审核未通过】|大纲审核未通过|大纲审核失败/.test(rev.content || "");
 
-          // Program-level rewrite once when critical/major — master often forgets
-          if (failed) {
+          // Program-level rewrite once when critical/major — use outline_rewriter
+          // Skip if master already called outline_rewriter (avoid double auto-fix loop)
+          if (failed && agentType === outlineCreateName) {
             const findingsText = outlineFindings()
               .slice(0, 12)
               .map(
@@ -341,20 +346,15 @@ export async function POST(request: NextRequest) {
               )
               .join("\n");
             const fixId = `${toolCallId}__outline_fix`;
-            const outlineDef = getAgent(outlineName);
-            if (outlineDef) {
-              sendTool(outlineName, "running", fixId);
+            const rewriteDef = getAgent(outlineRewriteName);
+            if (rewriteDef) {
+              sendTool(outlineRewriteName, "running", fixId);
               const tFix = Date.now();
               try {
-                const fixed = await outlineDef.execute(
+                const fixed = await rewriteDef.execute(
                   {
-                    prompt:
-                      `【任务模式:rewrite】\n` +
-                      `【系统强制改写大纲】上一轮大纲审核未通过（含致命/重要问题）。\n` +
-                      `在上一稿上按 findings 修改；保留仍成立的情节/角色/时空，禁止无依据整篇推翻。\n` +
-                      `改完 save_outline（完整改写后全文）+ save_foreshadowing_plan。\n\n` +
-                      `## 审核 findings\n${findingsText || rev.content.slice(0, 2000)}\n\n` +
-                      `原任务：${String(prompt || "").slice(0, 500)}`,
+                    // Sub-agent only needs novelId/branchId; findings/outline from store
+                    prompt: "",
                     novelId,
                     branchId,
                     userId,
@@ -370,25 +370,25 @@ export async function POST(request: NextRequest) {
                       type: "tool_chunk",
                       toolCallId: fixId,
                       content: text,
-                      tool: outlineName,
+                      tool: outlineRewriteName,
                     }),
                   (messages) =>
                     send({
                       type: "tool_trail",
                       toolCallId: fixId,
                       messages,
-                      tool: outlineName,
+                      tool: outlineRewriteName,
                     }),
                 );
                 logSession({
                   ts: new Date().toISOString(),
                   type: "tool_exec",
-                  tool: outlineName,
+                  tool: outlineRewriteName,
                   elapsed: Date.now() - tFix,
                   resultPreview: fixed.content.slice(0, 300),
                 });
                 sendTool(
-                  outlineName,
+                  outlineRewriteName,
                   "done",
                   fixId,
                   fixed.content.slice(0, 5000),
@@ -412,7 +412,7 @@ export async function POST(request: NextRequest) {
                 }
                 outlineContent =
                   outlineContent +
-                  "\n\n---\n【系统：大纲审核未通过，已自动拉起大纲改写】\n" +
+                  "\n\n---\n【系统：大纲审核未通过，已自动拉起 outline_rewriter】\n" +
                   fixed.content.slice(0, 2000);
                 outlineMessages = [
                   ...outlineMessages,
@@ -437,14 +437,14 @@ export async function POST(request: NextRequest) {
                   );
               } catch (e) {
                 const err = "自动改写大纲失败: " + (e as Error).message;
-                sendTool(outlineName, "done", fixId, err);
+                sendTool(outlineRewriteName, "done", fixId, err);
                 outlineContent += "\n\n" + err;
               }
             }
           }
 
           const wrapHint = failed
-            ? "\n主 agent：复审仍未通过 → 再 outline 按 findings 改写（一键续写也必须改到通过，禁止带病写正文）。"
+            ? "\n主 agent：复审仍未通过 → 再 agent(outline_rewriter) 按 findings 改写（一键续写也必须改到通过，禁止带病写正文）。"
             : "\n主 agent：审核已通过 → 可写正文 / 一键模式直接 writer。";
 
           return {
@@ -469,10 +469,10 @@ export async function POST(request: NextRequest) {
           // agent must go through runAgent — never execute as a data tool
           const denied = isAnalysis
             ? name === "agent"
-              ? `请用 agent(agent_type, prompt) 调度分析子 Agent（系统会打开子 Agent 卡片）。`
+              ? `请用 agent(agent_type) 调度分析子 Agent（系统会打开子 Agent 卡片）。`
               : `分析主编不可调用 ${name}。可用：agent / ask_question / get_current_* / get_analysis_* / finish_novel_analysis。章法用 agent(form)，其它域同样 agent(agent_type)。`
             : name === "agent"
-              ? `请用 agent(agent_type, prompt) 调度子 Agent。`
+              ? `请用 agent(agent_type) 调度子 Agent（续写只需 agent_type，novelId/branchId 由程序绑定）。`
               : `主 agent 不可调用 ${name}。正文由子 agent 自行 get_prose，你只需调度。`;
           sendTool(name, "done", toolCallId, denied);
           return { content: denied, messages: [] as any[] };
@@ -589,11 +589,12 @@ export async function POST(request: NextRequest) {
             args: Record<string, any>;
           }) => {
             const agentType = item.args.agent_type as string;
-            const prompt = item.args.prompt as string;
-            if (!agentType || !prompt) {
+            // Write sub-agents only need agent_type; prompt is optional
+            const prompt = String(item.args.prompt ?? "");
+            if (!agentType) {
               return {
                 toolId: item.toolId,
-                content: "错误: agent_type 和 prompt 都是必需的",
+                content: "错误: agent_type 是必需的",
                 askUser: undefined as
                   | import("@/core/agents/types").AskUserRequest
                   | undefined,
@@ -733,14 +734,12 @@ export async function POST(request: NextRequest) {
 
             // Parallel six-dimension review: one master tool → 6 concurrent agents
             if (toolName === "run_reviews") {
-              const reviewPrompt =
-                String(args.prompt || "").trim() || "正文已写完，请自行 get_prose 后按你的维度审查。";
               sendTool("run_reviews", "running", toolId);
               const t0 = Date.now();
               try {
                 const batch = await runReviewsParallel(
                   {
-                    prompt: reviewPrompt,
+                    prompt: "",
                     novelId,
                     branchId,
                     userId,

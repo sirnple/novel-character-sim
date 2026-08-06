@@ -12,6 +12,7 @@ import {
   formatFormAgentContextForTool,
 } from "@/core/form/form-context";
 import { formatCriticalMiss } from "../critical-miss";
+import { getPendingCharacters } from "../intermediate-store";
 
 /** Default tail for writing agents. Reviews should use injected shorter tip, not this. */
 const TEXT_TAIL = 12_000;
@@ -97,7 +98,8 @@ export const branchTools: ToolDefinition[] = [
   },
   {
     name: "get_branch_characters",
-    description: "获取该小说的角色档案名+性格描述。按 novelId 查。",
+    description:
+      "获取该小说的角色档案名+性格描述。含本轮 save_character 暂存、尚未 accept 的新角色（标 pending）。",
     parameters: {
       type: "object",
       properties: {
@@ -109,9 +111,24 @@ export const branchTools: ToolDefinition[] = [
     execute: async (args, ctx) => {
       const userId = ctx.userId || "guest";
       const novelId = (ctx.novelId || args.novelId || "") as string;
+      const branchId = (ctx.branchId || args.branchId || "main") as string;
       const chars = getCharacters(userId, novelId) || [];
+      const pending = getPendingCharacters(novelId, branchId);
+      const rows = [
+        ...chars.map((c: any) => ({
+          name: c.name,
+          desc: c.personality?.description?.slice(0, 200),
+          pending: false,
+        })),
+        ...pending.map((c) => ({
+          name: c.name,
+          desc: c.personality?.description?.slice(0, 200),
+          pending: true,
+          note: "本轮新引入·accept 后写入人物库",
+        })),
+      ];
       return {
-        content: JSON.stringify(chars.map((c: any) => ({ name: c.name, desc: c.personality?.description?.slice(0, 200) })), null, 2),
+        content: JSON.stringify(rows, null, 2),
         messages: [],
       };
     },

@@ -11,6 +11,7 @@ import {
   resolveAgentPrompt,
   resolveAgentToolSchemas,
 } from "@/core/prompts/resolve-agent-prompt";
+import { writeTargetUserPrompt } from "../write-target";
 import {
   looksLikeFindingsNotProse,
   looksLikeRevisionPlanNotProse,
@@ -95,10 +96,9 @@ function tryRecoverProseFromTrail(
 function makeWriterAgent(systemFile: string): Agent {
   return defineAgent(systemFile, (config) => {
     const name = config.name;
-    const isRewriteAgent = config.name === "rewriter";
+    /** Mode is agent identity only — no [MODE:*] prompt tags. */
+    const isRewrite = config.name === "rewriter";
     return async (ctx, llm, onChunk, onTrail) => {
-    const isRewrite =
-      isRewriteAgent || ctx.prompt.includes("[MODE:rewrite]");
     const existingProse = getProse(ctx.novelId, ctx.branchId) || "";
 
     // Preflight store (agent still loads via tools for a visible trail)
@@ -124,50 +124,41 @@ function makeWriterAgent(systemFile: string): Agent {
           messages: [],
           askUser: {
             question: "待改正文无效（不像叙事正文），是否重新创作？",
-            options: ["重新 MODE:create 写作", "取消"],
+            options: ["重新用 writer 创作", "取消"],
             missKind: "prose",
           },
         };
       }
     }
 
-    const { system: sys, user: baseUser } = resolveAgentPrompt(name, "zh", {
-      prompt: ctx.prompt,
+    // User message = session binding only; how-to is in system md
+    const { system: sys } = resolveAgentPrompt(name, "zh", {
       novelId: ctx.novelId,
       branchId: ctx.branchId,
     });
     const tools = resolveAgentToolSchemas(name);
 
-    // Style is fetched via get_style tool — only pass the id hint, not full profile
+    // UI-selected style id (not master prose) — tool still fetches full profile
     const styleHint = ctx.selectedStyleId
-      ? `\n\n## 文风（必须用工具取，勿假设已注入全文）\n` +
-        `用户当前选用 styleId=\`${ctx.selectedStyleId}\`。\n` +
-        `请先 **get_style(id="${ctx.selectedStyleId}")** 或 **get_style()**，严格按返回说明书写作。\n`
-      : `\n\n## 文风（必须用工具取）\n` +
-        `未预选风格：先 **list_styles**，再 **get_style(id=…)**；优先本书来源。\n`;
+      ? `\n\n## 选用文风\nstyleId=\`${ctx.selectedStyleId}\`（用 get_style 取全文）\n`
+      : "";
 
-    // Rewrite: snapshot findings so改写不依赖可能被误清的 store（仍应 get_findings 核对）
+    // Rewrite: findings snapshot from store (agent also has get_findings)
     let findingsHint = "";
     if (isRewrite) {
       const findings = getFindings(ctx.novelId, ctx.branchId);
       findingsHint =
-        `\n\n## 审查问题快照（程序注入，改写依据）\n` +
+        `\n\n## 审查问题快照\n` +
         (findings.length
           ? formatFindingsReadable(findings)
-          : "（store 暂无 findings——仍须 get_findings；若仍空则按用户 prompt 中的审查意见改）") +
-        `\n\n可再调用 get_findings 核对；**禁止**在改写前 clear_findings。\n`;
+          : "（store 暂无 findings——请 get_findings）") +
+        "\n";
     }
 
-    const hardRules =
-      "\n\n## 程序硬性规则（违反即失败）\n" +
-      "1. 必须 **get_style**（或 list_styles→get_style）后再写；禁止不取文风就 save。\n" +
-      "2. 取完大纲/文风/语境后，**同一任务内必须调用一次 save_prose**，content=完整叙事正文。\n" +
-      "3. **禁止**只说「准备开始写/现在开始写」就结束；下一动作必须是 save_prose。\n" +
-      "4. **禁止**把正文只写在聊天里不 save；程序只认 save_prose 成功。\n" +
-      "5. save_prose 返回「拒绝保存」：若提示**参数截断**，请**缩短**到 2000–6000 字完整场景再 save 一次；不要原样重贴长文。\n" +
-      "6. 返回「正文已存」后**立刻停止**，不要再次 save_prose，不要继续调工具。\n";
-
-    const uc = baseUser + styleHint + findingsHint + hardRules;
+    const uc =
+      writeTargetUserPrompt(ctx.novelId, ctx.branchId) +
+      styleHint +
+      findingsHint;
 
     const run = (user: string) =>
       runSubAgentToolLoop(llm, sys, user, tools, ctx, onChunk, onTrail, {
@@ -255,8 +246,8 @@ ${why}。
           : "save_prose 未成功";
       return {
         content: isRewrite
-          ? `正文修改失败：${hint}；已保留原正文。主 agent 应再拉 write_prose [MODE:rewrite]。`
-          : `正文生成失败：${hint}。主 agent 应再拉 write_prose [MODE:create]。`,
+          ? `正文修改失败：${hint}；已保留原正文。主 agent 应再拉 rewriter。`
+          : `正文生成失败：${hint}。主 agent 应再拉 writer。`,
         messages: trail,
       };
     }

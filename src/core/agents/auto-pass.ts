@@ -123,7 +123,7 @@ export const ONE_CLICK_CONTINUE_SYSTEM_APPEND = `
 
 ### 质量闸门（必须遵守）
 - **有问题 → 改到没问题**。大纲审核或正文审查含 critical/major（或「未通过」）时：
-  - 立刻改：outline 按 findings 改写 / rewriter \`[MODE:rewrite]\` 按 findings 改写
+  - 立刻改：outline_rewriter 按 findings 改写 / rewriter 按 findings 改写
   - 改完再审（大纲会自动审；正文再 run_reviews → get_findings）
   - **循环直到通过**（或仅剩 minor 可接受）
 - **禁止**选「仍按此大纲 / 我了解风险 / 跳过修改」等带病放行选项
@@ -131,12 +131,12 @@ export const ONE_CLICK_CONTINUE_SYSTEM_APPEND = `
 
 ### 流程
 1. **禁止**用 ask_question 等人（系统若见到会自动代答；代答也会优先「修改」而非「带病通过」）。
-2. 大纲：outline（系统自动 outline_reviewer；未通过会自动改写一轮）。若仍含【大纲审核未通过】→ 再 outline 带 findings，直到通过或仅 minor。
-3. 大纲通过后 → 立刻 writer \`[MODE:create]\`。
-4. writer 必须等到「已 save_prose / 正文已创建」；失败 → 再拉 writer。
-5. 成功后 → run_reviews → get_findings：
-   - 有 critical/major → rewriter \`[MODE:rewrite]\` → 再 run_reviews，直到无 critical/major
-   - 无 critical/major → 立刻 accept_continuation
+2. 大纲：agent(outline_creator)（可省略 prompt；系统自动审/改）。仍未通过 → agent(outline_rewriter)。
+3. 通过后 → agent(writer)。
+4. writer 等到「已 save_prose」；失败 → 再 agent(writer)。
+5. run_reviews → get_findings：
+   - critical/major → agent(rewriter) → 再 run_reviews
+   - 通过后：新开章且分章 → agent(chapter_title_generator) → accept_continuation；否则直接 accept
 6. 工具彻底失败才停并说明原因。
-7. 结束时用一小段中文汇报（大纲、是否改过、审查是否通过、已接受写入）。
+7. 结束时用一小段中文汇报。
 `.trim();

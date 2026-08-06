@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const result = acceptContinuation({
+    const result = await acceptContinuation({
       userId,
       novelId: String(body.novelId || ""),
       branchId: String(body.branchId || "main"),
