@@ -43,6 +43,9 @@ tools:
 - 承接、出场合法性、梦/幻/现实跨层、因果、人设、世界观、伏笔
 - **禁止大纲编造章名**：若大纲写了具体「第N章 xxx」/独占一行的拟定标题 → **major**，建议删掉章名、只保留「新开/接本章 + 剧情目标」
 
-## pass 约定（给主 agent）
-- 无 critical/major → 通过  
-- 有 critical/major → 未通过（由 findings 严重度体现，不必另写 pass 字段）
+## pass 约定（给主 agent · 程序与下列一致）
+- 有 **critical / major** → **未通过**
+- **minor 过多**也未通过：总数 **>5**；或单维 **>4**
+- （正文另计 AI 维；大纲维同样适用 minor 总量/单维上限）
+- 无 critical/major 且 minor 在限额内 → 通过  
+（由 findings 严重度与条数体现，不必另写 pass 字段）

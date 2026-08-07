@@ -36,11 +36,13 @@ import { runCharacterAnalysisWindowsTests } from "./tests/character-analysis-win
 import { runCharacterAnalysisMergeTests } from "./tests/character-analysis-merge.test";
 import { runCharacterAnalysisCorefTests } from "./tests/character-analysis-coref.test";
 import { runNovelCleanerTests } from "./tests/novel-cleaner.test";
+import { runReviewPassTests } from "./tests/review-pass.test";
 
 async function main() {
   resetCounters();
   console.log("novel-character-sim — agent continuation core tests\n");
 
+  runReviewPassTests();
   runNovelCleanerTests();
   runCharacterAnalysisWindowsTests();
   runCharacterAnalysisMergeTests();

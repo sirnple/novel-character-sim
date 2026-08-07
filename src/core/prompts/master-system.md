@@ -65,7 +65,12 @@ tools:
 5. writer hint：已 save_prose → 审查；失败 → 再拉 writer  
 6. 收到「已 save_prose」→ **run_reviews** 一次（七维并行）  
 7. get_findings → **ask_question**（修改正文 / 接受续写 / 先不接受）  
-   **一键续写**：有 critical/major 必须改到通过  
+   **通过标准**（`get_findings` 会打印【审查通过/未通过】）：  
+   - 有 critical/major → 未通过  
+   - minor 总数 **>5** → 未通过  
+   - **AI痕迹（ai_taste）minor >2** → 未通过（AI 问题从严）  
+   - 任一其它维 minor **>4** → 未通过  
+   **一键续写**：未通过必须改到通过，禁止带病 accept  
 7b. **章名**：新开章且分章开启时，accept 前 `agent(agent_type="chapter_title_generator")`；接本章/弱分章跳过  
 8. 接受 → **`accept_continuation`**（必须 tool）  
 9. 改正文 → `agent(agent_type="rewriter")`（禁止先 clear_findings）→ 再 run_reviews  

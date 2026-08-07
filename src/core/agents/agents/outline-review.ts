@@ -10,6 +10,9 @@ import { writeTargetUserPrompt } from "../write-target";
 import { SAVE_FINDINGS_OK } from "./intermediate-tools";
 import { getStoryInfo } from "@/lib/db";
 import { toolSaveSucceeded } from "../save-verify";
+import { evaluateReviewPass, formatReviewPassLine } from "../review-pass";
+
+export { outlineReviewFailedFromFindings } from "../review-pass";
 
 export interface OutlineReviewResult {
   pass: boolean;
@@ -105,7 +108,8 @@ export async function runOutlineReview(
     };
   }
 
-  const pass = !findings.some((f) => f.severity === "critical" || f.severity === "major");
+  const verdict = evaluateReviewPass(findings);
+  const pass = verdict.pass;
   const lines = findings
     .slice(0, 8)
     .map(
@@ -113,8 +117,10 @@ export async function runOutlineReview(
         `${i + 1}. 【${f.severity}】${f.description}${f.suggestion ? ` → ${f.suggestion}` : ""}`,
     );
   const marker = pass ? "【大纲审核通过】" : "【大纲审核未通过】";
+  const gateLine = formatReviewPassLine(verdict).replace("【审查", "【大纲审核");
   const summary =
-    `${marker} 大纲审核 ${pass ? "通过" : "未通过"}（${findings.length} 条，已 save_findings）` +
+    `${marker} 大纲审核 ${pass ? "通过" : "未通过"}（${findings.length} 条，已 save_findings）\n` +
+    gateLine +
     (lines.length ? "：\n" + lines.join("\n") : "。") +
     (pass
       ? ""
@@ -140,11 +146,3 @@ export const outlineReviewAgent = defineAgent(
   },
 );
 
-/** True when outline findings include critical/major (or review failed to save). */
-export function outlineReviewFailedFromFindings(
-  findings: Array<{ severity?: string }>,
-): boolean {
-  return findings.some(
-    (f) => f.severity === "critical" || f.severity === "major",
-  );
-}

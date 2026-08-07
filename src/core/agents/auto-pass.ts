@@ -58,7 +58,20 @@ function isProceedSafe(opt: string): boolean {
  */
 function looksLikeFailedReviewGate(question: string, options: string[]): boolean {
   const blob = `${question}\n${options.join("\n")}`;
-  if (/未通过|致命|critical|major|有问题|需修改|审查意见|审核意见|findings/i.test(blob)) {
+  // Explicit pass line wins (do not treat critical=0 / major=0 as failure)
+  if (/【审查通过】|【大纲审核通过】|审查通过/.test(blob) && !/【审查未通过】|【大纲审核未通过】|审核未通过|未通过/.test(blob)) {
+    return false;
+  }
+  if (
+    /未通过|致命|有问题|需修改|审查意见|审核意见|次要过多|AI痕迹次要过多/i.test(blob)
+  ) {
+    return true;
+  }
+  // critical/major only when not zeroed in tally (critical=1, major>0, etc.)
+  if (/\bcritical\s*[=:]\s*[1-9]|\bmajor\s*[=:]\s*[1-9]/i.test(blob)) {
+    return true;
+  }
+  if (/\bcritical\b(?!\s*[=:]\s*0)|\bmajor\b(?!\s*[=:]\s*0)/i.test(blob) && /未通过|问题|发现|fail/i.test(blob)) {
     return true;
   }
   // Options include both fix and risk-skip → treat as post-fail gate
@@ -122,12 +135,17 @@ export const ONE_CLICK_CONTINUE_SYSTEM_APPEND = `
 用户启用了一键续写：全流程自动推进，**不要等待人工确认**；但**审核不是自动放过**。
 
 ### 质量闸门（必须遵守）
-- **有问题 → 改到没问题**。大纲审核或正文审查含 critical/major（或「未通过」）时：
-  - 立刻改：outline_rewriter 按 findings 改写 / rewriter 按 findings 改写
-  - 改完再审（大纲会自动审；正文再 run_reviews → get_findings）
-  - **循环直到通过**（或仅剩 minor 可接受）
+- **有问题 → 改到没问题**。大纲/正文 **【审查未通过】** 时必须改：
+  - critical/major **任意一条** → 未通过
+  - minor 总数 **>5** → 未通过
+  - **ai_taste（AI痕迹）minor >2** → 未通过（AI 问题从严）
+  - 任一其它维 minor **>4** → 未通过
+  - 立刻改：outline_rewriter / rewriter 按 findings 改写
+  - 改完再审（大纲自动审；正文再 run_reviews → get_findings）
+  - **循环直到 get_findings 显示【审查通过】**
 - **禁止**选「仍按此大纲 / 我了解风险 / 跳过修改」等带病放行选项
 - **禁止**隐瞒 findings 直接写正文或 accept_continuation
+- **禁止**「只有次要就接受」——次要过多或 AI 次要超标仍算未通过
 
 ### 流程
 1. **禁止**用 ask_question 等人（系统若见到会自动代答；代答也会优先「修改」而非「带病通过」）。
@@ -135,8 +153,8 @@ export const ONE_CLICK_CONTINUE_SYSTEM_APPEND = `
 3. 通过后 → agent(writer)。
 4. writer 等到「已 save_prose」；失败 → 再 agent(writer)。
 5. run_reviews → get_findings：
-   - critical/major → agent(rewriter) → 再 run_reviews
-   - 通过后：新开章且分章 → agent(chapter_title_generator) → accept_continuation；否则直接 accept
+   - 【审查未通过】→ agent(rewriter) → 再 run_reviews
+   - 【审查通过】：新开章且分章 → agent(chapter_title_generator) → accept_continuation；否则直接 accept
 6. 工具彻底失败才停并说明原因。
 7. 结束时用一小段中文汇报。
 `.trim();

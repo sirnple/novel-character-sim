@@ -34,18 +34,24 @@ export function runAutoPassTests(): void {
     });
 
     test("clean accept after reviews → accept continuation", () => {
-      const ans = pickAutoPassAnswer("审查仅有次要建议，是否接受？", [
+      const ans = pickAutoPassAnswer("【审查通过】critical=0 major=0 minor=1，是否接受？", [
         "接受续写（写入分支；伏笔按实际落实记账）",
         "按审查意见修改正文",
         "先不接受",
       ]);
-      // Has both fix and accept; question does not say 未通过 — prefer accept if not failed?
-      // "审查仅有次要" is soft; if options include fix and accept without 未通过,
-      // proceed-safe accept is OK. If looksLikeFailedReviewGate false, PROCEED_SAFE hits accept.
-      assert.ok(
-        ans.includes("接受续写") || ans.includes("修改正文"),
-        `got ${ans}`,
+      assert.ok(ans.includes("接受续写"), `got ${ans}`);
+    });
+
+    test("too many minors / AI 痕迹 → fix not accept", () => {
+      const ans = pickAutoPassAnswer(
+        "【审查未通过】AI痕迹次要过多（ai_taste minor=4），是否修改？",
+        [
+          "接受续写（写入分支；伏笔按实际落实记账）",
+          "按审查意见修改正文",
+          "我了解风险",
+        ],
       );
+      assert.equal(ans, "按审查意见修改正文");
     });
 
     test("never pick 了解风险 when fix available", () => {

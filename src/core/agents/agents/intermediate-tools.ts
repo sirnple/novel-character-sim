@@ -84,13 +84,23 @@ export const intermediateReadTools: ToolDefinition[] = [
   },
   {
     name: "get_findings",
-    description: "获取审查问题清单（人类可读摘要，不是小说正文）。writer 修改模式用它对照要改的点。",
+    description:
+      "获取审查问题清单与是否通过（人类可读摘要，不是小说正文）。" +
+      "通过标准：无 critical/major；minor 总数≤5；AI痕迹(ai_taste) minor≤2；单维 minor≤4。",
     parameters: { type: "object", properties: {}, required: [] },
     execute: async (args, ctx) => {
       const { novelId, branchId } = resolveStoreIds(args as any, ctx as any);
       const findings = getFindings(novelId, branchId);
+      const {
+        evaluateReviewPass,
+        formatReviewPassLine,
+      } = await import("../review-pass");
+      const verdict = evaluateReviewPass(findings);
+      const gate = formatReviewPassLine(verdict);
       return {
-        content: `【审查问题清单 · 共 ${findings.length} 条 · 不是正文】\n\n${formatFindingsReadable(findings)}`,
+        content:
+          `【审查问题清单 · 共 ${findings.length} 条 · 不是正文】\n${gate}\n\n` +
+          `${formatFindingsReadable(findings)}`,
         messages: [],
       };
     },
