@@ -26,6 +26,13 @@ import {
   resolveCharacterCorefConfig,
   type CharacterCorefConfig,
 } from "@/lib/character-coref-config";
+import {
+  NOVEL_CLEAN_DEFAULTS,
+  resolveNovelCleanConfig,
+  sanitizeNovelCleanPartial,
+  type NovelCleanConfig,
+  type ResolvedNovelCleanConfig,
+} from "@/lib/novel-clean-config";
 
 // ── Defaults (product) ──────────────────────────────────────────────
 
@@ -82,6 +89,12 @@ export interface RuntimeSettings {
   corefHardRejectGenderConflict: boolean;
   corefHardRejectAgeConflict: boolean;
   corefHardMergeSameFullName: boolean;
+
+  /**
+   * Novel download-site cleaner overrides (partial).
+   * Resolved via {@link getNovelCleanConfigFromRuntime}.
+   */
+  novelClean?: Partial<NovelCleanConfig>;
 }
 
 export interface MentionScanResolved {
@@ -263,6 +276,8 @@ export function envRuntimeSettings(): RuntimeSettings {
       runtimeEnv(E.hardMergeSameFullName, String(D.hardMergeSameFullName)),
       D.hardMergeSameFullName,
     ),
+    // novelClean only from file/memory overrides (defaults live in novel-clean-config)
+    novelClean: undefined,
   };
 }
 
@@ -377,22 +392,50 @@ function sanitizePartial(raw: Partial<RuntimeSettings>): Partial<RuntimeSettings
   optBool(out, "corefHardRejectAgeConflict", raw.corefHardRejectAgeConflict);
   optBool(out, "corefHardMergeSameFullName", raw.corefHardMergeSameFullName);
 
+  if (raw.novelClean != null) {
+    const nc = sanitizeNovelCleanPartial(raw.novelClean);
+    if (nc) out.novelClean = nc;
+  }
+
   return out;
 }
 
 /** Effective base settings (env ⊕ file/memory overrides). */
 export function getRuntimeSettings(): RuntimeSettings {
   ensureLoaded();
-  return { ...envRuntimeSettings(), ...store().overrides };
+  const base = envRuntimeSettings();
+  const over = store().overrides;
+  const merged: RuntimeSettings = { ...base, ...over };
+  // Deep-merge novelClean partials
+  if (base.novelClean || over.novelClean) {
+    merged.novelClean = {
+      ...(base.novelClean || {}),
+      ...(over.novelClean || {}),
+    };
+  }
+  return merged;
 }
 
 /** Patch runtime overrides and persist to data/runtime-settings.json. */
 export function patchRuntimeSettings(
-  patch: Partial<RuntimeSettings>,
+  patch: Partial<RuntimeSettings> & { clearNovelClean?: boolean },
 ): RuntimeSettings {
   ensureLoaded();
   const s = store();
-  s.overrides = { ...s.overrides, ...sanitizePartial(patch) };
+  const clearNovel = !!patch.clearNovelClean;
+  const { clearNovelClean: _drop, ...rest } = patch;
+  const cleaned = sanitizePartial(rest);
+  const next: Partial<RuntimeSettings> = { ...s.overrides, ...cleaned };
+  // Deep-merge novelClean into overrides (unless clearing)
+  if (clearNovel) {
+    delete next.novelClean;
+  } else if (cleaned.novelClean) {
+    next.novelClean = {
+      ...(s.overrides.novelClean || {}),
+      ...cleaned.novelClean,
+    };
+  }
+  s.overrides = next;
   try {
     const p = settingsPath();
     fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -400,8 +443,58 @@ export function patchRuntimeSettings(
   } catch (e) {
     console.warn("[runtime-settings] persist failed:", (e as Error).message);
   }
+  if (clearNovel) {
+    console.log("[novel-clean] config cleared → product defaults");
+  } else if (cleaned.novelClean) {
+    console.log(
+      "[novel-clean] config updated by admin keys=",
+      Object.keys(cleaned.novelClean).join(","),
+    );
+  }
   return getRuntimeSettings();
 }
+
+/**
+ * Replace novelClean overrides entirely (not deep-merge).
+ * Pass null/undefined to clear overrides and use code defaults.
+ */
+export function setNovelCleanOverrides(
+  partial: Partial<NovelCleanConfig> | null | undefined,
+): RuntimeSettings {
+  ensureLoaded();
+  const s = store();
+  const next = { ...s.overrides };
+  if (partial == null) {
+    delete next.novelClean;
+  } else {
+    const nc = sanitizeNovelCleanPartial(partial);
+    if (nc) next.novelClean = nc;
+    else delete next.novelClean;
+  }
+  s.overrides = next;
+  try {
+    const p = settingsPath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(s.overrides, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("[runtime-settings] persist failed:", (e as Error).message);
+  }
+  console.log(
+    partial == null
+      ? "[novel-clean] config reset to defaults"
+      : `[novel-clean] config replaced by admin version fingerprint=${resolveNovelCleanConfig(undefined, getRuntimeSettings()).fingerprint}`,
+  );
+  return getRuntimeSettings();
+}
+
+/** Resolve novel cleaner config from effective runtime settings + call overrides. */
+export function getNovelCleanConfigFromRuntime(
+  partial?: Partial<NovelCleanConfig> | null,
+): ResolvedNovelCleanConfig {
+  return resolveNovelCleanConfig(partial, getRuntimeSettings());
+}
+
+export { NOVEL_CLEAN_DEFAULTS, resolveNovelCleanConfig };
 
 /** Clear runtime overrides (back to env-only). */
 export function resetRuntimeSettings(): RuntimeSettings {

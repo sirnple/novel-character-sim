@@ -10,35 +10,35 @@ import {
 } from "@/lib/utils";
 import { createLLMProvider } from "@/core/llm/factory";
 import { runWithTokenContext } from "@/lib/token-usage-context";
-import iconv from "iconv-lite";
-import AdmZip from "adm-zip";
 import type { LLMMessage } from "@/types";
 import { isServerDebugMode } from "@/lib/debug-mode";
-
-function decodeChineseText(buffer: Buffer): string {
-  const utf8 = buffer.toString("utf8");
-  const utf8Periods = (utf8.match(/。/g) || []).length;
-  const utf8Commas = (utf8.match(/，/g) || []).length;
-  const utf8CJK = (utf8.match(/[一-鿿]/g) || []).length;
-  const sampleLen = Math.min(utf8.length, 5000);
-
-  if (utf8Periods > 3 || (utf8Commas > 5 && utf8CJK > sampleLen * 0.3)) {
-    return utf8;
-  }
-
-  const gbk = iconv.decode(buffer, "gbk");
-  const gbkPeriods = (gbk.match(/。/g) || []).length;
-  const gbkCommas = (gbk.match(/，/g) || []).length;
-
-  if (gbkPeriods + gbkCommas > utf8Periods + utf8Commas) {
-    console.log(`[NovelParse] GBK chosen (。${gbkPeriods} ，${gbkCommas})`);
-    return gbk;
-  }
-
-  return utf8;
-}
+import { decodeNovelUpload } from "@/lib/novel-upload-decode";
+import { cleanNovelText } from "@/core/parser/novel-cleaner";
+import { getNovelCleanConfigFromRuntime } from "@/lib/runtime-settings";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;  // 5 MB (production / non-debug)
+
+function formFlag(formData: FormData, key: string): boolean {
+  const v = formData.get(key);
+  if (v == null) return false;
+  const s = String(v).trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "on";
+}
+
+function formStringList(formData: FormData, key: string): string[] | undefined {
+  const raw = formData.get(key);
+  if (raw == null || raw === "") return undefined;
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (Array.isArray(parsed)) return parsed.map(String);
+  } catch {
+    /* comma-separated fallback */
+  }
+  return String(raw)
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 export async function POST(request: NextRequest) {
   const auth = resolveAuth(request);
@@ -60,7 +60,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "未提供文件" }, { status: 400 });
     }
 
-    const fileName = file.name.toLowerCase();
     const fileBytes = file.size;
     const debugMode = isServerDebugMode();
     const skipSizeLimit = debugMode || isAdmin;
@@ -79,51 +78,68 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!fileName.endsWith(".txt") && !fileName.endsWith(".zip")) {
-      return NextResponse.json(
-        { error: `不支持的文件格式（${file.name}），请上传 .txt 或 .zip 文件。` },
-        { status: 400 }
-      );
+    const decoded = await decodeNovelUpload(file);
+    if (!decoded.ok) {
+      return NextResponse.json({ error: decoded.error }, { status: decoded.status });
     }
 
-    let novelText: string;
-    const originalFileName = file.name;
+    let novelText = decoded.text;
+    const originalFileName = decoded.originalFileName;
     const filenameTitle = cleanFilenameTitle(originalFileName);
-
-    if (fileName.endsWith(".zip")) {
-      // Extract zip and merge all text files
-      const arrayBuffer = await file.arrayBuffer();
-      const zip = new AdmZip(Buffer.from(arrayBuffer));
-      const entries = zip.getEntries();
-
-      const parts: string[] = [];
-      for (const entry of entries) {
-        if (entry.isDirectory) continue;
-        const name = entry.entryName.toLowerCase();
-        if (name.match(/\.(txt|md)$/i) && !name.startsWith("__macosx")) {
-          const buffer = entry.getData();
-          const text = decodeChineseText(buffer);
-          if (text.trim()) {
-            parts.push(`// File: ${entry.entryName}\n\n${text}`);
-          }
-        }
-      }
-
-      if (parts.length === 0) {
-        return NextResponse.json({ error: "No .txt/.md files found in zip" }, { status: 400 });
-      }
-
-      novelText = parts.join("\n\n---\n\n");
-      console.log(`[NovelParse] Zip extracted: ${parts.length} text files`);
-    } else {
-      // Single text file
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      novelText = decodeChineseText(buffer);
-    }
 
     if (!novelText.trim()) {
       return NextResponse.json({ error: "The novel text is empty" }, { status: 400 });
+    }
+
+    // applyClean: "1" after user confirms preview; forceClean skips fingerprint check
+    const applyClean = formFlag(formData, "applyClean");
+    const forceClean = formFlag(formData, "forceClean");
+    let cleanReport: ReturnType<typeof cleanNovelText>["report"] | null = null;
+
+    if (applyClean) {
+      const excludeLineKeys = formStringList(formData, "excludeLineKeys");
+      const excludePatterns = formStringList(formData, "excludePatterns");
+      const expectedFp = String(formData.get("configFingerprint") || "").trim();
+      // Explicit applyClean always runs rules (global enabled defaults to off)
+      const resolved = getNovelCleanConfigFromRuntime({ enabled: true });
+
+      if (expectedFp && expectedFp !== resolved.fingerprint) {
+        return NextResponse.json(
+          {
+            error: "清洗配置已变更，请重新预览",
+            code: "CONFIG_FINGERPRINT_MISMATCH",
+            configFingerprint: resolved.fingerprint,
+          },
+          { status: 409 },
+        );
+      }
+
+      const cleaned = cleanNovelText(novelText, {
+        resolved,
+        excludeLineKeys,
+        excludePatterns,
+      });
+      cleanReport = cleaned.report;
+
+      if (
+        cleaned.report.stats.removeRatio >= resolved.blockRemoveRatio &&
+        !forceClean
+      ) {
+        return NextResponse.json(
+          {
+            error: `删除比例 ${(cleaned.report.stats.removeRatio * 100).toFixed(1)}% 过高，请确认后勾选强制清洗`,
+            code: "HIGH_REMOVE_RATIO",
+            report: cleaned.report,
+            needsForce: true,
+          },
+          { status: 409 },
+        );
+      }
+
+      novelText = cleaned.text;
+      console.log(
+        `[NovelParse] applyClean removed=${cleaned.report.stats.removedChars} ratio=${(cleaned.report.stats.removeRatio * 100).toFixed(1)}% fp=${resolved.fingerprint}`,
+      );
     }
 
     const parsed = parseNovel(novelText);
@@ -188,6 +204,15 @@ export async function POST(request: NextRequest) {
       totalLength: parsed.totalLength,
       chunkCount: parsed.chunks.length,
       preview: parsed.chunks[0]?.content.substring(0, 500) || "",
+      cleaned: !!applyClean,
+      cleanReport: cleanReport
+        ? {
+            stats: cleanReport.stats,
+            warnings: cleanReport.warnings,
+            configFingerprint: cleanReport.configFingerprint,
+            boilerplatePatterns: cleanReport.boilerplatePatterns,
+          }
+        : undefined,
     });
   } catch (error) {
     console.error("Novel parse error:", error);

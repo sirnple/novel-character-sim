@@ -5,6 +5,7 @@ import {
   getRuntimeSettings,
   patchRuntimeSettings,
   resetRuntimeSettings,
+  setNovelCleanOverrides,
   type RuntimeSettings,
 } from "@/lib/runtime-settings";
 import {
@@ -12,6 +13,13 @@ import {
   CHARACTER_COREF_FIELD_DOCS,
   resolveCharacterCorefConfig,
 } from "@/lib/character-coref-config";
+import {
+  NOVEL_CLEAN_DEFAULTS,
+  NOVEL_CLEAN_FIELD_DOCS,
+  resolveNovelCleanConfig,
+  validateNovelCleanPatterns,
+  type NovelCleanConfig,
+} from "@/lib/novel-clean-config";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +57,8 @@ export async function GET(req: NextRequest) {
     effective,
     envDefaults: envRuntimeSettings(),
     corefResolved: resolveCharacterCorefConfig(undefined, effective),
+    novelCleanResolved: resolveNovelCleanConfig(undefined, effective),
+    novelCleanDefaults: NOVEL_CLEAN_DEFAULTS,
     docs: {
       mentionScanConcurrency: "普通用户并行 LLM 数，默认 4",
       mentionScanBatchUnits: "普通用户每 call 打包 unit 数，默认 4",
@@ -57,6 +67,7 @@ export async function GET(req: NextRequest) {
         "admin/debug 并行 LLM 数，默认 20（更高但仍限流友好，非一次拉满）",
       adminMentionScanBatchUnits: "管理员每 call unit 数，默认 1",
       coref: CHARACTER_COREF_FIELD_DOCS,
+      novelClean: NOVEL_CLEAN_FIELD_DOCS,
       env: [
         "CHARACTER_MENTION_CONCURRENCY",
         "CHARACTER_MENTION_BATCH_UNITS",
@@ -64,9 +75,10 @@ export async function GET(req: NextRequest) {
         "CHARACTER_MENTION_PRIVILEGED_CONCURRENCY",
         "CHARACTER_MENTION_ADMIN_BATCH_UNITS",
         ...Object.values(CHARACTER_COREF_ENV_KEYS),
+        "NOVEL_CLEAN_ENABLED",
       ],
       howTo:
-        "1) .env.local 写 CHARACTER_* 后重启；2) Admin「运行配置」PATCH 写入 data/runtime-settings.json 立即生效；3) 代码/测试传 partial 给 resolveCharacterCorefConfig / getCharacterCorefConfig。优先级：调用参数 > runtime-settings.json > env > 内置默认。",
+        "1) .env.local 写 CHARACTER_* / NOVEL_CLEAN_ENABLED 后重启；2) Admin「运行配置」PATCH 写入 data/runtime-settings.json 立即生效（含 novelClean）；3) 代码/测试传 partial。优先级：调用参数 > runtime-settings.json > env > 内置默认。",
     },
   });
 }
@@ -79,11 +91,28 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = (await req.json()) as Partial<RuntimeSettings> & {
       reset?: boolean;
+      /** Drop novelClean overrides only (keep coref/mention). */
+      clearNovelClean?: boolean;
+      /**
+       * When true with novelClean, replace overrides entirely instead of deep-merge.
+       * Admin UI saves full form this way.
+       */
+      replaceNovelClean?: boolean;
     };
     if (body.reset) {
       return NextResponse.json({
         ok: true,
         effective: resetRuntimeSettings(),
+      });
+    }
+
+    if (body.clearNovelClean) {
+      const effective = setNovelCleanOverrides(null);
+      return NextResponse.json({
+        ok: true,
+        effective,
+        novelCleanResolved: resolveNovelCleanConfig(undefined, effective),
+        novelCleanDefaults: NOVEL_CLEAN_DEFAULTS,
       });
     }
 
@@ -101,11 +130,43 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    if (body.novelClean !== undefined) {
+      const nc = body.novelClean as Partial<NovelCleanConfig>;
+      const errs = validateNovelCleanPatterns(nc || {});
+      if (errs.length) {
+        return NextResponse.json(
+          {
+            error: "novelClean 正则无效",
+            details: errs,
+          },
+          { status: 400 },
+        );
+      }
+      if (body.replaceNovelClean) {
+        const effective = setNovelCleanOverrides(nc);
+        // Still apply mention/coref patch if any
+        const after =
+          Object.keys(patch).length > 0
+            ? patchRuntimeSettings(patch)
+            : effective;
+        return NextResponse.json({
+          ok: true,
+          effective: after,
+          corefResolved: resolveCharacterCorefConfig(undefined, after),
+          novelCleanResolved: resolveNovelCleanConfig(undefined, after),
+          novelCleanDefaults: NOVEL_CLEAN_DEFAULTS,
+        });
+      }
+      patch.novelClean = nc;
+    }
+
     const effective = patchRuntimeSettings(patch);
     return NextResponse.json({
       ok: true,
       effective,
       corefResolved: resolveCharacterCorefConfig(undefined, effective),
+      novelCleanResolved: resolveNovelCleanConfig(undefined, effective),
+      novelCleanDefaults: NOVEL_CLEAN_DEFAULTS,
     });
   } catch (e) {
     return NextResponse.json(

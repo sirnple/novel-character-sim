@@ -13,8 +13,10 @@ import {
   RefreshCw,
   Loader2,
   Settings,
+  Sparkles,
 } from "lucide-react";
 import { isClientDebugMode } from "@/lib/debug-mode";
+import AdminNovelCleanPanel from "@/components/admin-novel-clean-panel";
 
 interface AgentRow {
   agent_id: string;
@@ -27,7 +29,7 @@ interface AgentRow {
   updated_at: string;
 }
 
-type AdminTab = "prompts" | "tokens" | "settings";
+type AdminTab = "prompts" | "tokens" | "settings" | "novelClean";
 
 interface RuntimeSettingsShape {
   mentionScanConcurrency: number;
@@ -1237,6 +1239,17 @@ export default function AdminPage() {
               <Settings className="w-3 h-3" />
               运行配置
             </button>
+            <button
+              onClick={() => setTab("novelClean")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 transition-colors border-l border-border ${
+                tab === "novelClean"
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted-foreground hover:text-foreground/90"
+              }`}
+            >
+              <Sparkles className="w-3 h-3" />
+              小说清洗
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-3 text-xs text-fog font-[family-name:var(--font-geist-mono)]">
@@ -1248,6 +1261,8 @@ export default function AdminPage() {
             </>
           ) : tab === "tokens" ? (
             <span>按 agent / 用户 / 分支 归因</span>
+          ) : tab === "novelClean" ? (
+            <span>规则 · 试跑 · runtime-settings</span>
           ) : (
             <span>扫名并发 · UNIT 打包</span>
           )}
@@ -1261,6 +1276,10 @@ export default function AdminPage() {
       ) : tab === "settings" ? (
         <div className="flex flex-1 overflow-hidden">
           <RuntimeSettingsPanel adminToken={token} />
+        </div>
+      ) : tab === "novelClean" ? (
+        <div className="flex flex-1 overflow-hidden">
+          <AdminNovelCleanPanel adminToken={token} />
         </div>
       ) : (
       <div className="flex flex-1 overflow-hidden">

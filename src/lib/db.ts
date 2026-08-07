@@ -2196,6 +2196,38 @@ export function copyForeshadowingLedger(
  * - cow storage: only rewrite suffix (+ update char_count); parent body untouched
  * @param fromOffset absolute offset in *resolved* full body; keep [0, fromOffset) then append
  */
+/**
+ * Replace full logical text of a branch (e.g. after download-site clean).
+ * Materializes storage=full so CoW parent links no longer apply.
+ * Does not change novelId. novels.text import snapshot is left as-is except
+ * total_length when branch is main.
+ */
+export function overwriteBranchContent(
+  userId: string,
+  novelId: string,
+  branchId: string,
+  fullText: string,
+): void {
+  const d = getDb();
+  if (branchId === "main") ensureMainBranch(userId, novelId);
+  const row = getBranch(userId, novelId, branchId);
+  if (!row) return;
+  const text = fullText || "";
+  d.prepare(
+    `UPDATE branches SET text = ?, storage = 'full', parent_branch_id = '',
+        parent_offset = 0, char_count = ?, updated_at = datetime('now')
+     WHERE novel_id = ? AND id = ? AND user_id = ?`,
+  ).run(text, text.length, novelId, branchId, userId);
+
+  if (branchId === "main") {
+    // Keep novels.text in sync with cleaned main for re-import/legacy readers
+    d.prepare(
+      `UPDATE novels SET text = ?, total_length = ?, updated_at = datetime('now')
+       WHERE id = ? AND user_id = ?`,
+    ).run(text, text.length, novelId, userId);
+  }
+}
+
 export function appendBranchContent(
   userId: string,
   novelId: string,

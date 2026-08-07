@@ -113,8 +113,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {showUpload && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4">
-          <div className="w-full max-w-lg bg-card border border-border rounded-t-xl sm:rounded-xl p-5 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4">
+          <div className="w-full max-w-2xl bg-card border border-border rounded-t-xl sm:rounded-xl p-5 sm:p-6 shadow-2xl max-h-[92dvh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold text-foreground">导入小说</h2>
               <button type="button" onClick={() => setShowUpload(false)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-panel-elevated">
