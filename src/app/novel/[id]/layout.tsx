@@ -40,7 +40,11 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
     agentMode === "write" ? activeBranchId || "main" : "main";
   const reloadNovelMeta = useCallback(() => {
     if (!id) return;
-    fetch(`/api/novels?id=${encodeURIComponent(id)}&meta=1`)
+    // Timeline / chapter states are branch-scoped — bind to active write branch
+    const bid = (activeBranchId || "main").trim() || "main";
+    fetch(
+      `/api/novels?id=${encodeURIComponent(id)}&meta=1&branchId=${encodeURIComponent(bid)}`,
+    )
       .then((r) => r.json())
       .then((data) => {
         // Always apply meta when novel exists (title may be empty; still refresh chars/story)
@@ -58,7 +62,7 @@ export default function NovelLayout({ children }: { children: React.ReactNode })
         if (data.branches) setBranches(data.branches);
       })
       .catch(() => {});
-  }, [id, setNovel, setBranches]);
+  }, [id, setNovel, setBranches, activeBranchId]);
 
   useEffect(() => {
     const mq = window.matchMedia(LG_MQ);

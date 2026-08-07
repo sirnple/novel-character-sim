@@ -42,7 +42,7 @@ interface BranchInfo {
 export default function WritePage() {
   const {
     novelId, novelTitle, novelLength, setNovel, generatedProse, setActiveBranchId, setNovelText,
-    timeline, characters, storyInfo,
+    timeline, characters, storyInfo, setTimeline,
   } = useNovel();
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [activeBranchId, setLocalBranchId] = useState<string | null>(null);
@@ -168,7 +168,7 @@ export default function WritePage() {
         `/api/chapter-meta?novelId=${encodeURIComponent(novelId)}&branchId=main`,
       ).then((r) => r.json()),
       fetch(
-        `/api/novels?id=${encodeURIComponent(novelId)}&meta=1`,
+        `/api/novels?id=${encodeURIComponent(novelId)}&meta=1&branchId=main`,
       ).then((r) => r.json()),
     ])
       .then(([meta, novel]) => {
@@ -183,6 +183,7 @@ export default function WritePage() {
         const ready = hasCatalog && chars > 0 && hasStory;
         setAnalysisReady(debugMode ? true : ready);
         // Refresh context for this book if shell had stale data
+        // (timeline for active branch is loaded separately below)
         if (novel?.title) {
           setNovel({
             novelId,
@@ -190,8 +191,6 @@ export default function WritePage() {
             novelLength: novel.totalLength || 0,
             characters: novel.characters || [],
             storyInfo: novel.storyInfo || null,
-            timeline: novel.timeline || null,
-            lastChapterStates: novel.lastChapterStates || [],
           });
         }
       })
@@ -203,6 +202,30 @@ export default function WritePage() {
       cancelled = true;
     };
   }, [novelId, setNovel, debugMode]);
+
+  // Saved timeline + chapter states are branch-scoped — reload when switching IF
+  useEffect(() => {
+    if (!novelId || freeMode) return;
+    const bid = (activeBranchId || "main").trim() || "main";
+    let cancelled = false;
+    fetch(
+      `/api/novels?id=${encodeURIComponent(novelId)}&meta=1&branchId=${encodeURIComponent(bid)}`,
+    )
+      .then((r) => r.json())
+      .then((novel) => {
+        if (cancelled || novel?.error) return;
+        setTimeline(novel.timeline || null);
+        setNovel({
+          lastChapterStates: novel.lastChapterStates || [],
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setTimeline(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [novelId, activeBranchId, freeMode, setNovel, setTimeline, pollTick]);
 
   const loadCatalog = useCallback(
     async (branchId: string) => {
@@ -299,7 +322,25 @@ export default function WritePage() {
               (u: { status?: string }) =>
                 u.status === "running" || u.status === "pending",
             ));
-        if (keepPolling) timer = setTimeout(poll, 2500);
+        if (keepPolling) {
+          timer = setTimeout(poll, 2500);
+        } else if (job.status === "done" || job.status === "error") {
+          // Persist finished analysis into context for this branch only
+          try {
+            const metaRes = await fetch(
+              `/api/novels?id=${encodeURIComponent(novelId)}&meta=1&branchId=${encodeURIComponent(bid)}`,
+            );
+            const meta = await metaRes.json();
+            if (!cancelled && meta && !meta.error) {
+              setTimeline(meta.timeline || null);
+              setNovel({
+                lastChapterStates: meta.lastChapterStates || [],
+              });
+            }
+          } catch {
+            /* ignore */
+          }
+        }
       } catch {
         /* ignore */
       }
@@ -309,7 +350,7 @@ export default function WritePage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [novelId, activeBranchId, freeMode, pollTick]);
+  }, [novelId, activeBranchId, freeMode, pollTick, setTimeline, setNovel]);
 
   const applyBody = useCallback((text: string) => {
     setFullBody(text || "");

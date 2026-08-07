@@ -135,7 +135,8 @@ export const branchTools: ToolDefinition[] = [
   },
   {
     name: "get_branch_timeline",
-    description: "获取该小说的章节时间线。按 novelId 查。",
+    description:
+      "获取**当前分支**的章节时间线（branch 隔离：main 与 IF 各自一份）。优先 ctx.branchId。",
     parameters: {
       type: "object",
       properties: {
@@ -149,7 +150,19 @@ export const branchTools: ToolDefinition[] = [
       const novelId = (ctx.novelId || args.novelId || "") as string;
       const branchId = (ctx.branchId || args.branchId || "main") as string;
       const tl = getTimeline(userId, novelId, branchId);
-      return { content: JSON.stringify((tl?.chapters || []).slice(-10), null, 2) || "无数据", messages: [] };
+      if (!tl?.chapters?.length) {
+        return {
+          content: `本分支（${branchId}）暂无时间线数据。可在写作页对该分支启动时间线分析。`,
+          messages: [],
+        };
+      }
+      const head = `branchId=${branchId} chapters=${tl.chapters.length}\n`;
+      return {
+        content:
+          head +
+          JSON.stringify(tl.chapters.slice(-10), null, 2),
+        messages: [],
+      };
     },
   },
   {

@@ -221,13 +221,18 @@ export default function TimelineSummaryCard({
     await tick();
   }, [reloadTimeline]);
 
-  // Mount / novel change only
+  // Mount / novel / branch change — clear local cache so IF does not keep main timeline
   useEffect(() => {
     aliveRef.current = true;
     followingRef.current = false;
     clearPollTimer();
+    timelineRef.current = null;
+    setTimeline(null);
+    setJobStatus(null);
+    setJobProgress("");
+    setJobError("");
     void (async () => {
-      await reloadTimeline();
+      await reloadTimeline({ allowEmpty: true });
       await followJobs();
     })();
     return () => {

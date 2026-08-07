@@ -12,6 +12,10 @@ import {
   copyBranchChapterMeta,
   rebuildBranchChapterMetaFromText,
   getBranchChapterMeta,
+  getTimeline,
+  saveTimeline,
+  getChapterStates,
+  saveChapterStates,
 } from "@/lib/db";
 import { prependTocToTxt } from "@/lib/export-txt-toc";
 import { checkRateLimit, getUserId, rateLimitMessage } from "@/lib/rate-limit";
@@ -134,6 +138,29 @@ export async function POST(request: NextRequest) {
     copyForeshadowingLedger(userId, novelId, parentId, id);
   } catch (e) {
     console.warn("[branches] copy foreshadowing ledger failed:", (e as Error).message);
+  }
+  // Timeline / chapter states are branch-scoped: seed IF from parent so they don't
+  // all read main's row via UI defaulting to main.
+  try {
+    const parentTl = getTimeline(userId, novelId, parentId);
+    if (parentTl?.chapters?.length) {
+      saveTimeline(
+        userId,
+        novelId,
+        {
+          ...parentTl,
+          novelId,
+          branchId: id,
+        },
+        id,
+      );
+    }
+    const parentStates = getChapterStates(userId, novelId, parentId);
+    if (parentStates?.length) {
+      saveChapterStates(userId, novelId, parentStates, id);
+    }
+  } catch (e) {
+    console.warn("[branches] copy timeline/states failed:", (e as Error).message);
   }
   const fullText = resolveBranchText(userId, novelId, id);
   // TOC must match forked prefix (not full parent catalog past parentOffset)
