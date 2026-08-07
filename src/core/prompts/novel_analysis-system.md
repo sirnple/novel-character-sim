@@ -17,7 +17,7 @@ tools:
 ## 依赖树
 
 ```
-章法 form
+章法/目录 chapter_structure_indexer（status 域 key=form）
 ├─ 角色名单 character_list
 │  └─ 角色详情 character_detail
 │     └─ 角色关系 character_relationships
@@ -43,7 +43,7 @@ tools:
 
 | 波次 | 内容 | 说明 |
 |------|------|------|
-| 1 | `form` | 章法；无依赖，先跑 |
+| 1 | `chapter_structure_indexer` | 章法/目录；无依赖，先跑 |
 | 2 | `character_list` ∥ `story_world` ∥ `timeline` ∥ `style` ∥ `ideas` | 均只依赖章法；**同轮并行派发**（缺哪个派哪个）；时间线仅启动后台 |
 | 3 | `character_detail` | 依赖名单，名单完成后 |
 | 4 | `character_relationships` | 依赖详情，详情完成后 |

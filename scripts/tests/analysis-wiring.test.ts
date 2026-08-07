@@ -127,10 +127,18 @@ export async function runAnalysisWiringTests(): Promise<void> {
       }
       assert.ok(getTool("run_form_analysis"), "form program tool still registered for sub-agent");
       assert.ok(getTool("finish_novel_analysis"));
-      // Master must not expose run_form_analysis — only agent(form)
+      // Master must not expose run_form_analysis — only agent(chapter_structure_indexer)
       assert.ok(!(ANALYSIS_MASTER_TOOL_NAMES as readonly string[]).includes("run_form_analysis"));
-      assert.ok((ANALYSIS_SUBAGENT_TYPES as readonly string[]).includes("form"));
-      assert.ok(getAgent("form"), "form agent registered");
+      assert.ok(
+        (ANALYSIS_SUBAGENT_TYPES as readonly string[]).includes(
+          "chapter_structure_indexer",
+        ),
+      );
+      assert.ok(
+        getAgent("chapter_structure_indexer"),
+        "chapter_structure_indexer agent registered",
+      );
+      assert.ok(!getAgent("form"), "legacy form agent name must not register");
       // Domain work is not master tools
       assert.ok(!getTool("run_story_world_agent"), "run_*_agent wrappers must not exist");
       assert.ok(!ANALYSIS_MASTER_TOOL_NAMES.includes("scan_character_mentions" as any));
@@ -173,29 +181,29 @@ export async function runAnalysisWiringTests(): Promise<void> {
 
     test("launch plan runs missing deps before target", () => {
       assert.deepEqual(listDependencyChain("character_relationships"), [
-        "form",
+        "chapter_structure_indexer",
         "character_list",
         "character_detail",
       ]);
       const empty = buildLaunchPlan("character_detail", {
-        form: false,
+        chapter_structure_indexer: false,
         character_list: false,
         character_detail: false,
       });
       assert.deepEqual(empty.sequence, [
-        "form",
+        "chapter_structure_indexer",
         "character_list",
         "character_detail",
       ]);
       const mid = buildLaunchPlan("character_detail", {
-        form: true,
+        chapter_structure_indexer: true,
         character_list: true,
         character_detail: false,
       });
       assert.deepEqual(mid.sequence, ["character_detail"]);
       assert.ok(mid.note.includes("直接派") || mid.missingDeps.length === 0, mid.note);
       const ready = buildLaunchPlan("story_world", {
-        form: true,
+        chapter_structure_indexer: true,
         story_world: true,
       });
       assert.equal(ready.sequence.length, 0);

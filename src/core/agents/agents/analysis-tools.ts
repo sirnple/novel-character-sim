@@ -2167,7 +2167,9 @@ export const analysisMasterTools: ToolDefinition[] = [
         );
       }
       if (!form) {
-        nextActions.push(`agent(agent_type="${A.form}")`);
+        nextActions.push(
+          `agent(agent_type="${A.form}")` /* A.form → chapter_structure_indexer */,
+        );
       } else if (parallelReady.length > 1) {
         nextActions.push(
           `同轮并行派发（勿串行）：${parallelReady

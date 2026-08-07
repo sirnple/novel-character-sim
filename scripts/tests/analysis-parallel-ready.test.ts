@@ -33,14 +33,16 @@ function agent(type: string, id: string): PendingToolCall {
 
 export function runAnalysisParallelReadyTests(): void {
   suite("listParallelReadyAgents", () => {
-    test("before form: only form is ready to launch", () => {
+    test("before form: only chapter_structure_indexer is ready to launch", () => {
       const ready: Record<string, boolean> = {};
       const wave = listParallelReadyAgents(ready);
-      assert.deepEqual(wave, ["form"]);
+      assert.deepEqual(wave, ["chapter_structure_indexer"]);
     });
 
-    test("after form: five domains that only need form", () => {
-      const ready: Record<string, boolean> = { form: true };
+    test("after form agent ready: five domains that only need form", () => {
+      const ready: Record<string, boolean> = {
+        chapter_structure_indexer: true,
+      };
       const wave = listParallelReadyAgents(ready);
       assert.ok(wave.includes("character_list"));
       assert.ok(wave.includes("story_world"));
@@ -72,7 +74,7 @@ export function runAnalysisParallelReadyTests(): void {
       assert.equal(listParallelReadyAgents(ready).length, 0);
     });
 
-    test("wave-2 deps are only form", () => {
+    test("wave-2 deps are only chapter_structure_indexer", () => {
       for (const id of [
         "character_list",
         "story_world",
@@ -82,7 +84,7 @@ export function runAnalysisParallelReadyTests(): void {
       ] as const) {
         assert.deepEqual(
           [...(ANALYSIS_AGENT_DEPENDENCIES[id] || [])],
-          ["form"],
+          ["chapter_structure_indexer"],
         );
       }
     });
@@ -123,7 +125,7 @@ export function runAnalysisParallelReadyTests(): void {
 
     test("analysis: single agent wave is not marked parallel", () => {
       const waves = groupPendingToolsForExecution(
-        [agent("form", "1")],
+        [agent("chapter_structure_indexer", "1")],
         true,
       );
       assert.equal(waves.length, 1);

@@ -118,6 +118,7 @@ export const AGENT_LABELS: Record<string, string> = {
   ai_reviewer: "AI痕迹审查",
   analyst: "全书分析主编",
   form: "分析章法",
+  chapter_structure_indexer: "章节结构索引",
   story_world: "分析故事世界",
   character_list: "分析角色列表",
   character_detail: "抽取角色详情",

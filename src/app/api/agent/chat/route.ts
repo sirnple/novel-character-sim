@@ -470,7 +470,7 @@ export async function POST(request: NextRequest) {
           const denied = isAnalysis
             ? name === "agent"
               ? `请用 agent(agent_type) 调度分析子 Agent（系统会打开子 Agent 卡片）。`
-              : `分析主编不可调用 ${name}。可用：agent / ask_question / get_current_* / get_analysis_* / finish_novel_analysis。章法用 agent(form)，其它域同样 agent(agent_type)。`
+              : `分析主编不可调用 ${name}。可用：agent / ask_question / get_current_* / get_analysis_* / finish_novel_analysis。章法/目录用 agent(chapter_structure_indexer)，其它域同样 agent(agent_type)。`
             : name === "agent"
               ? `请用 agent(agent_type) 调度子 Agent（续写只需 agent_type，novelId/branchId 由程序绑定）。`
               : `主 agent 不可调用 ${name}。正文由子 agent 自行 get_prose，你只需调度。`;

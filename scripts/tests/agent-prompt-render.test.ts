@@ -159,7 +159,7 @@ export function runAgentPromptRenderTests(): void {
         check: string;
       }> = [
         {
-          id: "form",
+          id: "chapter_structure_indexer",
           vars: ["prompt", "novelId", "branchId"],
           expectIn: "user",
           check: "novelId",

@@ -49,7 +49,7 @@ export type AnalysisSubagentType = string;
  * Names loaded from system md (not hardcoded name strings).
  */
 export const ANALYSIS_DOMAIN_TO_AGENT: Record<string, string> = {
-  form: agentNameFromSystem("analyze_form-system.md"),
+  form: agentNameFromSystem("chapter_structure_indexer.md"),
   character_list: agentNameFromSystem("analyze_character_list-system.md"),
   character_detail: agentNameFromSystem("extract_character_detail-system.md"),
   character_relationships: agentNameFromSystem(

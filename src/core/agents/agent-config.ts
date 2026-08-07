@@ -69,8 +69,8 @@ export const AGENT_FILE_SPECS: AgentFileSpec[] = [
   },
   // analysis
   {
-    system: "analyze_form-system.md", // name: form
-    user: "analyze_form-user.md",
+    system: "chapter_structure_indexer.md", // name: chapter_structure_indexer
+    user: "chapter_structure_indexer-user.md",
     category: "extraction",
     variables: ["prompt", "novelId", "branchId"],
   },
