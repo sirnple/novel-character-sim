@@ -511,11 +511,11 @@ export function getNovelCleanConfig(
   partial?: Partial<NovelCleanConfig> | null,
 ): ResolvedNovelCleanConfig {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getRuntimeSettings } = require("@/lib/runtime-settings") as {
+    // Dynamic require breaks static cycle with runtime-settings (which imports this module).
+    const rs = require("@/lib/runtime-settings") as {
       getRuntimeSettings: () => NovelCleanSettingsSlice;
     };
-    return resolveNovelCleanConfig(partial, getRuntimeSettings());
+    return resolveNovelCleanConfig(partial, rs.getRuntimeSettings());
   } catch {
     return resolveNovelCleanConfig(partial, null);
   }
